@@ -19,7 +19,7 @@ export function AuthShell({
       />
       <div className="relative w-full max-w-md">
         <div className="mb-8 text-center">
-          <Link href="/login" className="inline-block">
+          <Link href="/" className="inline-block">
             <p className="text-2xl font-semibold tracking-tight text-white">
               Company Health AI
             </p>

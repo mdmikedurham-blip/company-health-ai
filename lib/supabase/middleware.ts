@@ -13,7 +13,18 @@ import {
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
+  // Always enforce route protection. Without Supabase env, treat as logged out
+  // so company data routes cannot be reached anonymously (use /demo instead).
   if (!isSupabaseConfigured()) {
+    const decision = resolveAuthRedirect({
+      pathname: request.nextUrl.pathname,
+      isAuthenticated: false,
+      hasCompany: false,
+      authEnabled: true,
+    });
+    if (decision.type === "redirect") {
+      return NextResponse.redirect(new URL(decision.to, request.url));
+    }
     return supabaseResponse;
   }
 

@@ -10,9 +10,11 @@ import { isSupabaseConfigured } from "@/lib/supabase/client";
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
-  const nextRaw = url.searchParams.get("next") ?? "/";
+  const nextRaw = url.searchParams.get("next") ?? "/dashboard";
   const next =
-    nextRaw.startsWith("/") && !nextRaw.startsWith("//") ? nextRaw : "/";
+    nextRaw.startsWith("/") && !nextRaw.startsWith("//")
+      ? nextRaw
+      : "/dashboard";
 
   if (!isSupabaseConfigured()) {
     return NextResponse.redirect(new URL("/login", url.origin));

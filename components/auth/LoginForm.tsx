@@ -39,7 +39,7 @@ export function LoginForm({
         <>
           No account?{" "}
           <Link href="/signup" className="text-indigo-300 hover:text-indigo-200">
-            Create one
+            Create account
           </Link>
         </>
       }
@@ -56,7 +56,7 @@ export function LoginForm({
           </p>
         ) : null}
         <AuthError message={state.ok ? null : state.error} />
-        <input type="hidden" name="next" value={nextPath || "/"} />
+        <input type="hidden" name="next" value={nextPath || "/dashboard"} />
         <AuthField
           id="email"
           name="email"

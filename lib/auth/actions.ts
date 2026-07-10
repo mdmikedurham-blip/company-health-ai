@@ -73,7 +73,7 @@ export async function signInAction(formData: FormData): Promise<AuthActionResult
 
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
-  const next = String(formData.get("next") ?? "/");
+  const next = String(formData.get("next") ?? "/dashboard");
 
   if (!email || !password) {
     return { ok: false, error: "Email and password are required." };
@@ -89,7 +89,8 @@ export async function signInAction(formData: FormData): Promise<AuthActionResult
     return { ok: false, error: error.message };
   }
 
-  const safeNext = next.startsWith("/") && !next.startsWith("//") ? next : "/";
+  const safeNext =
+    next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
   redirect(safeNext);
 }
 

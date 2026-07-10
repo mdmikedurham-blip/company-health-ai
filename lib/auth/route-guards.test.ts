@@ -3,6 +3,7 @@ import {
   assertCompanyAccess,
   isAuthPath,
   isProtectedPath,
+  isPublicPath,
   pickPrimaryCompanyId,
   resolveAuthRedirect,
 } from "./route-guards";
@@ -10,7 +11,7 @@ import { createCompanyWorkspace } from "./session";
 
 describe("protected route redirects", () => {
   it("marks product routes as protected", () => {
-    expect(isProtectedPath("/")).toBe(true);
+    expect(isProtectedPath("/dashboard")).toBe(true);
     expect(isProtectedPath("/doctor")).toBe(true);
     expect(isProtectedPath("/brief")).toBe(true);
     expect(isProtectedPath("/health")).toBe(true);
@@ -18,6 +19,13 @@ describe("protected route redirects", () => {
     expect(isProtectedPath("/timeline")).toBe(true);
     expect(isProtectedPath("/evidence")).toBe(true);
     expect(isProtectedPath("/connectors")).toBe(true);
+  });
+
+  it("keeps marketing home and demo public", () => {
+    expect(isPublicPath("/")).toBe(true);
+    expect(isPublicPath("/demo")).toBe(true);
+    expect(isProtectedPath("/")).toBe(false);
+    expect(isProtectedPath("/demo")).toBe(false);
   });
 
   it("does not protect auth routes or APIs", () => {
@@ -42,13 +50,21 @@ describe("protected route redirects", () => {
     });
   });
 
-  it("allows unauthenticated access when auth is disabled (demo)", () => {
+  it("allows unauthenticated access to marketing and demo", () => {
     expect(
       resolveAuthRedirect({
         pathname: "/",
         isAuthenticated: false,
         hasCompany: false,
-        authEnabled: false,
+        authEnabled: true,
+      }),
+    ).toEqual({ type: "allow" });
+    expect(
+      resolveAuthRedirect({
+        pathname: "/demo",
+        isAuthenticated: false,
+        hasCompany: false,
+        authEnabled: true,
       }),
     ).toEqual({ type: "allow" });
   });
@@ -64,7 +80,7 @@ describe("protected route redirects", () => {
     ).toEqual({ type: "redirect", to: "/onboarding" });
   });
 
-  it("sends onboarded users away from auth pages", () => {
+  it("sends onboarded users from auth pages to dashboard", () => {
     expect(
       resolveAuthRedirect({
         pathname: "/login",
@@ -72,7 +88,18 @@ describe("protected route redirects", () => {
         hasCompany: true,
         authEnabled: true,
       }),
-    ).toEqual({ type: "redirect", to: "/" });
+    ).toEqual({ type: "redirect", to: "/dashboard" });
+  });
+
+  it("sends authenticated users from marketing home to dashboard", () => {
+    expect(
+      resolveAuthRedirect({
+        pathname: "/",
+        isAuthenticated: true,
+        hasCompany: true,
+        authEnabled: true,
+      }),
+    ).toEqual({ type: "redirect", to: "/dashboard" });
   });
 });
 

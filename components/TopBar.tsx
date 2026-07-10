@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { signOutAction } from "@/lib/auth/actions";
 
 interface TopBarProps {
@@ -9,6 +10,7 @@ interface TopBarProps {
   userName?: string | null;
   companyName?: string | null;
   userEmail?: string | null;
+  demoMode?: boolean;
 }
 
 function initials(name: string | null | undefined, email?: string | null): string {
@@ -27,6 +29,7 @@ export function TopBar({
   userName,
   companyName,
   userEmail,
+  demoMode = false,
 }: TopBarProps) {
   const displayName = userName || userEmail || "Account";
 
@@ -52,14 +55,23 @@ export function TopBar({
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">
-        <form action={signOutAction}>
-          <button
-            type="submit"
+        {demoMode ? (
+          <Link
+            href="/signup"
             className="hidden rounded-md border border-[var(--border)] px-2.5 py-1.5 text-xs text-zinc-400 transition hover:text-zinc-200 sm:inline-flex"
           >
-            Sign out
-          </button>
-        </form>
+            Create account
+          </Link>
+        ) : (
+          <form action={signOutAction}>
+            <button
+              type="submit"
+              className="hidden rounded-md border border-[var(--border)] px-2.5 py-1.5 text-xs text-zinc-400 transition hover:text-zinc-200 sm:inline-flex"
+            >
+              Sign out
+            </button>
+          </form>
+        )}
 
         <div className="hidden h-5 w-px bg-white/10 sm:block" />
 
@@ -68,6 +80,7 @@ export function TopBar({
             <p className="text-xs font-medium text-zinc-300">{displayName}</p>
             <p className="text-[10px] text-zinc-500">
               {companyName || "Workspace"}
+              {demoMode ? " · demo" : ""}
             </p>
           </div>
           <div className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-500/20 text-xs font-semibold text-indigo-300 ring-1 ring-indigo-500/30">

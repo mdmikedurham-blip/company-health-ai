@@ -3,7 +3,7 @@
  */
 
 export const PROTECTED_PATH_PREFIXES = [
-  "/",
+  "/dashboard",
   "/doctor",
   "/brief",
   "/health",
@@ -14,6 +14,8 @@ export const PROTECTED_PATH_PREFIXES = [
   "/onboarding",
   "/settings",
 ] as const;
+
+export const PUBLIC_PATH_PREFIXES = ["/", "/demo"] as const;
 
 export const AUTH_PATH_PREFIXES = [
   "/login",
@@ -37,14 +39,21 @@ export function isAuthPath(pathname: string): boolean {
   );
 }
 
+export function isPublicPath(pathname: string): boolean {
+  const path = normalizePathname(pathname);
+  return PUBLIC_PATH_PREFIXES.some((prefix) => {
+    if (prefix === "/") return path === "/";
+    return path === prefix || path.startsWith(`${prefix}/`);
+  });
+}
+
 export function isProtectedPath(pathname: string): boolean {
   const path = normalizePathname(pathname);
-  if (isAuthPath(path)) return false;
+  if (isAuthPath(path) || isPublicPath(path)) return false;
   if (path.startsWith("/api/")) return false;
   if (path.startsWith("/_next")) return false;
 
   return PROTECTED_PATH_PREFIXES.some((prefix) => {
-    if (prefix === "/") return path === "/";
     return path === prefix || path.startsWith(`${prefix}/`);
   });
 }
@@ -53,7 +62,7 @@ export type AuthRedirectInput = {
   pathname: string;
   isAuthenticated: boolean;
   hasCompany: boolean;
-  /** When false, auth is skipped (local demo without Supabase). */
+  /** When false, auth is skipped (should only be used in tests). */
   authEnabled: boolean;
 };
 
@@ -81,11 +90,19 @@ export function resolveAuthRedirect(
     return { type: "allow" };
   }
 
+  // Authenticated users on the marketing home → app
+  if (path === "/") {
+    return {
+      type: "redirect",
+      to: input.hasCompany ? "/dashboard" : "/onboarding",
+    };
+  }
+
   // Authenticated users on auth pages → app
   if (isAuthPath(path) && path !== "/auth/callback") {
     return {
       type: "redirect",
-      to: input.hasCompany ? "/" : "/onboarding",
+      to: input.hasCompany ? "/dashboard" : "/onboarding",
     };
   }
 

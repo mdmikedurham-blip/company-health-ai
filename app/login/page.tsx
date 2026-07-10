@@ -9,7 +9,7 @@ export default async function LoginPage({
   const nextPath =
     typeof params.next === "string" && params.next.startsWith("/")
       ? params.next
-      : "/";
+      : "/dashboard";
   const confirmEmail =
     params.confirm === "1" && typeof params.email === "string"
       ? params.email
