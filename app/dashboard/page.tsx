@@ -12,6 +12,7 @@ import {
   companyHasManualUploads,
   companyHasPendingUploads,
 } from "@/lib/uploads";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,11 @@ export default async function ExecutiveDashboard() {
     } catch {
       analysisReady = false;
     }
+  }
+
+  // New workspaces with no documents yet go straight to upload.
+  if (companyId && !analysisReady && !hasUploads && !analyzing) {
+    redirect("/upload");
   }
 
   return (

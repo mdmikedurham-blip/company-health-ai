@@ -121,6 +121,8 @@ export function resolveAuthRedirect(
     return { type: "redirect", to: "/upload" };
   }
 
+  // Connectors is secondary; keep the page for Coming Soon but steer
+  // first-time setup toward upload via onboarding + empty dashboard.
   return { type: "allow" };
 }
 

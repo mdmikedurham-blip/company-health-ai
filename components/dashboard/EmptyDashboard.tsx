@@ -16,7 +16,7 @@ export function EmptyDashboard({
           ? "Processing"
           : hasUploads
             ? "Awaiting analysis"
-            : "Waiting for documents"}
+            : "Upload required"}
       </div>
       <h2 className="mt-5 text-2xl font-semibold tracking-tight text-white">
         {analyzing
@@ -24,7 +24,7 @@ export function EmptyDashboard({
           : hasUploads
             ? "Documents are queued for analysis"
             : companyName
-              ? `${companyName} is ready for its first upload`
+              ? `Upload documents for ${companyName}`
               : "Upload documents to begin"}
       </h2>
       <p className="mt-3 text-sm leading-relaxed text-zinc-500">
@@ -32,14 +32,14 @@ export function EmptyDashboard({
           ? "Your workspace is private. Scores and evidence appear here when analysis completes — no demo data is mixed in."
           : hasUploads
             ? "Uploaded files are stored privately and queued for the ingestion pipeline. Your dashboard stays empty until analysis finishes."
-            : "Upload PDF, DOCX, PPTX, XLSX, TXT, or CSV files to start. Google Drive sync is optional and coming soon."}
+            : "Manual upload is the primary way to add source files. Google Drive sync is optional and coming soon."}
       </p>
       {!analyzing ? (
         <Link
           href="/upload"
-          className="mt-8 rounded-lg bg-zinc-100 px-4 py-2.5 text-sm font-semibold text-zinc-900 transition hover:bg-white"
+          className="mt-8 rounded-lg bg-zinc-100 px-5 py-3 text-sm font-semibold text-zinc-900 transition hover:bg-white"
         >
-          Upload documents
+          Upload Documents
         </Link>
       ) : (
         <Link
