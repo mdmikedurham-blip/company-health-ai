@@ -87,6 +87,7 @@ describe("protected route redirects", () => {
     expect(isProtectedPath("/settings")).toBe(true);
     expect(isProtectedPath("/reports")).toBe(true);
     expect(isProtectedPath("/connectors")).toBe(true);
+    expect(isProtectedPath("/upload")).toBe(true);
   });
 
   it("keeps marketing home and demo public", () => {

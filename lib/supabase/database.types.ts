@@ -263,6 +263,8 @@ export type Database = {
           /** Connector-native file id (e.g. Google Drive file id). */
           external_id: string;
           title: string;
+          /** Original filename for manual uploads (falls back to title). */
+          filename: string | null;
           /** Logical path / name within the source system. */
           path: string | null;
           modified_at: string | null;
@@ -270,6 +272,13 @@ export type Database = {
           mime_type: string | null;
           /** Content fingerprint (e.g. Drive md5Checksum / sha1Checksum). */
           content_hash: string | null;
+          /** Byte size for manual uploads. */
+          byte_size: number | null;
+          /** Private Storage object key when uploaded manually. */
+          storage_path: string | null;
+          uploaded_by: string | null;
+          /** UPLOADED | QUEUED | PROCESSING | PROCESSED | FAILED */
+          status: string;
           uri: string | null;
           raw_summary: string | null;
           metadata: Json;
@@ -283,11 +292,16 @@ export type Database = {
           connector_id: string;
           external_id: string;
           title: string;
+          filename?: string | null;
           path?: string | null;
           modified_at?: string | null;
           owner?: string | null;
           mime_type?: string | null;
           content_hash?: string | null;
+          byte_size?: number | null;
+          storage_path?: string | null;
+          uploaded_by?: string | null;
+          status?: string;
           uri?: string | null;
           raw_summary?: string | null;
           metadata?: Json;
@@ -301,11 +315,16 @@ export type Database = {
           connector_id?: string;
           external_id?: string;
           title?: string;
+          filename?: string | null;
           path?: string | null;
           modified_at?: string | null;
           owner?: string | null;
           mime_type?: string | null;
           content_hash?: string | null;
+          byte_size?: number | null;
+          storage_path?: string | null;
+          uploaded_by?: string | null;
+          status?: string;
           uri?: string | null;
           raw_summary?: string | null;
           metadata?: Json;

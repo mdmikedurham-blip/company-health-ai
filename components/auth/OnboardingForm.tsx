@@ -32,7 +32,7 @@ export function OnboardingForm({
           Welcome — set up your workspace
         </h1>
         <p className="mt-2 text-sm text-zinc-500">
-          Tell us who you are and name your company. You’ll connect Google Drive
+          Tell us who you are and name your company. You’ll upload documents
           next.
         </p>
       </div>
@@ -55,7 +55,7 @@ export function OnboardingForm({
         autoComplete="organization"
       />
       <AuthSubmit>
-        {pending ? "Creating workspace…" : "Continue to connectors"}
+        {pending ? "Creating workspace…" : "Continue to upload"}
       </AuthSubmit>
     </form>
   );

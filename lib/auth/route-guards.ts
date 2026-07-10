@@ -11,6 +11,7 @@ export const PROTECTED_PATH_PREFIXES = [
   "/timeline",
   "/evidence",
   "/reports",
+  "/upload",
   "/connectors",
   "/onboarding",
   "/settings",
@@ -117,9 +118,11 @@ export function resolveAuthRedirect(
   }
 
   if (input.hasCompany && path === "/onboarding") {
-    return { type: "redirect", to: "/connectors" };
+    return { type: "redirect", to: "/upload" };
   }
 
+  // Connectors is secondary; keep the page for Coming Soon but steer
+  // first-time setup toward upload via onboarding + empty dashboard.
   return { type: "allow" };
 }
 
