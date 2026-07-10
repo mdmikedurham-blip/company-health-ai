@@ -43,6 +43,7 @@ export type {
 export {
   DIMENSION_IDS,
   DIMENSION_NAMES,
+  dimensionIdFromName,
   dimensionName,
   type KnownDimensionId,
 } from "./dimensions";
@@ -53,7 +54,19 @@ export type {
   EvidenceCitation,
   ExtractedFacts,
 } from "./evidence";
-export type { ExecutiveBrief, BriefWin, BoardPrepItem, BoardMeetingPrep } from "./executive-brief";
+export type {
+  ExecutiveBrief,
+  BriefSeed,
+  BriefPreviousSlice,
+  BriefScoreChange,
+  BriefRiskItem,
+  BriefActionItem,
+  BriefBoardImplication,
+  CausalDriver,
+  BusinessMateriality,
+  DimensionScoreDelta,
+  ScoreDeltaResult,
+} from "./executive-brief";
 export type { Finding } from "./finding";
 export type { HealthDimension, HealthDimensionSummary, HealthScore } from "./health";
 export type { Insight } from "./insight";

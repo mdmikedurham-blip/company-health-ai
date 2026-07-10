@@ -1,4 +1,5 @@
 import type {
+  ConnectorStatus,
   DimensionId,
   EvidenceId,
   FindingId,
@@ -46,6 +47,7 @@ export interface ConnectorSummary {
   id: string;
   name: string;
   system: string;
+  status: ConnectorStatus;
   documentsAnalyzed: number;
   lastSynced: string;
 }

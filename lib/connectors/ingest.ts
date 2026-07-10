@@ -1,4 +1,9 @@
-import type { Evidence, EvidenceCatalog } from "@/lib/domain";
+import type {
+  ConnectedSystem,
+  ConnectorSummary,
+  Evidence,
+  EvidenceCatalog,
+} from "@/lib/domain";
 import type {
   ConnectorAdapter,
   ConnectorIngestResult,
@@ -24,6 +29,24 @@ export async function ingestFromConnectors(
   return { evidence, rawResults };
 }
 
+/** Count of connectors currently in `connected` status. */
+export function countConnectedSystems(
+  connectors: Pick<ConnectorSummary, "status">[],
+): number {
+  return connectors.filter((c) => c.status === "connected").length;
+}
+
+/** Project catalog connectors into DNA ConnectedSystem rows. */
+export function connectedSystemsFromCatalog(
+  catalog: EvidenceCatalog,
+): ConnectedSystem[] {
+  return catalog.connectors.map((c) => ({
+    name: c.name,
+    status: c.status,
+    documents: c.documentsAnalyzed,
+  }));
+}
+
 /** Build EvidenceCatalog from raw sync() results + adapter display metadata. */
 export function buildEvidenceCatalog(
   adapters: ConnectorAdapter[],
@@ -31,22 +54,56 @@ export function buildEvidenceCatalog(
   lastFullScan: string,
 ): EvidenceCatalog {
   const byId = new Map(adapters.map((a) => [a.connectorId, a]));
-  const connected = rawResults.filter((r) => r.status === "connected");
+  const connectors: ConnectorSummary[] = rawResults.map((r) => {
+    const adapter = byId.get(r.connectorId);
+    return {
+      id: `conn-${r.connectorId}`,
+      name: adapter?.name ?? r.connectorId,
+      system: adapter?.system ?? r.connectorId,
+      status: r.status,
+      documentsAnalyzed: r.documentsAnalyzed,
+      lastSynced: r.lastSynced,
+    };
+  });
 
   return {
-    totalDocuments: connected.reduce((sum, r) => sum + r.documentsAnalyzed, 0),
-    systemsConnected: connected.length,
+    totalDocuments: connectors
+      .filter((c) => c.status === "connected")
+      .reduce((sum, c) => sum + c.documentsAnalyzed, 0),
+    systemsConnected: countConnectedSystems(connectors),
     lastFullScan,
-    connectors: rawResults.map((r) => {
-      const adapter = byId.get(r.connectorId);
-      return {
-        id: `conn-${r.connectorId}`,
-        name: adapter?.name ?? r.connectorId,
-        system: adapter?.system ?? r.connectorId,
-        documentsAnalyzed: r.documentsAnalyzed,
-        lastSynced: r.lastSynced,
-      };
-    }),
+    connectors,
+  };
+}
+
+/**
+ * Single-connector catalog builder — same shape as multi-connector ingest.
+ * Prefer this over hardcoding `systemsConnected: 1`.
+ */
+export function buildSingleConnectorCatalog(params: {
+  connectorId: string;
+  name: string;
+  system: string;
+  status?: ConnectorSummary["status"];
+  documentsAnalyzed: number;
+  lastSynced: string;
+  lastFullScan: string;
+}): EvidenceCatalog {
+  const connectors: ConnectorSummary[] = [
+    {
+      id: `conn-${params.connectorId}`,
+      name: params.name,
+      system: params.system,
+      status: params.status ?? "connected",
+      documentsAnalyzed: params.documentsAnalyzed,
+      lastSynced: params.lastSynced,
+    },
+  ];
+  return {
+    totalDocuments: params.documentsAnalyzed,
+    systemsConnected: countConnectedSystems(connectors),
+    lastFullScan: params.lastFullScan,
+    connectors,
   };
 }
 

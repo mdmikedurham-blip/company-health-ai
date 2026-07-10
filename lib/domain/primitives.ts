@@ -25,11 +25,21 @@ export type ReportStatus = "ready" | "draft" | "scheduled";
 export type BoardPrepStatus = "ready" | "needs-attention" | "pending";
 
 export type TimelineEventType =
+  | "document-added"
+  | "document-updated"
+  | "evidence-created"
+  | "finding-created"
+  | "finding-updated"
+  | "risk-created"
+  | "risk-updated"
+  | "risk-resolved"
+  | "dimension-score-changed"
+  | "overall-score-changed"
+  | "recommendation-created"
+  | "recommendation-completed"
+  /** @deprecated Legacy seed / DB types — mapped by timeline UI. */
   | "score-change"
   | "evidence-added"
-  | "finding-created"
-  | "risk-created"
-  | "risk-resolved"
   | "board"
   | "legal"
   | "customer"
@@ -53,7 +63,16 @@ export interface Trend {
 
 export interface ScoreChangeDriver {
   dimension: string;
-  impact: number;
+  /**
+   * Net finding impact on the current dimension score vs baseline
+   * (composition of the current score — not a historical change).
+   */
+  currentScoreImpact: number;
+  /**
+   * Period-over-period dimension score change when a prior score is known.
+   * Zero when no prior dimension score exists — never invent from baseline.
+   */
+  periodDelta: number;
   reason: string;
   findingIds?: FindingId[];
   evidenceIds?: EvidenceId[];
@@ -62,6 +81,7 @@ export interface ScoreChangeDriver {
 export interface ScoreChangeExplanation {
   previousScore: number;
   currentScore: number;
+  /** Period-over-period overall score change (current − previous). */
   change: number;
   period: string;
   summary: string;

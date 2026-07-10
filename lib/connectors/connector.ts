@@ -13,6 +13,7 @@ export type ConnectorId =
   | "slack"
   | "bamboohr"
   | "salesforce"
+  | "dropbox"
   | "jira"
   | (string & {});
 
@@ -21,11 +22,20 @@ export type ConnectorId =
  * Each system shapes `items` differently; normalize() turns this into Evidence[].
  */
 export interface RawConnectorItem {
+  /** Connector-native file id. */
   externalId: string;
   title: string;
   syncedAt: string;
   rawSummary: string;
+  /** Logical path / name within the source system. */
+  path?: string;
+  /** Last modified timestamp (ISO-8601) in the source system. */
+  modifiedAt?: string;
+  /** Display name or email of the primary owner. */
+  owner?: string;
   mimeType?: string;
+  /** Content fingerprint for change detection (md5/sha1/etc.). */
+  contentHash?: string;
   /** Structured fields for normalize() — never a pre-built Evidence object. */
   metadata?: Record<string, string>;
 }

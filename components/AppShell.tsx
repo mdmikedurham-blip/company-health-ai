@@ -10,15 +10,34 @@ interface AppShellProps {
   title: string;
   subtitle?: string;
   flush?: boolean;
+  userName?: string | null;
+  companyName?: string | null;
+  userEmail?: string | null;
+  /** Acme sample workspace — no real session. */
+  demoMode?: boolean;
 }
 
-export function AppShell({ children, title, subtitle, flush = false }: AppShellProps) {
+export function AppShell({
+  children,
+  title,
+  subtitle,
+  flush = false,
+  userName,
+  companyName,
+  userEmail,
+  demoMode = false,
+}: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
     <ExplainProvider>
       <div className="flex h-screen overflow-hidden bg-[var(--background)]">
-        <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <Sidebar
+          open={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          companyName={companyName}
+          demoMode={demoMode}
+        />
         {sidebarOpen && (
           <div
             className="fixed inset-0 z-40 bg-black/60 lg:hidden"
@@ -31,6 +50,10 @@ export function AppShell({ children, title, subtitle, flush = false }: AppShellP
             title={title}
             subtitle={subtitle}
             onMenuClick={() => setSidebarOpen(true)}
+            userName={userName}
+            companyName={companyName}
+            userEmail={userEmail}
+            demoMode={demoMode}
           />
           <main className="flex-1 overflow-y-auto">
             {flush ? (

@@ -262,11 +262,23 @@ export function asStringArray(value: unknown): string[] {
   return [];
 }
 
-/** Normalize a ratio that may be stored as 0–1 or 0–100. */
+/**
+ * Normalize a percentage-like value to a 0–1+ ratio.
+ *
+ * Accepts both storage forms used in the corpus:
+ * - Decimal ratios: `0.58`, `1.08` (NRR 108%)
+ * - Whole-number percents: `58`, `108`
+ *
+ * Heuristic: values ≤ 1 stay as ratios; non-integer values in (1, 10)
+ * stay as ratio multipliers (e.g. NRR `1.08`); integers and values ≥ 10
+ * are treated as percent points and divided by 100.
+ */
 export function asRatio(value: unknown): number | null {
   const n = asNumber(value);
   if (n === null) return null;
-  return n > 1 ? n / 100 : n;
+  if (n <= 1) return n;
+  if (Number.isInteger(n) || n >= 10) return n / 100;
+  return n;
 }
 
 export function clampScore(score: number): number {

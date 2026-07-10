@@ -10,8 +10,8 @@ import {
   dimensionProfiles,
   previousHealthScore,
 } from "@/lib/data/company-profile";
+import type { PlatformInput } from "@/lib/application";
 import { acmeConnectors } from "@/lib/connectors";
-import type { PlatformInput } from "@/lib/connectors";
 import { DEFAULT_AS_OF } from "@/lib/intelligence";
 
 export const acmePlatformInput: PlatformInput = {

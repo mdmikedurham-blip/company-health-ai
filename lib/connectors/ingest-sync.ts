@@ -50,7 +50,7 @@ export function requireSyncAdapters(
   return connectors.map((adapter) => {
     if (!isSyncConnectorAdapter(adapter)) {
       throw new Error(
-        `Connector ${adapter.connectorId} does not support sync ingest; use buildCompanyHealthSnapshot() instead`,
+        `Connector ${adapter.connectorId} does not support sync ingest; use async runConnectorPipeline() instead`,
       );
     }
     return adapter;

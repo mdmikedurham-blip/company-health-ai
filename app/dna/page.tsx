@@ -2,7 +2,7 @@ import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
 import { company, companyDNA } from "@/lib/data";
 
-export default function CompanyDNAPage() {
+export default async function CompanyDNAPage() {
   return (
     <AppShell
       title="Company DNA"
@@ -87,6 +87,16 @@ export default function CompanyDNAPage() {
               Key Systems Connected
             </p>
             <div className="mt-3 space-y-2">
+              <Link
+                href="/connectors"
+                className="flex items-center justify-between rounded-md border border-[var(--border)] bg-white/[0.02] px-3 py-2.5 transition hover:bg-white/[0.04]"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-indigo-400" />
+                  <span className="text-sm text-zinc-300">Manage connectors</span>
+                </div>
+                <span className="text-xs text-zinc-500">Open →</span>
+              </Link>
               {companyDNA.keySystems.map((system) => (
                 <div
                   key={system.name}
@@ -95,7 +105,9 @@ export default function CompanyDNAPage() {
                   <div className="flex items-center gap-2">
                     <span
                       className={`h-2 w-2 rounded-full ${
-                        system.status === "connected" ? "bg-emerald-400" : "bg-zinc-600"
+                        system.status === "connected"
+                          ? "bg-emerald-400"
+                          : "bg-zinc-600"
                       }`}
                     />
                     <span className="text-sm text-zinc-300">{system.name}</span>

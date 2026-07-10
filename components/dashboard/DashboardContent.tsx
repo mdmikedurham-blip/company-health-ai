@@ -65,13 +65,35 @@ export function DashboardContent() {
             </Link>
           </div>
           <p className="mt-3 text-[13px] leading-relaxed text-zinc-300">
-            {executiveBrief.summary}
+            {executiveBrief.headline}
+          </p>
+          <p className="mt-2 text-xs leading-relaxed text-zinc-400">
+            {executiveBrief.overallSummary}
           </p>
           <ul className="mt-4 space-y-2">
-            {executiveBrief.highlights.map((highlight) => (
-              <li key={highlight} className="flex items-start gap-2 text-xs text-zinc-400">
+            {executiveBrief.primaryDrivers.map((driver) => (
+              <li key={driver.id} className="flex items-start gap-2 text-xs text-zinc-400">
                 <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-indigo-400" />
-                {highlight}
+                <span>
+                  {driver.title}{" "}
+                  <span
+                    className={
+                      driver.healthImpact > 0
+                        ? "text-emerald-400"
+                        : driver.healthImpact < 0
+                          ? "text-red-400"
+                          : "text-zinc-500"
+                    }
+                  >
+                    {driver.healthImpact > 0 ? "+" : ""}
+                    {driver.healthImpact}
+                  </span>
+                  <span className="text-zinc-600">
+                    {" "}
+                    · {driver.businessMateriality} materiality ·{" "}
+                    {driver.evidenceCount} evidence
+                  </span>
+                </span>
               </li>
             ))}
           </ul>

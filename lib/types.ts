@@ -64,20 +64,27 @@ export interface EvidenceGraphEdge {
   to: string;
 }
 
+export type {
+  DoctorAnswer,
+  DoctorEvidenceCitation,
+  DoctorFindingRef,
+  DoctorRiskRef,
+  DoctorActionRef,
+} from "@/lib/doctor/types";
+
+import type { DoctorAnswer } from "@/lib/doctor/types";
+
 export interface DoctorMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   timestamp: string;
-  response?: DoctorResponse;
+  response?: DoctorAnswer;
+  error?: string;
 }
 
-export interface DoctorResponse {
-  summary: string;
-  riskLevel: RiskSeverity;
-  evidenceSources: string[];
-  recommendedAction: string;
-}
+/** @deprecated Prefer DoctorAnswer — kept for gradual UI migration aliases. */
+export type DoctorResponse = DoctorAnswer;
 
 export interface ExplainPayload {
   type: "risk" | "dimension";
@@ -91,5 +98,3 @@ export interface ExplainPayload {
   recommendedAction: string;
   estimatedScoreImprovement: number;
 }
-
-import type { RiskSeverity } from "@/lib/domain";

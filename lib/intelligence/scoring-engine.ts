@@ -223,36 +223,55 @@ export function buildScoreChangeExplanation(
   explanations: ScoreImpactExplanation[],
   findings: Finding[],
   previousHealthScore?: HealthScore,
+  previousDimensions?: Pick<HealthDimension, "id" | "score">[],
 ): ScoreChangeExplanation {
-  const previousScore = previousHealthScore?.score ?? BASELINE_DIMENSION_SCORE;
+  const previousScore = previousHealthScore?.score ?? healthScore.score;
+  const priorById = new Map(
+    (previousDimensions ?? []).map((d) => [d.id, d.score]),
+  );
+
   const drivers = explanations
     .filter((e) => e.impacts.length > 0)
     .map((e) => {
-      const net = e.finalScore - e.baselineScore;
+      const currentScoreImpact = e.finalScore - e.baselineScore;
+      const priorDim = priorById.get(e.dimensionId);
+      const periodDelta =
+        priorDim !== undefined ? e.finalScore - priorDim : 0;
       const primary = e.impacts[0];
       return {
         dimension: DIMENSION_NAMES[e.dimensionId] ?? e.dimensionId,
-        impact: net,
+        currentScoreImpact,
+        periodDelta,
         reason: primary?.reason ?? "Score adjustment from findings",
         findingIds: e.impacts.map((i) => i.findingId),
         evidenceIds: [...new Set(e.impacts.flatMap((i) => i.evidenceIds))],
       };
     })
-    .sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact));
+    .sort(
+      (a, b) =>
+        Math.abs(b.currentScoreImpact) - Math.abs(a.currentScoreImpact),
+    );
 
+  const periodChange = healthScore.score - previousScore;
   const summary =
     findings.length === 0
       ? "Insufficient evidence to explain score movement; confidence reduced."
-      : `Health at ${healthScore.score} based on ${findings.length} finding${findings.length === 1 ? "" : "s"} across scored dimensions.`;
+      : previousHealthScore
+        ? `Health ${previousScore} → ${healthScore.score} (${formatSigned(periodChange)}) based on ${findings.length} finding${findings.length === 1 ? "" : "s"}. Composition drivers show current score impact vs baseline; period deltas show change vs prior.`
+        : `Health at ${healthScore.score} based on ${findings.length} finding${findings.length === 1 ? "" : "s"} across scored dimensions.`;
 
   return {
     previousScore,
     currentScore: healthScore.score,
-    change: healthScore.score - previousScore,
+    change: periodChange,
     period: "Current assessment",
     summary,
     drivers,
   };
+}
+
+function formatSigned(n: number): string {
+  return n > 0 ? `+${n}` : `${n}`;
 }
 
 export function computeHealthFromFindings(

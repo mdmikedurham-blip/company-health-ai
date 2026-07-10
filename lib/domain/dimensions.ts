@@ -35,3 +35,14 @@ export const DIMENSION_NAMES: Record<string, string> = {
 export function dimensionName(dimensionId: string): string {
   return DIMENSION_NAMES[dimensionId] ?? dimensionId;
 }
+
+/** Reverse lookup: "Financial" → "dim-financial". */
+export function dimensionIdFromName(name: string): KnownDimensionId | null {
+  const normalized = name.trim().toLowerCase();
+  for (const [id, label] of Object.entries(DIMENSION_NAMES)) {
+    if (label.toLowerCase() === normalized) {
+      return id as KnownDimensionId;
+    }
+  }
+  return null;
+}

@@ -9,11 +9,22 @@ import {
 import { EvidenceGraph } from "./EvidenceGraph";
 import { EvidenceRecordCard } from "./EvidenceRecordCard";
 
-export function EvidenceExplorer() {
+interface EvidenceExplorerProps {
+  /** Deep-link from Company Doctor citations (`/evidence?id=...`). */
+  initialSelectedId?: string;
+}
+
+export function EvidenceExplorer({ initialSelectedId }: EvidenceExplorerProps) {
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(
-    evidenceRecords[0]?.id ?? null,
-  );
+  const [selectedId, setSelectedId] = useState<string | null>(() => {
+    if (
+      initialSelectedId &&
+      evidenceRecords.some((r) => r.id === initialSelectedId)
+    ) {
+      return initialSelectedId;
+    }
+    return evidenceRecords[0]?.id ?? null;
+  });
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();

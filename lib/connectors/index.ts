@@ -1,8 +1,11 @@
 /**
  * Public connector surface.
  *
- * Canonical path: ConnectorAdapter.sync() → normalize() → buildCompanyHealthSnapshot().
- * Sync helpers are not exported — reserved for lib/data mock module-init.
+ * Canonical path:
+ *   ConnectorAdapter.sync() → RawDocument / RawConnectorData
+ *     → ExtractedDocument → EvidenceCandidate → Evidence[]
+ *
+ * Insight Engine orchestration lives in `@/lib/application` — not here.
  */
 
 export { createEvidence } from "./create-evidence";
@@ -15,16 +18,16 @@ export {
 } from "./normalize-evidence";
 export {
   buildEvidenceCatalog,
+  buildSingleConnectorCatalog,
+  connectedSystemsFromCatalog,
+  countConnectedSystems,
   ingestFromConnectors,
   runConnectorPipeline,
 } from "./ingest";
-export { buildEvidenceGraph } from "./graph";
-export { buildCompanyHealthSnapshot } from "./pipeline";
-export type { PlatformInput } from "./pipeline";
-export { buildExecutiveBrief } from "./build-brief";
-export type { BriefSeed } from "./build-brief";
 export {
+  ConnectorRegistry,
   acmeConnectors,
+  defaultConnectorRegistry,
   getActiveConnectors,
   getAllConnectors,
   getConnector,
@@ -38,3 +41,51 @@ export type {
   RawConnectorData,
   RawConnectorItem,
 } from "./connector";
+export {
+  connectorItemFromRawDocument,
+  evidenceFromCandidate,
+  rawDocumentFromConnectorItem,
+  rawDocumentsFromConnectorItems,
+  runEvidenceExtractionPipeline,
+  runEvidenceExtractionPipelineBatch,
+  toEvidenceCandidate,
+} from "./documents";
+export type {
+  EvidenceCandidate,
+  ExtractEvidencePipelineOptions,
+  RawDocument,
+} from "./documents";
+export {
+  extractDocument,
+  extractCsv,
+  extractDocx,
+  extractGoogleDocs,
+  extractGoogleSheets,
+  extractGoogleSlides,
+  extractMarkdown,
+  extractPdf,
+  extractTxt,
+  isExtractableMimeType,
+} from "./extraction";
+export type {
+  DocumentSection,
+  ExtractDocumentInput,
+  ExtractedDocument,
+  ExtractableMimeType,
+} from "./extraction";
+export {
+  extractEvidence,
+  extractEvidenceJson,
+  evidenceFromExtraction,
+  evidenceFromRawExtractionItem,
+  EVIDENCE_TYPES,
+} from "./evidence-extraction";
+export type {
+  EvidenceExtractionResult,
+  EvidenceExtractionType,
+  ExtractedAmount,
+  ExtractedDate,
+  ExtractedPerson,
+  RecommendedFinding,
+  SourceQuote,
+} from "./evidence-extraction";
