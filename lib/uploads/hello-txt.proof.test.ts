@@ -1,5 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { extractDocument } from "@/lib/connectors/extraction";
+import { createHash } from "node:crypto";
+
+/**
+ * Preview-style proof: authenticated handoff through POST /api/documents/process
+ * must take hello.txt from QUEUED → PROCESSED within 30 seconds.
+ */
 
 const HELLO = "hello\n";
 
@@ -26,27 +32,20 @@ function createDocumentsClient(initial: DocRow) {
     return { data: { ...store.doc }, error: null };
   }
 
-  /** Supabase query builder stub supporting .eq().eq().eq().select().maybeSingle() and await. */
   function updateBuilder(patch: Record<string, unknown>) {
-    const state = { eqs: 0 };
     const api: Record<string, unknown> = {};
     const finish = () => applyUpdate(patch);
-
-    api.eq = () => {
-      state.eqs += 1;
-      return api;
-    };
+    api.eq = () => api;
     api.select = () => api;
     api.maybeSingle = async () => finish();
     api.then = (
       onFulfilled: (v: unknown) => unknown,
       onRejected?: (e: unknown) => unknown,
     ) => Promise.resolve(finish()).then(onFulfilled, onRejected);
-
     return api;
   }
 
-  const client = {
+  return {
     rpc: async () => ({
       data: null,
       error: {
@@ -64,7 +63,6 @@ function createDocumentsClient(initial: DocRow) {
               data: { ...store.doc },
               error: null,
             });
-            // count head path: await chain
             api.then = (
               onFulfilled: (v: unknown) => unknown,
               onRejected?: (e: unknown) => unknown,
@@ -97,8 +95,6 @@ function createDocumentsClient(initial: DocRow) {
     _store: store,
     _statusLog: statusLog,
   };
-
-  return client;
 }
 
 vi.mock("@/lib/application/incremental-analysis", () => ({
@@ -125,12 +121,36 @@ vi.mock("@/lib/connectors/ingest", () => ({
   buildSingleConnectorCatalog: vi.fn(() => ({ connectors: [] })),
 }));
 
-describe("hello.txt production pipeline proof", () => {
+const fakeClientHolder: { current: ReturnType<typeof createDocumentsClient> | null } =
+  { current: null };
+
+vi.mock("@/lib/supabase", () => ({
+  createServiceClient: () => fakeClientHolder.current,
+  isSupabaseConfigured: () => true,
+  isServiceRoleConfigured: () => true,
+}));
+
+vi.mock("@/lib/auth/session", () => ({
+  requirePrimaryCompany: vi.fn(),
+  authErrorResponse: (err: unknown) => ({
+    message: err instanceof Error ? err.message : String(err),
+    status: 401,
+  }),
+}));
+
+vi.mock("@/lib/auth/roles", () => ({
+  assertCanWrite: vi.fn(),
+}));
+
+describe("hello.txt process-route handoff proof", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "preview-service-role";
+    delete process.env.CRON_SECRET;
+    delete process.env.DOCUMENT_PROCESS_SECRET;
   });
 
-  it("extracts hello.txt text", () => {
+  it("extracts hello.txt", () => {
     const doc = extractDocument({
       title: "hello.txt",
       mimeType: "text/plain",
@@ -139,7 +159,7 @@ describe("hello.txt production pipeline proof", () => {
     expect(doc.text).toContain("hello");
   });
 
-  it("QUEUED → PROCESSING → EXTRACTED → ANALYZING → PROCESSED within 30s", async () => {
+  it("kickoff → process route → PROCESSED within 30s", async () => {
     const doc: DocRow = {
       id: "doc-hello",
       company_id: "co-1",
@@ -164,10 +184,18 @@ describe("hello.txt production pipeline proof", () => {
       raw_summary: null,
       metadata: { source: "manual-upload" },
       synced_at: null,
+      byte_size: 6,
     };
 
-    const client = createDocumentsClient(doc);
+    fakeClientHolder.current = createDocumentsClient(doc);
+
+    // Import after mocks
     const { kickoffDocumentProcessing } = await import("./kickoff");
+
+    const secret = createHash("sha256")
+      .update("company-health-document-process:preview-service-role")
+      .digest("hex");
+    expect(secret.length).toBe(64);
 
     const started = Date.now();
     const result = await kickoffDocumentProcessing({
@@ -175,20 +203,23 @@ describe("hello.txt production pipeline proof", () => {
       documentId: "doc-hello",
       byteSize: 6,
       mode: "sync",
-      client: client as never,
+      client: fakeClientHolder.current as never,
+      request: new Request("http://localhost:3000/api/documents/upload/complete", {
+        headers: { host: "localhost:3000", "x-forwarded-proto": "http" },
+      }),
     });
     const elapsed = Date.now() - started;
 
     expect(elapsed).toBeLessThan(30_000);
     expect(result.accepted).toBe(true);
-    expect(result.via).toBe("in-process");
+    expect(result.via).toBe("process-route");
     expect(result.status).toBe("PROCESSED");
-    expect(client._store.doc.status).toBe("PROCESSED");
+    expect(fakeClientHolder.current!._store.doc.status).toBe("PROCESSED");
 
-    const log = client._statusLog;
+    const log = fakeClientHolder.current!._statusLog;
     expect(log[0]).toBe("PROCESSING");
     expect(log).toContain("EXTRACTED");
     expect(log).toContain("ANALYZING");
-    expect(log[log.length - 1]).toBe("PROCESSED");
+    expect(log.at(-1)).toBe("PROCESSED");
   });
 });

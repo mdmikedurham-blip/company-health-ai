@@ -9,8 +9,11 @@ export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 /** Lease length for PROCESSING jobs; stale after this window. */
 export const PROCESSING_LEASE_SECONDS = 5 * 60;
 
-/** UI / recovery: no progress for this long → stalled. */
+/** In-flight PROCESSING jobs are retryable after this long. */
 export const PROCESSING_STALE_MS = 5 * 60 * 1000;
+
+/** QUEUED jobs are retryable after this long (Retry Processing). */
+export const QUEUED_RETRY_AFTER_MS = 60 * 1000;
 
 export const UPLOAD_DOCUMENT_STATUSES = [
   "UPLOADED",

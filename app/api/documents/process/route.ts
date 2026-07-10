@@ -127,15 +127,19 @@ export async function POST(request: Request) {
     });
 
     if (mode === "sync") {
+      logUploadProcessingEvent("manual_upload_processing_started", {
+        documentId,
+        companyId,
+        stage: "claim",
+        outcome: "started",
+      });
       const accepted = await acceptDocumentForProcessing({
         client,
         companyId,
         documentId,
         mode: "sync",
       });
-      return NextResponse.json(accepted, {
-        status: accepted.skipped ? 200 : 200,
-      });
+      return NextResponse.json(accepted, { status: 200 });
     }
 
     if (mode === "drain") {

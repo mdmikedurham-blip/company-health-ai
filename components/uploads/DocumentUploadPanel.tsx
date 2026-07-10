@@ -6,6 +6,13 @@ import {
   MANUAL_UPLOAD_FORMAT_LABELS,
   MAX_UPLOAD_BYTES,
 } from "@/lib/uploads/constants";
+import {
+  visibleManualUploadActions,
+  type ManualUploadRowAction,
+} from "@/lib/uploads/removal-policy";
+
+const REMOVE_CONFIRM =
+  "Remove this file? This deletes the uploaded file and any analysis derived only from it.";
 
 type UploadedDocumentRecord = {
   id: string;
@@ -17,6 +24,12 @@ type UploadedDocumentRecord = {
   status: string;
   uploadedBy: string | null;
   createdAt: string;
+  updatedAt?: string | null;
+  leaseExpiresAt?: string | null;
+  lockedAt?: string | null;
+  processingStartedAt?: string | null;
+  lastStage?: string | null;
+  errorMessage?: string | null;
 };
 
 type UploadItem = {
@@ -74,6 +87,16 @@ function analysisLabel(status: string | undefined): string {
   }
 }
 
+function actionsForDocument(doc: UploadedDocumentRecord): ManualUploadRowAction[] {
+  return visibleManualUploadActions({
+    status: doc.status,
+    updated_at: doc.updatedAt ?? doc.createdAt,
+    lease_expires_at: doc.leaseExpiresAt ?? null,
+    locked_at: doc.lockedAt ?? null,
+    processing_started_at: doc.processingStartedAt ?? null,
+  });
+}
+
 async function uploadFileWithProgress(
   signedUrl: string,
   file: File,
@@ -114,6 +137,7 @@ export function DocumentUploadPanel({
   const [recent, setRecent] =
     useState<UploadedDocumentRecord[]>(initialDocuments);
   const [listError, setListError] = useState<string | null>(null);
+  const [actionPendingId, setActionPendingId] = useState<string | null>(null);
   const [retryPending, setRetryPending] = useState(false);
   const [, startTransition] = useTransition();
   const busy = items.some(
@@ -145,7 +169,11 @@ export function DocumentUploadPanel({
 
   const retryProcessing = useCallback(
     async (documentIds?: string[]) => {
-      setRetryPending(true);
+      if (documentIds?.length) {
+        setActionPendingId(documentIds[0] ?? null);
+      } else {
+        setRetryPending(true);
+      }
       setListError(null);
       try {
         const res = await fetch("/api/documents/retry", {
@@ -163,6 +191,70 @@ export function DocumentUploadPanel({
         setListError("Retry failed.");
       } finally {
         setRetryPending(false);
+        setActionPendingId(null);
+      }
+    },
+    [refreshList],
+  );
+
+  const removeDocument = useCallback(
+    async (documentId: string) => {
+      if (!window.confirm(REMOVE_CONFIRM)) return;
+      setActionPendingId(documentId);
+      setListError(null);
+      try {
+        const res = await fetch(`/api/documents/${documentId}`, {
+          method: "DELETE",
+        });
+        const data = (await res.json()) as {
+          error?: string;
+          removed?: boolean;
+          cleanupRequired?: boolean;
+          orphanedStoragePath?: string | null;
+        };
+        if (!res.ok && res.status !== 207) {
+          setListError(data.error ?? "Remove failed.");
+          return;
+        }
+        if (data.cleanupRequired || data.orphanedStoragePath) {
+          const repair = await fetch(
+            `/api/documents/${documentId}?repair=1`,
+            { method: "DELETE" },
+          );
+          if (!repair.ok && repair.status !== 207) {
+            setListError(
+              "File partially removed. Use Repair from settings or retry Remove.",
+            );
+          }
+        }
+        await refreshList();
+      } catch {
+        setListError("Remove failed.");
+      } finally {
+        setActionPendingId(null);
+      }
+    },
+    [refreshList],
+  );
+
+  const cancelProcessing = useCallback(
+    async (documentId: string) => {
+      setActionPendingId(documentId);
+      setListError(null);
+      try {
+        const res = await fetch(`/api/documents/${documentId}/cancel`, {
+          method: "POST",
+        });
+        const data = (await res.json()) as { error?: string };
+        if (!res.ok) {
+          setListError(data.error ?? "Cancel failed.");
+          return;
+        }
+        await refreshList();
+      } catch {
+        setListError("Cancel failed.");
+      } finally {
+        setActionPendingId(null);
       }
     },
     [refreshList],
@@ -424,31 +516,67 @@ export function DocumentUploadPanel({
           </p>
         ) : (
           <ul className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)]">
-            {recent.map((doc) => (
-              <li
-                key={doc.id}
-                className="flex items-center justify-between gap-3 px-4 py-3"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm text-zinc-200">
-                    {doc.filename}
-                  </p>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    {doc.byteSize != null ? formatBytes(doc.byteSize) : "—"}
-                    {doc.mimeType ? ` · ${doc.mimeType}` : ""}
-                    {" · analysis: "}
-                    <span className={statusTone(doc.status)}>
+            {recent.map((doc) => {
+              const actions = actionsForDocument(doc);
+              const pending = actionPendingId === doc.id;
+              return (
+                <li
+                  key={doc.id}
+                  className="flex items-center justify-between gap-3 px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm text-zinc-200">
+                      {doc.filename}
+                    </p>
+                    <p className="mt-0.5 text-xs text-zinc-500">
+                      {doc.byteSize != null ? formatBytes(doc.byteSize) : "—"}
+                      {doc.mimeType ? ` · ${doc.mimeType}` : ""}
+                      {" · analysis: "}
+                      <span className={statusTone(doc.status)}>
+                        {analysisLabel(doc.status)}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    {actions.includes("retry") ? (
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => void retryProcessing([doc.id])}
+                        className="text-xs font-medium text-amber-300 transition hover:text-amber-200 disabled:opacity-60"
+                      >
+                        Retry
+                      </button>
+                    ) : null}
+                    {actions.includes("cancel") ? (
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => void cancelProcessing(doc.id)}
+                        className="text-xs font-medium text-amber-300 transition hover:text-amber-200 disabled:opacity-60"
+                      >
+                        Cancel
+                      </button>
+                    ) : null}
+                    {actions.includes("remove") ? (
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => void removeDocument(doc.id)}
+                        className="text-xs font-medium text-red-300 transition hover:text-red-200 disabled:opacity-60"
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                    <span
+                      className={`text-[11px] font-medium uppercase tracking-wide ${statusTone(doc.status)}`}
+                    >
                       {analysisLabel(doc.status)}
                     </span>
-                  </p>
-                </div>
-                <span
-                  className={`shrink-0 text-[11px] font-medium uppercase tracking-wide ${statusTone(doc.status)}`}
-                >
-                  {analysisLabel(doc.status)}
-                </span>
-              </li>
-            ))}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

@@ -18,9 +18,9 @@ export const maxDuration = 60;
 /**
  * POST /api/documents/upload/complete
  *
- * After QUEUED, **awaits in-process** processing kickoff (same worker as
- * /api/documents/process). Small files (hello.txt) use mode=sync and reach
- * PROCESSED before this response returns. No fire-and-forget, no cron dependency.
+ * After QUEUED, awaits an authenticated call to POST /api/documents/process
+ * (Bearer DOCUMENT_PROCESS_SECRET | CRON_SECRET | derived service-role secret).
+ * mode=sync for typical uploads: claim → extract → Insight Engine → PROCESSED.
  */
 export async function POST(request: Request) {
   try {
@@ -52,7 +52,8 @@ export async function POST(request: Request) {
       documentId,
     });
 
-    // Exact kickoff after QUEUED — awaited in-process worker:
+    // ── production handoff (must appear in logs) ───────────────────────────
+    // QUEUED → authenticated POST /api/documents/process → await acceptance
     logUploadProcessingEvent("manual_upload_processing_kickoff", {
       documentId: document.id,
       companyId,
@@ -76,9 +77,7 @@ export async function POST(request: Request) {
         status: kickoff.status ?? document.status,
       },
       enqueued: true,
-      uploadComplete: true,
       processingKickedOff: kickoff.accepted,
-      analysisStatus: kickoff.status ?? "QUEUED",
       kickoff,
       status: kickoff.status ?? document.status,
     });

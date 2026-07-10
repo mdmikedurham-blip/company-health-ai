@@ -1,4 +1,13 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { createHash } from "node:crypto";
+
+const { processDocumentPost } = vi.hoisted(() => ({
+  processDocumentPost: vi.fn(),
+}));
+
+vi.mock("@/app/api/documents/process/route", () => ({
+  POST: processDocumentPost,
+}));
 
 vi.mock("./claim", () => ({
   markDocumentFailed: vi.fn().mockResolvedValue(undefined),
@@ -8,10 +17,6 @@ vi.mock("./logging", () => ({
   logUploadProcessingEvent: vi.fn(),
 }));
 
-vi.mock("./run-process", () => ({
-  acceptDocumentForProcessing: vi.fn(),
-}));
-
 vi.mock("@/lib/supabase", () => ({
   createServiceClient: vi.fn(() => ({})),
 }));
@@ -19,13 +24,14 @@ vi.mock("@/lib/supabase", () => ({
 import { kickoffDocumentProcessing } from "./kickoff";
 import { markDocumentFailed } from "./claim";
 import { logUploadProcessingEvent } from "./logging";
-import { acceptDocumentForProcessing } from "./run-process";
+import { getDocumentProcessSecret } from "@/lib/api/process-auth";
 
-describe("kickoffDocumentProcessing", () => {
+describe("kickoffDocumentProcessing → process route handoff", () => {
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key";
     delete process.env.CRON_SECRET;
     delete process.env.DOCUMENT_PROCESS_SECRET;
   });
@@ -34,21 +40,17 @@ describe("kickoffDocumentProcessing", () => {
     process.env = { ...originalEnv };
   });
 
-  it("runs in-process sync without requiring CRON_SECRET", async () => {
-    vi.mocked(acceptDocumentForProcessing).mockResolvedValue({
-      accepted: true,
-      claimed: true,
-      documentId: "doc-1",
-      companyId: "co-1",
-      status: "PROCESSED",
-      stage: "processed",
-      result: {
-        documentId: "doc-1",
-        companyId: "co-1",
-        status: "processed",
-        evidenceId: "upload-doc-1",
-      },
-    });
+  it("awaits authenticated POST /api/documents/process (route handler)", async () => {
+    processDocumentPost.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          accepted: true,
+          claimed: true,
+          status: "PROCESSED",
+        }),
+        { status: 200 },
+      ),
+    );
 
     const result = await kickoffDocumentProcessing({
       companyId: "co-1",
@@ -56,14 +58,33 @@ describe("kickoffDocumentProcessing", () => {
       byteSize: 6,
       mode: "sync",
       client: {} as never,
+      request: new Request("https://app.example.com/api/documents/upload/complete", {
+        headers: { host: "app.example.com", "x-forwarded-proto": "https" },
+      }),
     });
 
     expect(result.accepted).toBe(true);
-    expect(result.via).toBe("in-process");
+    expect(result.via).toBe("process-route");
     expect(result.status).toBe("PROCESSED");
-    expect(acceptDocumentForProcessing).toHaveBeenCalledWith(
-      expect.objectContaining({ mode: "sync", documentId: "doc-1" }),
-    );
+    expect(processDocumentPost).toHaveBeenCalledTimes(1);
+
+    const req = processDocumentPost.mock.calls[0]![0] as Request;
+    expect(req.method).toBe("POST");
+    expect(req.url).toContain("/api/documents/process");
+    expect(req.headers.get("Authorization")).toMatch(/^Bearer /);
+    const body = await req.clone().json();
+    expect(body).toEqual({
+      documentId: "doc-1",
+      companyId: "co-1",
+      mode: "sync",
+    });
+
+    const expectedSecret = createHash("sha256")
+      .update("company-health-document-process:test-service-role-key")
+      .digest("hex");
+    expect(req.headers.get("Authorization")).toBe(`Bearer ${expectedSecret}`);
+    expect(getDocumentProcessSecret()).toBe(expectedSecret);
+
     expect(logUploadProcessingEvent).toHaveBeenCalledWith(
       "manual_upload_processing_kickoff",
       expect.objectContaining({ outcome: "attempt" }),
@@ -74,9 +95,9 @@ describe("kickoffDocumentProcessing", () => {
     );
   });
 
-  it("marks FAILED when sync worker throws", async () => {
-    vi.mocked(acceptDocumentForProcessing).mockRejectedValue(
-      new Error("boom"),
+  it("marks FAILED when process route returns an error", async () => {
+    processDocumentPost.mockResolvedValue(
+      new Response(JSON.stringify({ error: "boom" }), { status: 500 }),
     );
 
     const result = await kickoffDocumentProcessing({
@@ -87,26 +108,6 @@ describe("kickoffDocumentProcessing", () => {
     });
 
     expect(result.accepted).toBe(false);
-    expect(result.status).toBe("FAILED");
     expect(markDocumentFailed).toHaveBeenCalled();
-    expect(logUploadProcessingEvent).toHaveBeenCalledWith(
-      "manual_upload_processing_failed",
-      expect.objectContaining({ stage: "kickoff" }),
-    );
-  });
-
-  it("complete route awaits kickoffDocumentProcessing (contract)", async () => {
-    const fs = await import("node:fs/promises");
-    const path = await import("node:path");
-    const completeSrc = await fs.readFile(
-      path.join(
-        process.cwd(),
-        "app/api/documents/upload/complete/route.ts",
-      ),
-      "utf8",
-    );
-    expect(completeSrc).toContain("await kickoffDocumentProcessing");
-    expect(completeSrc).toContain('mode: "sync"');
-    expect(completeSrc).not.toMatch(/\bafter\s*\(/);
   });
 });

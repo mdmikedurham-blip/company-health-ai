@@ -10,6 +10,7 @@ export {
   progressLabelForStatus,
   PROCESSING_LEASE_SECONDS,
   PROCESSING_STALE_MS,
+  QUEUED_RETRY_AFTER_MS,
   UPLOAD_DOCUMENT_STATUSES,
   type ManualUploadMimeType,
   type UploadDocumentStatus,
@@ -54,3 +55,22 @@ export {
   type DashboardProcessingState,
   type UploadProgressItem,
 } from "./progress";
+export {
+  canCancelDocument,
+  canRemoveDocument,
+  canRetryQueuedDocument,
+  isActivelyProcessing,
+  isLeaseExpired,
+  visibleManualUploadActions,
+  type ManualUploadRowAction,
+} from "./removal-policy";
+export {
+  removeManualUploadDocument,
+  repairManualUploadRemoval,
+  type RemoveDocumentResult,
+} from "./removal";
+export {
+  cancelManualUploadProcessing,
+  wasProcessingCancelled,
+  type CancelDocumentResult,
+} from "./cancel";

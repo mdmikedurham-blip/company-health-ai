@@ -109,7 +109,7 @@ describe("claimDocumentJob", () => {
 });
 
 describe("requeueDocumentJobs", () => {
-  it("requeues FAILED and QUEUED jobs; ignores fresh PROCESSING", async () => {
+  it("requeues FAILED and QUEUED older than 60s; ignores fresh QUEUED/PROCESSING", async () => {
     const now = Date.now();
     const rows = [
       {
@@ -121,12 +121,20 @@ describe("requeueDocumentJobs", () => {
         updated_at: new Date(now).toISOString(),
       },
       {
-        id: "queued-1",
+        id: "queued-fresh",
         status: "QUEUED",
         lease_expires_at: null,
         locked_at: null,
         processing_started_at: null,
         updated_at: new Date(now).toISOString(),
+      },
+      {
+        id: "queued-stale",
+        status: "QUEUED",
+        lease_expires_at: null,
+        locked_at: null,
+        processing_started_at: null,
+        updated_at: new Date(now - 61_000).toISOString(),
       },
       {
         id: "fresh-1",
@@ -157,7 +165,7 @@ describe("requeueDocumentJobs", () => {
       client: mockClient({ from }),
       companyId: "co-1",
     });
-    expect(ids).toEqual(["failed-1", "queued-1"]);
+    expect(ids).toEqual(["failed-1", "queued-stale"]);
   });
 
   it("requeues stale PROCESSING after lease expiry", async () => {
@@ -271,7 +279,7 @@ describe("dashboard progress states", () => {
 });
 
 describe("immediate kickoff contract", () => {
-  it("complete awaits in-process sync kickoff (no after hooks)", async () => {
+  it("complete awaits authenticated process-route kickoff", async () => {
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
     const kickoffSrc = await fs.readFile(
@@ -285,9 +293,10 @@ describe("immediate kickoff contract", () => {
       ),
       "utf8",
     );
-    expect(kickoffSrc).toContain("acceptDocumentForProcessing");
+    expect(kickoffSrc).toContain("processDocumentPost");
+    expect(kickoffSrc).toContain("/api/documents/process");
+    expect(kickoffSrc).toContain("Authorization");
     expect(kickoffSrc).toContain("manual_upload_processing_kickoff");
-    expect(kickoffSrc).toContain("in-process");
     expect(completeSrc).toContain("await kickoffDocumentProcessing");
     expect(completeSrc).toContain('mode: "sync"');
     expect(completeSrc).not.toMatch(/\bafter\s*\(/);

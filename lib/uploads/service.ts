@@ -18,6 +18,12 @@ export type UploadedDocumentRecord = {
   status: string;
   uploadedBy: string | null;
   createdAt: string;
+  updatedAt: string | null;
+  leaseExpiresAt: string | null;
+  lockedAt: string | null;
+  processingStartedAt: string | null;
+  lastStage: string | null;
+  errorMessage: string | null;
 };
 
 export type SignedUploadSession = {
@@ -31,6 +37,9 @@ export type SignedUploadSession = {
   byteSize: number;
 };
 
+const DOCUMENT_LIST_SELECT =
+  "id, company_id, filename, title, mime_type, byte_size, storage_path, status, uploaded_by, created_at, updated_at, lease_expires_at, locked_at, processing_started_at, last_stage, error_message";
+
 function rowToRecord(row: {
   id: string;
   company_id: string;
@@ -42,6 +51,12 @@ function rowToRecord(row: {
   status: string;
   uploaded_by: string | null;
   created_at: string;
+  updated_at?: string | null;
+  lease_expires_at?: string | null;
+  locked_at?: string | null;
+  processing_started_at?: string | null;
+  last_stage?: string | null;
+  error_message?: string | null;
 }): UploadedDocumentRecord {
   return {
     id: row.id,
@@ -53,6 +68,12 @@ function rowToRecord(row: {
     status: row.status,
     uploadedBy: row.uploaded_by,
     createdAt: row.created_at,
+    updatedAt: row.updated_at ?? null,
+    leaseExpiresAt: row.lease_expires_at ?? null,
+    lockedAt: row.locked_at ?? null,
+    processingStartedAt: row.processing_started_at ?? null,
+    lastStage: row.last_stage ?? null,
+    errorMessage: row.error_message ?? null,
   };
 }
 
@@ -142,7 +163,7 @@ export async function completeManualUpload(input: {
   const { data: row, error } = await input.client
     .from("documents")
     .select(
-      "id, company_id, filename, title, mime_type, byte_size, storage_path, status, uploaded_by, created_at, connector_id",
+      "id, company_id, filename, title, mime_type, byte_size, storage_path, status, uploaded_by, created_at, updated_at, lease_expires_at, locked_at, processing_started_at, last_stage, error_message, connector_id",
     )
     .eq("id", input.documentId)
     .eq("company_id", input.companyId)
@@ -185,9 +206,7 @@ export async function completeManualUpload(input: {
     })
     .eq("id", input.documentId)
     .eq("company_id", input.companyId)
-    .select(
-      "id, company_id, filename, title, mime_type, byte_size, storage_path, status, uploaded_by, created_at",
-    )
+    .select(DOCUMENT_LIST_SELECT)
     .single();
 
   if (updateError || !updated) {
@@ -206,9 +225,7 @@ export async function listManualUploads(input: {
 }): Promise<UploadedDocumentRecord[]> {
   const { data, error } = await input.client
     .from("documents")
-    .select(
-      "id, company_id, filename, title, mime_type, byte_size, storage_path, status, uploaded_by, created_at",
-    )
+    .select(DOCUMENT_LIST_SELECT)
     .eq("company_id", input.companyId)
     .eq("connector_id", MANUAL_UPLOAD_CONNECTOR_ID)
     .order("created_at", { ascending: false })

@@ -34,6 +34,7 @@ import {
   type DocumentJobRow,
 } from "./claim";
 import { logUploadProcessingEvent } from "./logging";
+import { wasProcessingCancelled } from "./cancel";
 
 export type ProcessDocumentResult = {
   documentId: string;
@@ -127,6 +128,21 @@ export async function continueClaimedManualUpload(input: {
       throw new Error(`Unsupported mime type: ${claimed.mime_type}`);
     }
 
+    if (
+      await wasProcessingCancelled({
+        client: input.client,
+        companyId,
+        documentId,
+      })
+    ) {
+      return {
+        documentId,
+        companyId,
+        status: "failed",
+        errorMessage: "cancelled_by_user",
+      };
+    }
+
     logUploadProcessingEvent("manual_upload_processing_started", {
       documentId,
       companyId,
@@ -159,6 +175,21 @@ export async function continueClaimedManualUpload(input: {
 
     if (!extracted.text.trim()) {
       throw new Error("Extraction produced empty text");
+    }
+
+    if (
+      await wasProcessingCancelled({
+        client: input.client,
+        companyId,
+        documentId,
+      })
+    ) {
+      return {
+        documentId,
+        companyId,
+        status: "failed",
+        errorMessage: "cancelled_by_user",
+      };
     }
 
     await updateDocumentStage({
@@ -198,6 +229,21 @@ export async function continueClaimedManualUpload(input: {
 
     const evidenceRepo = createEvidenceRepository({ client: input.client });
     await evidenceRepo.upsert(companyId, [evidence]);
+
+    if (
+      await wasProcessingCancelled({
+        client: input.client,
+        companyId,
+        documentId,
+      })
+    ) {
+      return {
+        documentId,
+        companyId,
+        status: "failed",
+        errorMessage: "cancelled_by_user",
+      };
+    }
 
     await updateDocumentStage({
       client: input.client,
@@ -266,6 +312,21 @@ export async function continueClaimedManualUpload(input: {
         affected: snapshot.affected,
       },
     });
+
+    if (
+      await wasProcessingCancelled({
+        client: input.client,
+        companyId,
+        documentId,
+      })
+    ) {
+      return {
+        documentId,
+        companyId,
+        status: "failed",
+        errorMessage: "cancelled_by_user",
+      };
+    }
 
     await markDocumentProcessed({
       client: input.client,

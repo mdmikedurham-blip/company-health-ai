@@ -165,14 +165,24 @@ describe("processManualUploadDocument", () => {
       },
       from: vi.fn((table: string) => {
         if (table === "documents") {
-          return {
-            select: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                eq: vi.fn().mockReturnValue({
-                  eq: vi.fn().mockResolvedValue({ count: 0, error: null }),
-                }),
-              }),
+          const chain = {
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+              data: {
+                status: "PROCESSING",
+                last_stage: "extracting",
+                error_message: null,
+              },
+              error: null,
             }),
+            then: (
+              resolve: (v: { count: number; error: null }) => void,
+              reject?: (e: unknown) => void,
+            ) =>
+              Promise.resolve({ count: 0, error: null }).then(resolve, reject),
+          };
+          return {
+            select: vi.fn().mockReturnValue(chain),
           };
         }
         if (table === "analysis_snapshots") {

@@ -4,6 +4,7 @@ import {
   MANUAL_UPLOAD_CONNECTOR_ID,
   PROCESSING_LEASE_SECONDS,
   PROCESSING_STALE_MS,
+  QUEUED_RETRY_AFTER_MS,
   TERMINAL_UPLOAD_STATUSES,
   type UploadDocumentStatus,
 } from "./constants";
@@ -306,7 +307,9 @@ export async function requeueDocumentJobs(input: {
   for (const row of rows ?? []) {
     const canRetry =
       row.status === "FAILED" ||
-      row.status === "QUEUED" ||
+      (row.status === "QUEUED" &&
+        now.getTime() - new Date(row.updated_at).getTime() >=
+          QUEUED_RETRY_AFTER_MS) ||
       (["PROCESSING", "EXTRACTED", "ANALYZING"].includes(row.status) &&
         isStaleForRetry(row, now, staleBefore));
     if (canRetry) ids.push(row.id);
@@ -364,9 +367,6 @@ function isStaleForRetry(
   now: Date,
   staleBefore: string,
 ): boolean {
-  if (row.status === "QUEUED") {
-    return now.getTime() - new Date(row.updated_at).getTime() >= PROCESSING_STALE_MS;
-  }
   if (row.lease_expires_at && row.lease_expires_at < now.toISOString()) {
     return true;
   }
