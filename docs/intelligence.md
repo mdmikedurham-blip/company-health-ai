@@ -197,6 +197,37 @@ Evidence UI aliases (`documentName`, `confidence`, …) live only on `EvidenceRe
 
 Sync ingest (`syncSync` / `buildCompanyHealthSnapshotFromSyncAdapters`) is **internal** to mock module-init and is not part of the public `@/lib/connectors` API.
 
+## Persistence (Supabase PostgreSQL)
+
+Canonical tables (migration `supabase/migrations/001_company_health_schema.sql`):
+
+| Table | Domain / role |
+|-------|----------------|
+| `companies` | `Company` |
+| `users` | App profiles linked to `auth.users` + `company_id` |
+| `documents` | Raw connector items (`RawConnectorItem`) before normalize |
+| `evidence` | `Evidence` |
+| `findings` | `Finding` |
+| `risks` | `Risk` |
+| `recommendations` | `Recommendation` |
+| `health_scores` | Point-in-time `HealthScore` + dimensions JSON |
+| `timeline_events` | `TimelineEvent` |
+| `connector_syncs` | Ingest run audit (`startConnectorSync` / `finishConnectorSync`) |
+
+Client + mappers live in `lib/supabase`. Server jobs use `createServiceClient()`; browser reads use `createBrowserClient()` (RLS: members see their company only).
+
+```ts
+import { createServiceClient, persistEngineResult } from "@/lib/supabase";
+
+await persistEngineResult(createServiceClient(), {
+  companyId,
+  evidence, findings, risks, recommendations,
+  healthScore, dimensions, scoreChange, timelineEvents,
+});
+```
+
+Apply the migration in the Supabase SQL editor or via the Supabase CLI. Copy `.env.example` → `.env.local` with project URL and keys.
+
 ## Testing
 
 ```bash
