@@ -10,12 +10,17 @@ import {
   isSupabaseConfigured,
 } from "@/lib/supabase";
 import { completeManualUpload } from "@/lib/uploads";
+import { kickoffDocumentProcessing } from "@/lib/uploads/kickoff";
+import { logUploadProcessingEvent } from "@/lib/uploads/logging";
+
+export const maxDuration = 60;
 
 /**
  * POST /api/documents/upload/complete
- * Body JSON: { documentId }
- * Verifies the object exists in Storage and enqueues the document (status=QUEUED).
- * Does not run analysis.
+ *
+ * After QUEUED, awaits an authenticated call to POST /api/documents/process
+ * (Bearer DOCUMENT_PROCESS_SECRET | CRON_SECRET | derived service-role secret).
+ * mode=sync for typical uploads: claim → extract → Insight Engine → PROCESSED.
  */
 export async function POST(request: Request) {
   try {
@@ -47,10 +52,34 @@ export async function POST(request: Request) {
       documentId,
     });
 
+    // ── production handoff (must appear in logs) ───────────────────────────
+    // QUEUED → authenticated POST /api/documents/process → await acceptance
+    logUploadProcessingEvent("manual_upload_processing_kickoff", {
+      documentId: document.id,
+      companyId,
+      stage: "enqueue",
+      outcome: "queued",
+      status: "QUEUED",
+    });
+
+    const kickoff = await kickoffDocumentProcessing({
+      companyId,
+      documentId: document.id,
+      byteSize: document.byteSize,
+      mode: "sync",
+      request,
+      client,
+    });
+
     return NextResponse.json({
-      document,
+      document: {
+        ...document,
+        status: kickoff.status ?? document.status,
+      },
       enqueued: true,
-      status: document.status,
+      processingKickedOff: kickoff.accepted,
+      kickoff,
+      status: kickoff.status ?? document.status,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

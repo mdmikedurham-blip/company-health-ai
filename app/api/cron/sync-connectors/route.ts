@@ -26,12 +26,18 @@ import {
 import { processQueuedManualUploads } from "@/lib/uploads";
 import { MANUAL_UPLOAD_CONNECTOR_ID } from "@/lib/uploads/constants";
 
+export const maxDuration = 300;
+
 /**
  * GET|POST /api/cron/sync-connectors
- * Incremental pipeline:
- *   changed documents → affected findings → affected risks → affected dimensions
- * Never rescores the entire company.
- * Also drains QUEUED manual uploads (no analysis during the browser upload).
+ *
+ * Recovery path for manual uploads (QUEUED + stale PROCESSING) via the same
+ * worker as immediate kickoff. Also runs Google Drive incremental sync.
+ *
+ * Latency note: Vercel Hobby allows only once-daily crons. User-facing latency
+ * depends on post-upload HTTP kickoff to /api/documents/process + authenticated
+ * Retry — not this schedule. On Vercel Pro, set schedule to every five minutes
+ * (cron: star-slash-5 space star space star space star space star).
  */
 async function runScheduledSync(request: Request) {
   const unauthorized = unauthorizedCronResponse(request);
@@ -47,7 +53,7 @@ async function runScheduledSync(request: Request) {
   try {
     const client = createServiceClient();
 
-    const { data: queuedCompanies, error: queuedError } = await client
+    const { data: queuedRows, error: queuedError } = await client
       .from("documents")
       .select("company_id")
       .eq("connector_id", MANUAL_UPLOAD_CONNECTOR_ID)
@@ -57,8 +63,23 @@ async function runScheduledSync(request: Request) {
       throw new Error(queuedError.message);
     }
 
+    const nowIso = new Date().toISOString();
+    const { data: staleRows, error: staleError } = await client
+      .from("documents")
+      .select("company_id")
+      .eq("connector_id", MANUAL_UPLOAD_CONNECTOR_ID)
+      .eq("status", "PROCESSING")
+      .or(`lease_expires_at.is.null,lease_expires_at.lt.${nowIso}`);
+
+    if (staleError) {
+      throw new Error(staleError.message);
+    }
+
     const manualCompanyIds = [
-      ...new Set((queuedCompanies ?? []).map((row) => row.company_id)),
+      ...new Set([
+        ...(queuedRows ?? []).map((row) => row.company_id),
+        ...(staleRows ?? []).map((row) => row.company_id),
+      ]),
     ];
     const manualResults = [];
     for (const companyId of manualCompanyIds) {

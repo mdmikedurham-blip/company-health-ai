@@ -7,9 +7,14 @@ export {
   MANUAL_UPLOAD_MIME_TYPES,
   MAX_UPLOAD_BYTES,
   mimeFromFilename,
+  progressLabelForStatus,
+  PROCESSING_LEASE_SECONDS,
+  PROCESSING_STALE_MS,
+  QUEUED_RETRY_AFTER_MS,
   UPLOAD_DOCUMENT_STATUSES,
   type ManualUploadMimeType,
   type UploadDocumentStatus,
+  type UploadProgressLabel,
 } from "./constants";
 export {
   buildStoragePath,
@@ -26,4 +31,46 @@ export {
   type SignedUploadSession,
   type UploadedDocumentRecord,
 } from "./service";
-export { processQueuedManualUploads } from "./process";
+export {
+  processManualUploadDocument,
+  continueClaimedManualUpload,
+  processQueuedManualUploads,
+} from "./process";
+export {
+  claimDocumentJob,
+  requeueDocumentJobs,
+  isTerminalUploadStatus,
+} from "./claim";
+export {
+  kickoffDocumentProcessing,
+  kickoffDocumentProcessingBatch,
+  PROCESSING_KICKOFF_TIMEOUT_MS,
+  SYNC_PROCESS_MAX_BYTES,
+} from "./kickoff";
+export { acceptDocumentForProcessing } from "./run-process";
+export { logUploadProcessingEvent } from "./logging";
+export {
+  computeDashboardProcessingState,
+  buildUploadProgressItem,
+  type DashboardProcessingState,
+  type UploadProgressItem,
+} from "./progress";
+export {
+  canCancelDocument,
+  canRemoveDocument,
+  canRetryQueuedDocument,
+  isActivelyProcessing,
+  isLeaseExpired,
+  visibleManualUploadActions,
+  type ManualUploadRowAction,
+} from "./removal-policy";
+export {
+  removeManualUploadDocument,
+  repairManualUploadRemoval,
+  type RemoveDocumentResult,
+} from "./removal";
+export {
+  cancelManualUploadProcessing,
+  wasProcessingCancelled,
+  type CancelDocumentResult,
+} from "./cancel";

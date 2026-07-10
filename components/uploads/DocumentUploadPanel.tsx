@@ -6,6 +6,13 @@ import {
   MANUAL_UPLOAD_FORMAT_LABELS,
   MAX_UPLOAD_BYTES,
 } from "@/lib/uploads/constants";
+import {
+  visibleManualUploadActions,
+  type ManualUploadRowAction,
+} from "@/lib/uploads/removal-policy";
+
+const REMOVE_CONFIRM =
+  "Remove this file? This deletes the uploaded file and any analysis derived only from it.";
 
 type UploadedDocumentRecord = {
   id: string;
@@ -17,6 +24,12 @@ type UploadedDocumentRecord = {
   status: string;
   uploadedBy: string | null;
   createdAt: string;
+  updatedAt?: string | null;
+  leaseExpiresAt?: string | null;
+  lockedAt?: string | null;
+  processingStartedAt?: string | null;
+  lastStage?: string | null;
+  errorMessage?: string | null;
 };
 
 type UploadItem = {
@@ -40,6 +53,8 @@ function statusTone(status: string | undefined): string {
     case "QUEUED":
       return "text-amber-300";
     case "PROCESSING":
+    case "EXTRACTED":
+    case "ANALYZING":
       return "text-amber-300";
     case "PROCESSED":
       return "text-emerald-300";
@@ -50,6 +65,36 @@ function statusTone(status: string | undefined): string {
     default:
       return "text-zinc-500";
   }
+}
+
+function analysisLabel(status: string | undefined): string {
+  switch (status) {
+    case "QUEUED":
+      return "Queued";
+    case "PROCESSING":
+    case "EXTRACTED":
+      return "Extracting";
+    case "ANALYZING":
+      return "Analyzing";
+    case "PROCESSED":
+      return "Complete";
+    case "FAILED":
+      return "Failed";
+    case "UPLOADED":
+      return "Uploading";
+    default:
+      return "Pending";
+  }
+}
+
+function actionsForDocument(doc: UploadedDocumentRecord): ManualUploadRowAction[] {
+  return visibleManualUploadActions({
+    status: doc.status,
+    updated_at: doc.updatedAt ?? doc.createdAt,
+    lease_expires_at: doc.leaseExpiresAt ?? null,
+    locked_at: doc.lockedAt ?? null,
+    processing_started_at: doc.processingStartedAt ?? null,
+  });
 }
 
 async function uploadFileWithProgress(
@@ -92,6 +137,8 @@ export function DocumentUploadPanel({
   const [recent, setRecent] =
     useState<UploadedDocumentRecord[]>(initialDocuments);
   const [listError, setListError] = useState<string | null>(null);
+  const [actionPendingId, setActionPendingId] = useState<string | null>(null);
+  const [retryPending, setRetryPending] = useState(false);
   const [, startTransition] = useTransition();
   const busy = items.some(
     (i) =>
@@ -119,6 +166,99 @@ export function DocumentUploadPanel({
       setListError("Could not load uploads.");
     }
   }, []);
+
+  const retryProcessing = useCallback(
+    async (documentIds?: string[]) => {
+      if (documentIds?.length) {
+        setActionPendingId(documentIds[0] ?? null);
+      } else {
+        setRetryPending(true);
+      }
+      setListError(null);
+      try {
+        const res = await fetch("/api/documents/retry", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(documentIds?.length ? { documentIds } : {}),
+        });
+        const data = (await res.json()) as { error?: string };
+        if (!res.ok) {
+          setListError(data.error ?? "Retry failed.");
+          return;
+        }
+        await refreshList();
+      } catch {
+        setListError("Retry failed.");
+      } finally {
+        setRetryPending(false);
+        setActionPendingId(null);
+      }
+    },
+    [refreshList],
+  );
+
+  const removeDocument = useCallback(
+    async (documentId: string) => {
+      if (!window.confirm(REMOVE_CONFIRM)) return;
+      setActionPendingId(documentId);
+      setListError(null);
+      try {
+        const res = await fetch(`/api/documents/${documentId}`, {
+          method: "DELETE",
+        });
+        const data = (await res.json()) as {
+          error?: string;
+          removed?: boolean;
+          cleanupRequired?: boolean;
+          orphanedStoragePath?: string | null;
+        };
+        if (!res.ok && res.status !== 207) {
+          setListError(data.error ?? "Remove failed.");
+          return;
+        }
+        if (data.cleanupRequired || data.orphanedStoragePath) {
+          const repair = await fetch(
+            `/api/documents/${documentId}?repair=1`,
+            { method: "DELETE" },
+          );
+          if (!repair.ok && repair.status !== 207) {
+            setListError(
+              "File partially removed. Use Repair from settings or retry Remove.",
+            );
+          }
+        }
+        await refreshList();
+      } catch {
+        setListError("Remove failed.");
+      } finally {
+        setActionPendingId(null);
+      }
+    },
+    [refreshList],
+  );
+
+  const cancelProcessing = useCallback(
+    async (documentId: string) => {
+      setActionPendingId(documentId);
+      setListError(null);
+      try {
+        const res = await fetch(`/api/documents/${documentId}/cancel`, {
+          method: "POST",
+        });
+        const data = (await res.json()) as { error?: string };
+        if (!res.ok) {
+          setListError(data.error ?? "Cancel failed.");
+          return;
+        }
+        await refreshList();
+      } catch {
+        setListError("Cancel failed.");
+      } finally {
+        setActionPendingId(null);
+      }
+    },
+    [refreshList],
+  );
 
   const processFile = useCallback(
     async (file: File, localId: string) => {
@@ -167,15 +307,20 @@ export function DocumentUploadPanel({
         });
         const completeData = (await completeRes.json()) as {
           status?: string;
+          analysisStatus?: string;
+          uploadComplete?: boolean;
           error?: string;
         };
         if (!completeRes.ok) {
           throw new Error(completeData.error ?? "Could not enqueue document.");
         }
 
+        const analysisStatus =
+          completeData.analysisStatus ?? completeData.status ?? "QUEUED";
+
         patch({
           phase: "done",
-          status: completeData.status ?? "QUEUED",
+          status: analysisStatus,
           progress: 100,
         });
         await refreshList();
@@ -293,24 +438,34 @@ export function DocumentUploadPanel({
                     </p>
                     <p className="mt-0.5 text-xs text-zinc-500">
                       {formatBytes(item.file.size)}
-                      {item.status ? ` · ${item.status}` : ""}
                       {item.phase === "uploading"
-                        ? ` · ${item.progress}%`
+                        ? ` · uploading ${item.progress}%`
                         : item.phase === "signing"
-                          ? " · preparing"
+                          ? " · preparing upload"
                           : item.phase === "enqueueing"
-                            ? " · queueing"
+                            ? " · finishing upload"
                             : item.phase === "done"
-                              ? " · queued for analysis"
-                              : ""}
+                              ? ` · upload complete · analysis: ${analysisLabel(item.status)}`
+                              : item.phase === "error"
+                                ? ""
+                                : " · waiting"}
                     </p>
                     {item.error ? (
                       <p className="mt-1 text-xs text-red-400">{item.error}</p>
                     ) : null}
                   </div>
-                  <span className="shrink-0 text-[11px] uppercase tracking-wide text-zinc-500">
-                    {item.phase}
-                  </span>
+                  <div className="shrink-0 text-right">
+                    <div className="text-[11px] uppercase tracking-wide text-zinc-500">
+                      {item.phase === "done" ? "Upload complete" : item.phase}
+                    </div>
+                    {item.phase === "done" ? (
+                      <div
+                        className={`mt-1 text-[11px] font-medium uppercase tracking-wide ${statusTone(item.status)}`}
+                      >
+                        {analysisLabel(item.status)}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
                 {(item.phase === "uploading" ||
                   item.phase === "enqueueing" ||
@@ -331,13 +486,27 @@ export function DocumentUploadPanel({
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-sm font-medium text-zinc-200">Recent uploads</h3>
-          <button
-            type="button"
-            onClick={() => void refreshList()}
-            className="text-xs text-zinc-500 transition hover:text-zinc-300"
-          >
-            Refresh
-          </button>
+          <div className="flex items-center gap-3">
+            {recent.some(
+              (d) => d.status === "QUEUED" || d.status === "FAILED",
+            ) ? (
+              <button
+                type="button"
+                disabled={retryPending}
+                onClick={() => void retryProcessing()}
+                className="text-xs font-medium text-amber-300 transition hover:text-amber-200 disabled:opacity-60"
+              >
+                {retryPending ? "Retrying…" : "Retry Processing"}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => void refreshList()}
+              className="text-xs text-zinc-500 transition hover:text-zinc-300"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
         {listError ? (
           <p className="text-sm text-red-400">{listError}</p>
@@ -347,27 +516,67 @@ export function DocumentUploadPanel({
           </p>
         ) : (
           <ul className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)]">
-            {recent.map((doc) => (
-              <li
-                key={doc.id}
-                className="flex items-center justify-between gap-3 px-4 py-3"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm text-zinc-200">
-                    {doc.filename}
-                  </p>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    {doc.byteSize != null ? formatBytes(doc.byteSize) : "—"}
-                    {doc.mimeType ? ` · ${doc.mimeType}` : ""}
-                  </p>
-                </div>
-                <span
-                  className={`shrink-0 text-[11px] font-medium uppercase tracking-wide ${statusTone(doc.status)}`}
+            {recent.map((doc) => {
+              const actions = actionsForDocument(doc);
+              const pending = actionPendingId === doc.id;
+              return (
+                <li
+                  key={doc.id}
+                  className="flex items-center justify-between gap-3 px-4 py-3"
                 >
-                  {doc.status}
-                </span>
-              </li>
-            ))}
+                  <div className="min-w-0">
+                    <p className="truncate text-sm text-zinc-200">
+                      {doc.filename}
+                    </p>
+                    <p className="mt-0.5 text-xs text-zinc-500">
+                      {doc.byteSize != null ? formatBytes(doc.byteSize) : "—"}
+                      {doc.mimeType ? ` · ${doc.mimeType}` : ""}
+                      {" · analysis: "}
+                      <span className={statusTone(doc.status)}>
+                        {analysisLabel(doc.status)}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    {actions.includes("retry") ? (
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => void retryProcessing([doc.id])}
+                        className="text-xs font-medium text-amber-300 transition hover:text-amber-200 disabled:opacity-60"
+                      >
+                        Retry
+                      </button>
+                    ) : null}
+                    {actions.includes("cancel") ? (
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => void cancelProcessing(doc.id)}
+                        className="text-xs font-medium text-amber-300 transition hover:text-amber-200 disabled:opacity-60"
+                      >
+                        Cancel
+                      </button>
+                    ) : null}
+                    {actions.includes("remove") ? (
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => void removeDocument(doc.id)}
+                        className="text-xs font-medium text-red-300 transition hover:text-red-200 disabled:opacity-60"
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                    <span
+                      className={`text-[11px] font-medium uppercase tracking-wide ${statusTone(doc.status)}`}
+                    >
+                      {analysisLabel(doc.status)}
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

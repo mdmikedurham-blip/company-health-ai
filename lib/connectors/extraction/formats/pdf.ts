@@ -16,6 +16,10 @@ export function extractPdf(
       ? content
       : extractPrintableRuns(decodeUtf8(content));
 
+  if (!text.trim()) {
+    throw new Error("PDF produced no extractable text");
+  }
+
   const paragraphs = text
     .replace(/\r\n/g, "\n")
     .split(/\n{2,}/)

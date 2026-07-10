@@ -1,10 +1,9 @@
 import type { DocumentSection, ExtractedDocument } from "../types";
-import { buildExtractedDocument, decodeUtf8, sectionId } from "./shared";
+import { buildExtractedDocument, sectionId } from "./shared";
+import { readZipEntries, zipEntryText } from "./zip";
 
 /**
- * DOCX extraction.
- * When Drive/export already provided plain text, section it.
- * For raw .docx bytes, pull `<w:t>` runs from word/document.xml inside the zip.
+ * DOCX extraction via OOXML ZIP (store or deflate) → word/document.xml text runs.
  */
 export function extractDocx(
   title: string,
@@ -14,11 +13,15 @@ export function extractDocx(
   const text =
     typeof content === "string"
       ? content
-      : extractDocxTextFromZip(content) || decodeUtf8(content);
+      : extractDocxTextFromZip(content);
+
+  if (!text.trim()) {
+    throw new Error("DOCX produced no extractable text");
+  }
 
   const paragraphs = text
     .replace(/\r\n/g, "\n")
-    .split(/\n+/)
+    .split(/\n{2,}/)
     .map((p) => p.trim())
     .filter(Boolean);
 
@@ -44,62 +47,20 @@ export function extractDocx(
   });
 }
 
-/** Minimal ZIP local-file scan for word/document.xml + <w:t> text runs. */
 function extractDocxTextFromZip(bytes: Uint8Array): string {
-  const xml = findZipEntryText(bytes, "word/document.xml");
-  if (!xml) return "";
-  const runs = [...xml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map((m) => m[1] ?? "");
-  // Paragraph breaks roughly follow </w:p>
+  const entries = readZipEntries(bytes);
+  const xml = zipEntryText(entries, "word/document.xml");
+  if (!xml) {
+    throw new Error("DOCX is missing word/document.xml");
+  }
   const withBreaks = xml
     .replace(/<\/w:p>/g, "\n")
     .replace(/<w:t[^>]*>([^<]*)<\/w:t>/g, "$1")
     .replace(/<[^>]+>/g, "");
-  const cleaned = decodeXmlEntities(withBreaks)
+  return decodeXmlEntities(withBreaks)
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-  return cleaned || runs.join(" ").trim();
-}
-
-function findZipEntryText(bytes: Uint8Array, path: string): string | null {
-  const nameBytes = new TextEncoder().encode(path);
-  for (let i = 0; i < bytes.length - 30; i++) {
-    // Local file header signature PK\x03\x04
-    if (
-      bytes[i] !== 0x50 ||
-      bytes[i + 1] !== 0x4b ||
-      bytes[i + 2] !== 0x03 ||
-      bytes[i + 3] !== 0x04
-    ) {
-      continue;
-    }
-    const view = new DataView(bytes.buffer, bytes.byteOffset + i, 30);
-    const compression = view.getUint16(8, true);
-    const compSize = view.getUint32(18, true);
-    const nameLen = view.getUint16(26, true);
-    const extraLen = view.getUint16(28, true);
-    const nameStart = i + 30;
-    const nameEnd = nameStart + nameLen;
-    if (nameEnd > bytes.length) continue;
-    const entryName = bytes.subarray(nameStart, nameEnd);
-    if (!namesEqual(entryName, nameBytes)) continue;
-    const dataStart = nameEnd + extraLen;
-    const dataEnd = dataStart + compSize;
-    if (dataEnd > bytes.length) return null;
-    // Only store uncompressed (method 0) — typical for small test fixtures;
-    // production should export DOCX as text/plain via Drive export.
-    if (compression !== 0) return null;
-    return decodeUtf8(bytes.subarray(dataStart, dataEnd));
-  }
-  return null;
-}
-
-function namesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
 }
 
 function decodeXmlEntities(s: string): string {
