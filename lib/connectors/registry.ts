@@ -7,33 +7,83 @@ import { hubspotConnector } from "./hubspot";
 import { quickbooksConnector } from "./quickbooks";
 import { slackConnector } from "./slack";
 
-const connectorRegistry = new Map<ConnectorId, ConnectorAdapter>([
-  ["google-drive", googleDriveConnector],
-  ["hubspot", hubspotConnector],
-  ["carta", cartaConnector],
-  ["quickbooks", quickbooksConnector],
-  ["box", boxConnector],
-  ["bamboohr", bambooHrConnector],
-  ["slack", slackConnector],
+/**
+ * Dynamic connector registry — register any ConnectorAdapter at runtime.
+ * Future HubSpot / Carta / Box / QuickBooks / Slack / Salesforce / Dropbox
+ * production adapters plug in here without UI or engine changes.
+ */
+export class ConnectorRegistry {
+  private readonly adapters = new Map<ConnectorId, ConnectorAdapter>();
+
+  constructor(initial?: Iterable<ConnectorAdapter>) {
+    if (initial) {
+      for (const adapter of initial) {
+        this.register(adapter);
+      }
+    }
+  }
+
+  register(connector: ConnectorAdapter): void {
+    this.adapters.set(connector.connectorId, connector);
+  }
+
+  unregister(id: ConnectorId): boolean {
+    return this.adapters.delete(id);
+  }
+
+  get(id: ConnectorId): ConnectorAdapter | undefined {
+    return this.adapters.get(id);
+  }
+
+  has(id: ConnectorId): boolean {
+    return this.adapters.has(id);
+  }
+
+  getAll(): ConnectorAdapter[] {
+    return [...this.adapters.values()];
+  }
+
+  getActive(): ConnectorAdapter[] {
+    return this.getAll().filter((c) => c.status === "connected");
+  }
+
+  listIds(): ConnectorId[] {
+    return [...this.adapters.keys()];
+  }
+
+  clear(): void {
+    this.adapters.clear();
+  }
+}
+
+/** Process-wide default registry (demo + production adapters). */
+export const defaultConnectorRegistry = new ConnectorRegistry([
+  googleDriveConnector,
+  hubspotConnector,
+  cartaConnector,
+  quickbooksConnector,
+  boxConnector,
+  bambooHrConnector,
+  slackConnector,
 ]);
 
 /** All registered connector adapters. */
 export function getAllConnectors(): ConnectorAdapter[] {
-  return [...connectorRegistry.values()];
+  return defaultConnectorRegistry.getAll();
 }
 
 export function getConnector(id: ConnectorId): ConnectorAdapter | undefined {
-  return connectorRegistry.get(id);
+  return defaultConnectorRegistry.get(id);
 }
 
 /** Connected connectors only — used for active ingestion. */
 export function getActiveConnectors(): ConnectorAdapter[] {
-  return getAllConnectors().filter((c) => c.status === "connected");
+  return defaultConnectorRegistry.getActive();
 }
 
 /** Register an additional connector at runtime (tests / future plugins). */
 export function registerConnector(connector: ConnectorAdapter): void {
-  connectorRegistry.set(connector.connectorId, connector);
+  defaultConnectorRegistry.register(connector);
 }
 
 /** Default Acme Corp connector set including pending Slack. */

@@ -26,9 +26,12 @@ import {
 } from "@/lib/connectors/ingest-sync";
 import { runInsightEngine } from "@/lib/intelligence";
 import {
+  createEvidenceRepository,
+  type EvidenceRepository,
+} from "@/lib/repositories";
+import {
   createServiceClient,
   isSupabaseConfigured,
-  listEvidence,
   persistEngineResult,
   type AppSupabaseClient,
 } from "@/lib/supabase";
@@ -37,7 +40,6 @@ import {
   analyzeAndPersistIncremental,
   shouldRescoreIncremental,
 } from "./incremental-analysis";
-
 export type { BriefSeed };
 
 export interface PlatformInput {
@@ -153,7 +155,7 @@ export function buildCompanyHealthSnapshotFromSyncAdapters(
  * Load persisted evidence for a company, run the Insight Engine, return snapshot.
  * Does not re-sync connectors — use after documents/evidence are already stored.
  *
- * Pipeline: Evidence (DB) → Insight Engine → CompanyHealthSnapshot
+ * Pipeline: EvidenceRepository → Insight Engine → CompanyHealthSnapshot
  */
 export async function analyzeCompanyFromStoredEvidence(input: {
   company: Company;
@@ -167,12 +169,14 @@ export async function analyzeCompanyFromStoredEvidence(input: {
   asOf?: Date | string;
   evidenceCatalog: EvidenceCatalog;
   client?: AppSupabaseClient;
+  /** Persistence port — defaults to createEvidenceRepository(). */
+  repository?: EvidenceRepository;
 }): Promise<CompanyHealthSnapshot> {
-  if (!isSupabaseConfigured()) {
-    throw new Error("Supabase is not configured");
-  }
-  const client = input.client ?? createServiceClient();
-  const evidence = await listEvidence(client, input.company.id);
+  const repository =
+    input.repository ??
+    createEvidenceRepository({ client: input.client });
+  const evidence = await repository.listByCompany(input.company.id);
+
   return assembleSnapshot(
     {
       company: input.company,

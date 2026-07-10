@@ -1,7 +1,10 @@
 /**
  * Public connector surface.
  *
- * Canonical path: ConnectorAdapter.sync() → normalize() → Evidence[].
+ * Canonical path:
+ *   ConnectorAdapter.sync() → RawDocument / RawConnectorData
+ *     → ExtractedDocument → EvidenceCandidate → Evidence[]
+ *
  * Insight Engine orchestration lives in `@/lib/application` — not here.
  */
 
@@ -19,7 +22,9 @@ export {
   runConnectorPipeline,
 } from "./ingest";
 export {
+  ConnectorRegistry,
   acmeConnectors,
+  defaultConnectorRegistry,
   getActiveConnectors,
   getAllConnectors,
   getConnector,
@@ -33,6 +38,20 @@ export type {
   RawConnectorData,
   RawConnectorItem,
 } from "./connector";
+export {
+  connectorItemFromRawDocument,
+  evidenceFromCandidate,
+  rawDocumentFromConnectorItem,
+  rawDocumentsFromConnectorItems,
+  runEvidenceExtractionPipeline,
+  runEvidenceExtractionPipelineBatch,
+  toEvidenceCandidate,
+} from "./documents";
+export type {
+  EvidenceCandidate,
+  ExtractEvidencePipelineOptions,
+  RawDocument,
+} from "./documents";
 export {
   extractDocument,
   extractCsv,

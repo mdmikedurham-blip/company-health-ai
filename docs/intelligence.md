@@ -5,14 +5,14 @@
 The Insight Engine turns normalized **Evidence** into actionable company health intelligence:
 
 ```
-Connector adapters
+Connector adapters (ConnectorRegistry)
        ↓  connect()
-       ↓  sync() → RawConnectorData
-       ↓  normalize(raw) → Evidence[]
-   Evidence[]
+       ↓  sync() → RawDocument / RawConnectorData
+       ↓  ExtractedDocument → EvidenceCandidate → Evidence[]
+   EvidenceRepository
        ↓
   lib/application (company-analysis-service)
-       ↓  runInsightEngine()
+       ↓  runInsightEngineFromRepository() / runInsightEngine()
  Insights → Findings → Risks → HealthScore → Recommendations
        ↓
  CompanyHealthSnapshot
@@ -20,19 +20,25 @@ Connector adapters
  UI (via lib/data)
 ```
 
-There is **exactly one ingestion path**. Every external system (Google Drive, HubSpot, Carta, Box, QuickBooks, Slack, BambooHR, Salesforce, Jira, …) implements the same `ConnectorAdapter` interface and outputs the same `Evidence` shape. No connector may bypass the engine or write scores/risks directly into the UI.
+There is **exactly one ingestion path**. Every external system (Google Drive, HubSpot, Carta, Box, QuickBooks, Slack, BambooHR, Salesforce, Dropbox, Jira, …) implements the same `ConnectorAdapter` interface and translates into the canonical document/evidence schema. Adding a source is implementing a translator — not modifying the scoring engine. No connector may bypass the engine or write scores/risks directly into the UI.
+
+### Canonical document contracts
+
+| Type | Role |
+|------|------|
+| `RawDocument` | Connector-agnostic inventory (file id, path, hash, mime, …) |
+| `ExtractedDocument` | Normalized text + sections from format extractors |
+| `EvidenceCandidate` | Pre-domain evidence proposal from extraction |
+| `Evidence` | Domain input to the Insight Engine |
 
 ### Evidence Store pipeline
 
 ```
-ExtractedDocument
-       ↓  extractEvidence() → JSON
-EvidenceExtractionResult
-       ↓  evidenceFromExtraction()
-Evidence (domain)
-       ↓  upsertCompanyEvidence()  (incremental)
-Database (evidence table)
-       ↓  analyzeAndPersistIncremental()
+RawDocument + ExtractedDocument
+       ↓  runEvidenceExtractionPipeline()
+EvidenceCandidate → Evidence (domain)
+       ↓  EvidenceRepository.upsert()  (in-memory or Supabase)
+       ↓  analyzeAndPersistIncremental() / runInsightEngineFromRepository()
 Insight Engine → affected findings / risks / dimensions only
 ```
 
@@ -132,12 +138,31 @@ Mock adapters also implement `syncSync` / `normalizeSync` / `healthSync` so the 
 ### Adding a connector (checklist)
 
 1. Create `lib/connectors/<system>/adapter.ts` implementing `ConnectorAdapter` (use `createMockConnector` + `createEvidence` for prototypes). Add `auth.ts` / `crawler.ts` when the system needs them (see `google-drive/`).
-2. Export the connector from `lib/connectors/<system>/index.ts`.
-3. Register in `lib/connectors/registry.ts`.
-4. Ensure `normalize()` fills the `extractedFacts` keys your rules need.
-5. No UI, domain, or intelligence changes required unless you add a **new rule**.
+2. Translate inventory into `RawDocument` (via `rawDocumentFromConnectorItem` or a native mapper).
+3. Run content through format extractors → `ExtractedDocument`, then `runEvidenceExtractionPipeline` → `Evidence`.
+4. Export the connector from `lib/connectors/<system>/index.ts`.
+5. Register with `ConnectorRegistry` / `registerConnector()` (or add to `defaultConnectorRegistry` in `lib/connectors/registry.ts`).
+6. Persist via `EvidenceRepository` — never call `runInsightEngine` from the connector.
+7. No UI, domain, or intelligence changes required unless you add a **new rule**.
 
 Pending connectors (`status: "pending"`) are listed in the catalog but contribute **zero** evidence (`normalize` returns `[]`).
+
+### EvidenceRepository
+
+```ts
+interface EvidenceRepository {
+  listByCompany(companyId: string): Promise<Evidence[]>;
+  getById(companyId: string, evidenceId: string): Promise<Evidence | null>;
+  upsert(companyId: string, evidence: Evidence[]): Promise<void>;
+  replace(companyId: string, evidence: Evidence[]): Promise<void>;
+  deleteByIds(companyId: string, evidenceIds: string[]): Promise<void>;
+}
+```
+
+- **In-memory:** `InMemoryEvidenceRepository` (default when Supabase is not configured; tests).
+- **PostgreSQL:** `SupabaseEvidenceRepository` when env is configured.
+- Factory: `createEvidenceRepository()` in `@/lib/repositories`.
+- Application entry: `runInsightEngineFromRepository({ companyId, repository })`.
 
 ## Engine stages
 

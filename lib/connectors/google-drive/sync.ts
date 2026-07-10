@@ -3,23 +3,33 @@
  *
  * Only re-extracts changed/new documents. Never rescores the entire company —
  * evidence upserts are scoped to the delta; analysis uses affected-scope merge.
+ *
+ * Translates Drive inventory → RawDocument → ExtractedDocument → Evidence
+ * via the shared evidence extraction pipeline (no mock dashboard data).
  */
 import type { Evidence } from "@/lib/domain";
 import {
+  createEvidenceRepository,
+  type EvidenceRepository,
+} from "@/lib/repositories";
+import {
   createServiceClient,
   deleteDocumentsByExternalIds,
-  deleteEvidenceByIds,
   finishConnectorSync,
   isSupabaseConfigured,
   listDocuments,
   startConnectorSync,
   updateConnectorCredential,
-  upsertCompanyEvidence,
   upsertDocuments,
   type AppSupabaseClient,
   type TablesInsert,
 } from "@/lib/supabase";
-import type { RawConnectorData, RawConnectorItem } from "../connector";
+import type { RawConnectorItem } from "../connector";
+import {
+  rawDocumentFromConnectorItem,
+  runEvidenceExtractionPipeline,
+  type RawDocument,
+} from "../documents";
 import { GOOGLE_DRIVE_CONNECTOR_ID } from "./constants";
 import { crawlGoogleDrive } from "./crawler";
 import {
@@ -30,10 +40,6 @@ import {
 } from "./delta";
 import { extractDriveDocuments } from "./extract";
 import { getGoogleDriveCredentials } from "./auth";
-import {
-  createGoogleDriveAdapter,
-  type GoogleDriveRawConnectorData,
-} from "./production-adapter";
 
 export type IncrementalSyncDeltaCounts = {
   added: number;
@@ -58,24 +64,34 @@ function emptyDelta(): IncrementalSyncDeltaCounts {
   return { added: 0, changed: 0, unchanged: 0, deleted: 0 };
 }
 
+function toRawDocuments(items: RawConnectorItem[]): RawDocument[] {
+  return items.map((item) =>
+    rawDocumentFromConnectorItem(
+      item,
+      GOOGLE_DRIVE_CONNECTOR_ID,
+      "Google Drive",
+    ),
+  );
+}
+
 function toDocumentRows(
   companyId: string,
-  items: RawConnectorItem[],
+  docs: RawDocument[],
 ): TablesInsert<"documents">[] {
-  return items.map((item) => ({
+  return docs.map((doc) => ({
     company_id: companyId,
     connector_id: GOOGLE_DRIVE_CONNECTOR_ID,
-    external_id: item.externalId,
-    title: item.title,
-    path: item.path ?? null,
-    modified_at: item.modifiedAt ?? null,
-    owner: item.owner ?? null,
-    mime_type: item.mimeType ?? null,
-    content_hash: item.contentHash ?? null,
-    uri: item.metadata?.uri || null,
-    raw_summary: item.rawSummary,
-    metadata: item.metadata ?? {},
-    synced_at: item.syncedAt,
+    external_id: doc.externalId,
+    title: doc.title,
+    path: doc.path ?? null,
+    modified_at: doc.modifiedAt ?? null,
+    owner: doc.owner ?? null,
+    mime_type: doc.mimeType ?? null,
+    content_hash: doc.contentHash ?? null,
+    uri: doc.uri ?? null,
+    raw_summary: doc.rawSummary,
+    metadata: doc.metadata ?? {},
+    synced_at: doc.syncedAt,
   }));
 }
 
@@ -86,7 +102,11 @@ function toDocumentRows(
 export async function syncGoogleDriveForCompany(
   companyId: string,
   client?: AppSupabaseClient,
-  options?: { mode?: "full" | "incremental" },
+  options?: {
+    mode?: "full" | "incremental";
+    /** Evidence persistence port — defaults to createEvidenceRepository(). */
+    evidenceRepository?: EvidenceRepository;
+  },
 ): Promise<GoogleDriveSyncResult> {
   const mode = options?.mode ?? "incremental";
 
@@ -105,6 +125,8 @@ export async function syncGoogleDriveForCompany(
   }
 
   const db = client ?? createServiceClient();
+  const evidenceRepository =
+    options?.evidenceRepository ?? createEvidenceRepository({ client: db });
   const syncId = await startConnectorSync(db, {
     companyId,
     connectorId: GOOGLE_DRIVE_CONNECTOR_ID,
@@ -119,6 +141,7 @@ export async function syncGoogleDriveForCompany(
 
     const stored = await listDocuments(db, companyId, GOOGLE_DRIVE_CONNECTOR_ID);
     const inventory = await crawlGoogleDrive(credentials.accessToken);
+    const inventoryDocs = toRawDocuments(inventory);
     const delta: DocumentDelta =
       mode === "full"
         ? {
@@ -132,76 +155,43 @@ export async function syncGoogleDriveForCompany(
         : diffDocuments(stored, inventory);
 
     // Always refresh inventory metadata for all crawled files
-    await upsertDocuments(db, toDocumentRows(companyId, inventory));
+    await upsertDocuments(db, toDocumentRows(companyId, inventoryDocs));
 
     const toExtract = [...delta.added, ...delta.changed];
     let extractedCount = 0;
     let evidence: Evidence[] = [];
-    let rawForNormalize: GoogleDriveRawConnectorData | RawConnectorData | null =
-      null;
 
     if (toExtract.length > 0) {
-      const adapter = createGoogleDriveAdapter({
-        companyId,
-        // Limit crawl to nothing — we pass pre-extracted items via a targeted path
-        extractContent: false,
-      });
-      // Extract only the delta set
-      const { documents, evidenceResults, errors } = await extractDriveDocuments(
+      // Extract only the delta set → RawDocument → Evidence via shared pipeline
+      const { documents, errors } = await extractDriveDocuments(
         credentials.accessToken,
         toExtract,
       );
       extractedCount = documents.length;
 
-      // Build enriched raw items for normalize (same as production-adapter applyExtraction)
       const byFileId = new Map(
         documents.map((d) => [String(d.metadata.fileId ?? ""), d]),
       );
-      const evidenceByFileId = new Map(
-        evidenceResults.map((e, i) => {
-          const fileId = String(documents[i]?.metadata.fileId ?? "");
-          return [fileId, e] as const;
-        }),
-      );
 
-      const enriched: RawConnectorItem[] = toExtract.map((item) => {
-        const doc = byFileId.get(item.externalId);
-        const ev = evidenceByFileId.get(item.externalId);
-        if (!doc) return item;
-        const preview = doc.text.slice(0, 2000);
-        return {
-          ...item,
-          rawSummary: preview || item.rawSummary,
-          metadata: {
-            ...(item.metadata ?? {}),
-            format: String(doc.metadata.format ?? ""),
-            sectionCount: String(doc.sections.length),
-            extractedTitle: doc.title,
-            extractedTextPreview: preview,
-            ...(ev
-              ? {
-                  evidenceType: ev.evidenceType,
-                  evidenceDimension: ev.dimension,
-                  evidenceConfidence: String(ev.confidence),
-                  evidenceJson: JSON.stringify(ev),
-                }
-              : {}),
+      for (const item of toExtract) {
+        const extracted = byFileId.get(item.externalId);
+        if (!extracted) continue;
+        const raw = rawDocumentFromConnectorItem(
+          {
+            ...item,
+            rawSummary:
+              extracted.text.slice(0, 2000) || item.rawSummary,
           },
-        };
-      });
+          GOOGLE_DRIVE_CONNECTOR_ID,
+          "Google Drive",
+        );
+        const { evidence: ev } = runEvidenceExtractionPipeline(raw, extracted, {
+          evidenceId: evidenceIdForDriveFile(item.externalId),
+        });
+        evidence.push(ev);
+      }
 
-      rawForNormalize = {
-        connectorId: GOOGLE_DRIVE_CONNECTOR_ID,
-        status: "connected",
-        lastSynced: new Date().toISOString(),
-        documentsAnalyzed: enriched.length,
-        items: enriched,
-        extractedDocuments: documents,
-        evidenceResults,
-      };
-
-      evidence = await adapter.normalize(rawForNormalize);
-      await upsertCompanyEvidence(db, companyId, evidence);
+      await evidenceRepository.upsert(companyId, evidence);
 
       if (errors.length > 0) {
         // Continue — partial extraction is acceptable for incremental sync
@@ -213,7 +203,7 @@ export async function syncGoogleDriveForCompany(
       const deletedEvidenceIds = delta.deletedExternalIds.map(
         evidenceIdForDriveFile,
       );
-      await deleteEvidenceByIds(db, companyId, deletedEvidenceIds);
+      await evidenceRepository.deleteByIds(companyId, deletedEvidenceIds);
       await deleteDocumentsByExternalIds(
         db,
         companyId,

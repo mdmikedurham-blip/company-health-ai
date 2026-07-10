@@ -1,8 +1,13 @@
 /**
  * Production Google Drive ConnectorAdapter.
  * Uses OAuth refresh tokens + Drive files.list (read-only).
+ *
+ * Scaffold: OAuth (auth.ts) → crawl (crawler.ts) → incremental sync (sync.ts)
+ * → file metadata on RawDocument → health checks via connector_credentials.
+ *
  * Each supported file is downloaded/exported into an ExtractedDocument,
- * then evidence-extracted into JSON (EvidenceExtractionResult).
+ * then evidence-extracted into EvidenceCandidate → Evidence.
+ * Prefer syncGoogleDriveForCompany() for the Evidence Store path.
  * Mock demo data remains in adapter.ts for the static Acme snapshot.
  */
 import type { Evidence } from "@/lib/domain";

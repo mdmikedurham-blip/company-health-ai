@@ -26,10 +26,13 @@ import {
   calculateOverallHealth,
 } from "@/lib/intelligence/scoring-engine";
 import {
+  createEvidenceRepository,
+  type EvidenceRepository,
+} from "@/lib/repositories";
+import {
   createServiceClient,
   getLatestHealthScore,
   isSupabaseConfigured,
-  listEvidence,
   listFindings,
   listRisks,
   persistIncrementalEngineResult,
@@ -50,6 +53,8 @@ export type IncrementalAnalyzeInput = {
   evidenceCatalog: EvidenceCatalog;
   asOf?: Date | string;
   client?: AppSupabaseClient;
+  /** Persistence port for evidence — defaults to createEvidenceRepository(). */
+  repository?: EvidenceRepository;
 };
 
 /**
@@ -75,7 +80,9 @@ export async function analyzeAndPersistIncremental(
   }
 
   const client = input.client ?? createServiceClient();
-  const allEvidence = await listEvidence(client, input.company.id);
+  const repository =
+    input.repository ?? createEvidenceRepository({ client });
+  const allEvidence = await repository.listByCompany(input.company.id);
   const priorFindings = await listFindings(client, input.company.id);
   const priorRisks = await listRisks(client, input.company.id);
   const priorHealth = await getLatestHealthScore(client, input.company.id);

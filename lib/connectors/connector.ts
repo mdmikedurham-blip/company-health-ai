@@ -13,6 +13,7 @@ export type ConnectorId =
   | "slack"
   | "bamboohr"
   | "salesforce"
+  | "dropbox"
   | "jira"
   | (string & {});
 
