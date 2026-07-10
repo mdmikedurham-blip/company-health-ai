@@ -9,14 +9,16 @@ import {
   isServiceRoleConfigured,
   isSupabaseConfigured,
 } from "@/lib/supabase";
-import { completeManualUpload } from "@/lib/uploads";
-import { kickoffDocumentProcessing } from "@/lib/uploads/kickoff";
+import { requeueDocumentJobs } from "@/lib/uploads/claim";
+import { kickoffDocumentProcessingBatch } from "@/lib/uploads/kickoff";
+
+export const maxDuration = 60;
 
 /**
- * POST /api/documents/upload/complete
- * Body JSON: { documentId }
- * Verifies Storage object, sets QUEUED, kicks off processing without blocking
- * on analysis completion.
+ * POST /api/documents/retry
+ * Body: { documentIds?: string[] }
+ * Resets FAILED / stale jobs to QUEUED and immediately re-triggers processing.
+ * company_id is derived from authenticated membership only.
  */
 export async function POST(request: Request) {
   try {
@@ -26,45 +28,39 @@ export async function POST(request: Request) {
 
     if (!isSupabaseConfigured() || !isServiceRoleConfigured()) {
       return NextResponse.json(
-        { error: "Document uploads are not configured." },
+        { error: "Retry is not configured." },
         { status: 503 },
       );
     }
 
-    const body = (await request.json()) as { documentId?: string };
-    const documentId = String(body.documentId ?? "").trim();
-    if (!documentId) {
-      return NextResponse.json(
-        { error: "documentId is required." },
-        { status: 400 },
-      );
-    }
+    const body = (await request.json().catch(() => ({}))) as {
+      documentIds?: string[];
+    };
+    const documentIds = Array.isArray(body.documentIds)
+      ? body.documentIds.map((id) => String(id).trim()).filter(Boolean)
+      : undefined;
 
     const client = createServiceClient();
-    const document = await completeManualUpload({
+    const requeued = await requeueDocumentJobs({
       client,
       companyId,
-      userId: ctx.user.id,
-      documentId,
+      documentIds,
     });
 
-    kickoffDocumentProcessing({
-      companyId,
-      documentId: document.id,
-      client,
-    });
+    if (requeued.length > 0) {
+      kickoffDocumentProcessingBatch({
+        companyId,
+        documentIds: requeued,
+        client,
+      });
+    }
 
     return NextResponse.json({
-      document,
-      enqueued: true,
-      processingKickedOff: true,
-      status: document.status,
+      requeued,
+      kickedOff: requeued.length,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (message.includes("not found") || message.includes("Upload not found")) {
-      return NextResponse.json({ error: message }, { status: 404 });
-    }
     if (message.includes("write access")) {
       return NextResponse.json({ error: message }, { status: 403 });
     }

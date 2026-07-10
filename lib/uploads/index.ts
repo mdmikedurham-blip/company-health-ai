@@ -7,9 +7,13 @@ export {
   MANUAL_UPLOAD_MIME_TYPES,
   MAX_UPLOAD_BYTES,
   mimeFromFilename,
+  progressLabelForStatus,
+  PROCESSING_LEASE_SECONDS,
+  PROCESSING_STALE_MS,
   UPLOAD_DOCUMENT_STATUSES,
   type ManualUploadMimeType,
   type UploadDocumentStatus,
+  type UploadProgressLabel,
 } from "./constants";
 export {
   buildStoragePath,
@@ -26,4 +30,19 @@ export {
   type SignedUploadSession,
   type UploadedDocumentRecord,
 } from "./service";
-export { processQueuedManualUploads } from "./process";
+export {
+  processManualUploadDocument,
+  processQueuedManualUploads,
+} from "./process";
+export {
+  claimDocumentJob,
+  requeueDocumentJobs,
+  isTerminalUploadStatus,
+} from "./claim";
+export { kickoffDocumentProcessing, kickoffDocumentProcessingBatch } from "./kickoff";
+export {
+  computeDashboardProcessingState,
+  buildUploadProgressItem,
+  type DashboardProcessingState,
+  type UploadProgressItem,
+} from "./progress";

@@ -8,10 +8,8 @@ import {
   isServiceRoleConfigured,
 } from "@/lib/supabase";
 import { hasCompletedAnalysis } from "@/lib/auth/connector-status";
-import {
-  companyHasManualUploads,
-  companyHasPendingUploads,
-} from "@/lib/uploads";
+import { MANUAL_UPLOAD_CONNECTOR_ID } from "@/lib/uploads/constants";
+import { computeDashboardProcessingState } from "@/lib/uploads/progress";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -27,40 +25,56 @@ export default async function ExecutiveDashboard() {
     ctx?.user.email ??
     null;
 
-  let analysisReady = false;
-  let analyzing = false;
-  let hasUploads = false;
+  let hasSnapshot = false;
+  let hasHealthScore = false;
+  let processing = computeDashboardProcessingState({
+    hasAnalysisSnapshot: false,
+    uploads: [],
+  });
+
   if (companyId && isServiceRoleConfigured()) {
     try {
       const client = createServiceClient();
-      analysisReady = await hasCompletedAnalysis(client, companyId);
-      hasUploads = await companyHasManualUploads(client, companyId);
-      if (!analysisReady) {
-        analyzing = await companyHasPendingUploads(client, companyId);
-      }
-    } catch {
-      analysisReady = false;
-    }
-  }
+      hasSnapshot = await hasCompletedAnalysis(client, companyId);
 
-  // Also treat existing health_scores as analysis for workspaces that
-  // completed sync before analysis_snapshots existed.
-  if (!analysisReady && companyId && isServiceRoleConfigured()) {
-    try {
-      const { data } = await createServiceClient()
+      const { data: uploads } = await client
+        .from("documents")
+        .select(
+          "id, filename, title, status, error_message, updated_at, processing_started_at, lease_expires_at, locked_at",
+        )
+        .eq("company_id", companyId)
+        .eq("connector_id", MANUAL_UPLOAD_CONNECTOR_ID)
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      processing = computeDashboardProcessingState({
+        hasAnalysisSnapshot: hasSnapshot,
+        uploads: uploads ?? [],
+      });
+
+      const { data: score } = await client
         .from("health_scores")
         .select("id")
         .eq("company_id", companyId)
         .limit(1)
         .maybeSingle();
-      analysisReady = Boolean(data);
+      hasHealthScore = Boolean(score);
     } catch {
-      analysisReady = false;
+      hasSnapshot = false;
     }
   }
 
-  // New workspaces with no documents yet go straight to upload.
-  if (companyId && !analysisReady && !hasUploads && !analyzing) {
+  const showLiveDashboard = hasSnapshot || hasHealthScore;
+  // Stop spinning when snapshot exists OR every upload is terminal.
+  const leaveProcessingState =
+    showLiveDashboard || processing.allTerminal || !processing.hasUploads;
+
+  if (
+    companyId &&
+    !showLiveDashboard &&
+    !processing.hasUploads &&
+    !processing.inFlight
+  ) {
     redirect("/upload");
   }
 
@@ -68,7 +82,7 @@ export default async function ExecutiveDashboard() {
     <AppShell
       title="Executive Dashboard"
       subtitle={
-        analysisReady
+        showLiveDashboard
           ? executiveBrief.date
           : companyName
             ? `${companyName} · setup`
@@ -78,13 +92,16 @@ export default async function ExecutiveDashboard() {
       companyName={companyName}
       userEmail={ctx?.user.email ?? null}
     >
-      {analysisReady ? (
+      {showLiveDashboard && leaveProcessingState && !processing.inFlight ? (
         <DashboardContent />
       ) : (
         <EmptyDashboard
           companyName={companyName}
-          analyzing={analyzing}
-          hasUploads={hasUploads}
+          analyzing={processing.inFlight}
+          hasUploads={processing.hasUploads}
+          stalled={processing.stalled}
+          progressItems={processing.items}
+          overallLabel={processing.overallLabel}
         />
       )}
     </AppShell>

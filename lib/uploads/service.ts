@@ -230,7 +230,7 @@ export async function companyHasPendingUploads(
     .select("id")
     .eq("company_id", companyId)
     .eq("connector_id", MANUAL_UPLOAD_CONNECTOR_ID)
-    .in("status", ["UPLOADED", "QUEUED", "PROCESSING"])
+    .in("status", ["UPLOADED", "QUEUED", "PROCESSING", "EXTRACTED", "ANALYZING"])
     .limit(1);
 
   if (error) {

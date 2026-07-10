@@ -10,7 +10,9 @@ import { extractGoogleSheets } from "./formats/google-sheets";
 import { extractGoogleSlides } from "./formats/google-slides";
 import { extractMarkdown } from "./formats/markdown";
 import { extractPdf } from "./formats/pdf";
+import { extractPptx } from "./formats/pptx";
 import { extractTxt } from "./formats/txt";
+import { extractXlsx } from "./formats/xlsx";
 
 const EXTRACTORS: Record<
   ExtractableMimeType,
@@ -23,6 +25,10 @@ const EXTRACTORS: Record<
   "application/pdf": extractPdf,
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
     extractDocx,
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+    extractPptx,
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+    extractXlsx,
   "application/vnd.google-apps.document": extractGoogleDocs,
   "application/vnd.google-apps.spreadsheet": extractGoogleSheets,
   "application/vnd.google-apps.presentation": extractGoogleSlides,
@@ -70,4 +76,6 @@ export { extractGoogleSheets } from "./formats/google-sheets";
 export { extractGoogleSlides } from "./formats/google-slides";
 export { extractMarkdown } from "./formats/markdown";
 export { extractPdf } from "./formats/pdf";
+export { extractPptx } from "./formats/pptx";
 export { extractTxt } from "./formats/txt";
+export { extractXlsx } from "./formats/xlsx";

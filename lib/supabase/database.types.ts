@@ -277,8 +277,15 @@ export type Database = {
           /** Private Storage object key when uploaded manually. */
           storage_path: string | null;
           uploaded_by: string | null;
-          /** UPLOADED | QUEUED | PROCESSING | PROCESSED | FAILED */
+          /** UPLOADED | QUEUED | PROCESSING | EXTRACTED | ANALYZING | PROCESSED | FAILED */
           status: string;
+          processing_started_at: string | null;
+          processing_completed_at: string | null;
+          error_message: string | null;
+          processing_attempts: number;
+          last_stage: string | null;
+          locked_at: string | null;
+          lease_expires_at: string | null;
           uri: string | null;
           raw_summary: string | null;
           metadata: Json;
@@ -302,6 +309,13 @@ export type Database = {
           storage_path?: string | null;
           uploaded_by?: string | null;
           status?: string;
+          processing_started_at?: string | null;
+          processing_completed_at?: string | null;
+          error_message?: string | null;
+          processing_attempts?: number;
+          last_stage?: string | null;
+          locked_at?: string | null;
+          lease_expires_at?: string | null;
           uri?: string | null;
           raw_summary?: string | null;
           metadata?: Json;
@@ -325,6 +339,13 @@ export type Database = {
           storage_path?: string | null;
           uploaded_by?: string | null;
           status?: string;
+          processing_started_at?: string | null;
+          processing_completed_at?: string | null;
+          error_message?: string | null;
+          processing_attempts?: number;
+          last_stage?: string | null;
+          locked_at?: string | null;
+          lease_expires_at?: string | null;
           uri?: string | null;
           raw_summary?: string | null;
           metadata?: Json;
@@ -923,6 +944,14 @@ export type Database = {
       is_company_member: {
         Args: { target_company_id: string };
         Returns: boolean;
+      };
+      claim_document_for_processing: {
+        Args: {
+          p_document_id: string;
+          p_company_id: string;
+          p_lease_seconds?: number;
+        };
+        Returns: Database["public"]["Tables"]["documents"]["Row"] | null;
       };
     };
     Enums: Record<string, never>;

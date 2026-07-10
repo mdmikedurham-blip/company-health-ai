@@ -40,6 +40,8 @@ function statusTone(status: string | undefined): string {
     case "QUEUED":
       return "text-amber-300";
     case "PROCESSING":
+    case "EXTRACTED":
+    case "ANALYZING":
       return "text-amber-300";
     case "PROCESSED":
       return "text-emerald-300";
