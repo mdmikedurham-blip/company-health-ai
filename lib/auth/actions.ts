@@ -261,7 +261,7 @@ export async function completeOnboardingAction(
     };
   }
 
-  redirect("/connectors");
+  redirect("/upload");
 }
 
 export async function disconnectDriveAction(): Promise<AuthActionResult> {

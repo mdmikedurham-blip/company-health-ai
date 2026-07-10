@@ -23,12 +23,15 @@ import {
   isSupabaseConfigured,
   listConnectedCompaniesForConnector,
 } from "@/lib/supabase";
+import { processQueuedManualUploads } from "@/lib/uploads";
+import { MANUAL_UPLOAD_CONNECTOR_ID } from "@/lib/uploads/constants";
 
 /**
  * GET|POST /api/cron/sync-connectors
  * Incremental pipeline:
  *   changed documents → affected findings → affected risks → affected dimensions
  * Never rescores the entire company.
+ * Also drains QUEUED manual uploads (no analysis during the browser upload).
  */
 async function runScheduledSync(request: Request) {
   const unauthorized = unauthorizedCronResponse(request);
@@ -43,6 +46,30 @@ async function runScheduledSync(request: Request) {
 
   try {
     const client = createServiceClient();
+
+    const { data: queuedCompanies, error: queuedError } = await client
+      .from("documents")
+      .select("company_id")
+      .eq("connector_id", MANUAL_UPLOAD_CONNECTOR_ID)
+      .eq("status", "QUEUED");
+
+    if (queuedError) {
+      throw new Error(queuedError.message);
+    }
+
+    const manualCompanyIds = [
+      ...new Set((queuedCompanies ?? []).map((row) => row.company_id)),
+    ];
+    const manualResults = [];
+    for (const companyId of manualCompanyIds) {
+      const result = await processQueuedManualUploads({
+        client,
+        companyId,
+        limit: 25,
+      });
+      manualResults.push({ companyId, ...result });
+    }
+
     const companyIds = await listConnectedCompaniesForConnector(
       client,
       GOOGLE_DRIVE_CONNECTOR_ID,
@@ -114,6 +141,10 @@ async function runScheduledSync(request: Request) {
     return NextResponse.json({
       connectorId: GOOGLE_DRIVE_CONNECTOR_ID,
       companies: companyIds.length,
+      manualUploads: {
+        companies: manualCompanyIds.length,
+        results: manualResults,
+      },
       pipeline:
         "changed documents → affected findings → affected risks → affected dimensions",
       results,

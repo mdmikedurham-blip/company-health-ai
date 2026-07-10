@@ -7,11 +7,11 @@ import {
   createServiceClient,
   isServiceRoleConfigured,
 } from "@/lib/supabase";
+import { hasCompletedAnalysis } from "@/lib/auth/connector-status";
 import {
-  hasCompletedAnalysis,
-  listLatestConnectorSync,
-} from "@/lib/auth/connector-status";
-import { GOOGLE_DRIVE_CONNECTOR_ID } from "@/lib/connectors/google-drive/constants";
+  companyHasManualUploads,
+  companyHasPendingUploads,
+} from "@/lib/uploads";
 
 export const dynamic = "force-dynamic";
 
@@ -28,20 +28,14 @@ export default async function ExecutiveDashboard() {
 
   let analysisReady = false;
   let analyzing = false;
+  let hasUploads = false;
   if (companyId && isServiceRoleConfigured()) {
     try {
       const client = createServiceClient();
       analysisReady = await hasCompletedAnalysis(client, companyId);
+      hasUploads = await companyHasManualUploads(client, companyId);
       if (!analysisReady) {
-        const latest = await listLatestConnectorSync(
-          client,
-          companyId,
-          GOOGLE_DRIVE_CONNECTOR_ID,
-        );
-        analyzing =
-          latest?.status === "running" ||
-          latest?.status === "succeeded" ||
-          latest?.status === "partial";
+        analyzing = await companyHasPendingUploads(client, companyId);
       }
     } catch {
       analysisReady = false;
@@ -81,7 +75,11 @@ export default async function ExecutiveDashboard() {
       {analysisReady ? (
         <DashboardContent />
       ) : (
-        <EmptyDashboard companyName={companyName} analyzing={analyzing} />
+        <EmptyDashboard
+          companyName={companyName}
+          analyzing={analyzing}
+          hasUploads={hasUploads}
+        />
       )}
     </AppShell>
   );

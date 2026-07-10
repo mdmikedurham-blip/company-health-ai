@@ -11,6 +11,7 @@ export const PROTECTED_PATH_PREFIXES = [
   "/timeline",
   "/evidence",
   "/reports",
+  "/upload",
   "/connectors",
   "/onboarding",
   "/settings",
@@ -117,7 +118,7 @@ export function resolveAuthRedirect(
   }
 
   if (input.hasCompany && path === "/onboarding") {
-    return { type: "redirect", to: "/connectors" };
+    return { type: "redirect", to: "/upload" };
   }
 
   return { type: "allow" };

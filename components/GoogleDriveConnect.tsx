@@ -64,16 +64,19 @@ export function GoogleDriveConnect({
   oauthResult,
   oauthReason,
   compact = false,
+  comingSoon = false,
 }: {
   oauthResult?: string | null;
   oauthReason?: string | null;
   compact?: boolean;
+  comingSoon?: boolean;
 }) {
   const [status, setStatus] = useState<DriveStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [localBanner, setLocalBanner] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
+    if (comingSoon) return;
     fetch("/api/connectors/google-drive/status")
       .then(async (r) => {
         const data = (await r.json()) as DriveStatus;
@@ -84,17 +87,18 @@ export function GoogleDriveConnect({
         setStatus(data);
       })
       .catch(() => setStatus({ status: "pending", configured: false }));
-  }, []);
+  }, [comingSoon]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
   useEffect(() => {
+    if (comingSoon) return;
     if (status?.syncStatus !== "running") return;
     const id = window.setInterval(refresh, 4000);
     return () => window.clearInterval(id);
-  }, [status?.syncStatus, refresh]);
+  }, [comingSoon, status?.syncStatus, refresh]);
 
   async function disconnect() {
     setBusy(true);
@@ -123,6 +127,36 @@ export function GoogleDriveConnect({
     }
   }
 
+  if (comingSoon) {
+    return (
+      <div
+        className={
+          compact
+            ? "rounded-md border border-[var(--border)] bg-white/[0.02] px-3 py-2.5"
+            : "rounded-xl border border-[var(--border)] bg-white/[0.02] p-5"
+        }
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-medium text-zinc-200">Google Drive</p>
+              <span className="rounded-md border border-zinc-600/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-400">
+                Coming soon
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-zinc-500">
+              Optional connector — not required for onboarding. Upload documents
+              to start analysis.
+            </p>
+          </div>
+          <span className="shrink-0 rounded-md border border-[var(--border)] px-2.5 py-1 text-xs text-zinc-500">
+            Unavailable
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   const connected = status?.status === "connected";
   const syncing = connected && status?.syncStatus === "running";
   const failed = connected && status?.syncStatus === "failed";
@@ -139,7 +173,7 @@ export function GoogleDriveConnect({
       }
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3 min-w-0">
+        <div className="flex min-w-0 items-start gap-3">
           <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${tone}`} />
           <div className="min-w-0">
             <div className="flex items-center gap-2">

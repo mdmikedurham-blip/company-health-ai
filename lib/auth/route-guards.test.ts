@@ -19,6 +19,7 @@ describe("protected route redirects", () => {
     expect(isProtectedPath("/timeline")).toBe(true);
     expect(isProtectedPath("/evidence")).toBe(true);
     expect(isProtectedPath("/connectors")).toBe(true);
+    expect(isProtectedPath("/upload")).toBe(true);
   });
 
   it("keeps marketing home and demo public", () => {
@@ -90,12 +91,23 @@ describe("protected route redirects", () => {
   it("sends authenticated users without a company to onboarding", () => {
     expect(
       resolveAuthRedirect({
-        pathname: "/connectors",
+        pathname: "/upload",
         isAuthenticated: true,
         hasCompany: false,
         authEnabled: true,
       }),
     ).toEqual({ type: "redirect", to: "/onboarding" });
+  });
+
+  it("sends onboarded users away from onboarding to upload", () => {
+    expect(
+      resolveAuthRedirect({
+        pathname: "/onboarding",
+        isAuthenticated: true,
+        hasCompany: true,
+        authEnabled: true,
+      }),
+    ).toEqual({ type: "redirect", to: "/upload" });
   });
 
   it("sends onboarded users from auth pages to dashboard", () => {

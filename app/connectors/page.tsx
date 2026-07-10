@@ -1,6 +1,7 @@
 import { AppShell } from "@/components/AppShell";
 import { GoogleDriveConnect } from "@/components/GoogleDriveConnect";
 import { getSessionContext } from "@/lib/auth/session";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -26,21 +27,43 @@ export default async function ConnectorsPage({
   return (
     <AppShell
       title="Connectors"
-      subtitle="Connect systems to power company health analysis"
+      subtitle="Optional data sources — upload is the primary path"
       userName={userName}
       companyName={companyName}
       userEmail={ctx?.user.email ?? null}
     >
       <div className="space-y-6">
+        <div className="rounded-xl border border-[var(--border)] bg-white/[0.02] px-5 py-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-medium text-zinc-200">
+                Manual document upload
+              </h2>
+              <p className="mt-1 text-sm text-zinc-500">
+                First-class ingestion for PDF, DOCX, PPTX, XLSX, TXT, and CSV.
+              </p>
+            </div>
+            <Link
+              href="/upload"
+              className="rounded-md bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-900 transition hover:bg-white"
+            >
+              Go to upload
+            </Link>
+          </div>
+        </div>
+
         <div>
-          <h2 className="text-sm font-medium text-zinc-200">Data sources</h2>
+          <h2 className="text-sm font-medium text-zinc-200">
+            Optional connectors
+          </h2>
           <p className="mt-1 text-sm text-zinc-500">
-            Google Drive is available now. Tokens stay encrypted on the server
-            and are never sent to the browser.
+            Cloud connectors are secondary. Google Drive remains in the product
+            but is not required for onboarding.
           </p>
         </div>
 
         <GoogleDriveConnect
+          comingSoon
           oauthResult={oauthResult}
           oauthReason={oauthReason}
         />
