@@ -1,14 +1,22 @@
 import type { RawConnectorItem } from "../connector";
-import { GOOGLE_DRIVE_FILES_URL } from "./constants";
+import {
+  GOOGLE_DRIVE_FILES_URL,
+  GOOGLE_DRIVE_SUPPORTED_MIME_TYPES,
+} from "./constants";
 
 /**
  * Google Drive crawl / list helpers (read-only files.list).
  *
  * Captures inventory metadata: file id, path, modified, owner, mime type, hash.
+ * Defaults to supported formats: PDF, DOCX, Docs, Sheets, Slides, TXT, Markdown, CSV.
  */
 
 export interface GoogleDriveCrawlOptions {
   folderIds?: string[];
+  /**
+   * MIME types to include. Defaults to GOOGLE_DRIVE_SUPPORTED_MIME_TYPES.
+   * Pass an empty array to list all non-folder files (not recommended).
+   */
   mimeTypes?: string[];
   pageSize?: number;
   /** Max files to return across pages (safety cap). */
@@ -36,6 +44,16 @@ type DriveListResponse = {
 const DRIVE_FILE_FIELDS =
   "id, name, mimeType, modifiedTime, webViewLink, description, owners, md5Checksum, sha1Checksum, parents";
 
+function resolveMimeTypes(options: GoogleDriveCrawlOptions): string[] | null {
+  if (options.mimeTypes === undefined) {
+    return [...GOOGLE_DRIVE_SUPPORTED_MIME_TYPES];
+  }
+  if (options.mimeTypes.length === 0) {
+    return null;
+  }
+  return options.mimeTypes;
+}
+
 function buildQuery(options: GoogleDriveCrawlOptions): string {
   const parts = ["trashed = false", "mimeType != 'application/vnd.google-apps.folder'"];
   if (options.folderIds?.length) {
@@ -44,8 +62,9 @@ function buildQuery(options: GoogleDriveCrawlOptions): string {
       .join(" or ");
     parts.push(`(${folderClause})`);
   }
-  if (options.mimeTypes?.length) {
-    const mimeClause = options.mimeTypes
+  const mimeTypes = resolveMimeTypes(options);
+  if (mimeTypes?.length) {
+    const mimeClause = mimeTypes
       .map((m) => `mimeType = '${m}'`)
       .join(" or ");
     parts.push(`(${mimeClause})`);

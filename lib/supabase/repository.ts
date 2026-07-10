@@ -346,6 +346,7 @@ export async function finishConnectorSync(
     documentsAnalyzed?: number;
     evidenceCreated?: number;
     errorMessage?: string | null;
+    metadata?: TablesInsert<"connector_syncs">["metadata"];
   },
 ): Promise<void> {
   await assertNoError(
@@ -357,6 +358,9 @@ export async function finishConnectorSync(
         evidence_created: result.evidenceCreated ?? 0,
         error_message: result.errorMessage ?? null,
         finished_at: new Date().toISOString(),
+        ...(result.metadata !== undefined
+          ? { metadata: result.metadata }
+          : {}),
       })
       .eq("id", syncId),
     "finishConnectorSync",

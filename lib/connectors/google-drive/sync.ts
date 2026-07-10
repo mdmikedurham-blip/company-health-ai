@@ -20,6 +20,7 @@ export type GoogleDriveSyncResult = {
   syncId: string | null;
   status: "succeeded" | "failed" | "skipped";
   documentsAnalyzed: number;
+  extractedDocuments: number;
   errorMessage?: string;
 };
 
@@ -33,6 +34,7 @@ export async function syncGoogleDriveForCompany(
       syncId: null,
       status: "skipped",
       documentsAnalyzed: 0,
+      extractedDocuments: 0,
       errorMessage: "Supabase is not configured",
     };
   }
@@ -47,6 +49,10 @@ export async function syncGoogleDriveForCompany(
     const adapter = createGoogleDriveAdapter({ companyId });
     await adapter.connect();
     const raw = await adapter.sync();
+    const extractedCount =
+      "extractedDocuments" in raw && Array.isArray(raw.extractedDocuments)
+        ? raw.extractedDocuments.length
+        : 0;
 
     const rows: TablesInsert<"documents">[] = raw.items.map((item) => ({
       company_id: companyId,
@@ -73,6 +79,7 @@ export async function syncGoogleDriveForCompany(
       status: "succeeded",
       documentsAnalyzed: raw.documentsAnalyzed,
       evidenceCreated: 0,
+      metadata: { extractedDocuments: extractedCount },
     });
 
     return {
@@ -80,6 +87,7 @@ export async function syncGoogleDriveForCompany(
       syncId,
       status: "succeeded",
       documentsAnalyzed: raw.documentsAnalyzed,
+      extractedDocuments: extractedCount,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -96,6 +104,7 @@ export async function syncGoogleDriveForCompany(
       syncId,
       status: "failed",
       documentsAnalyzed: 0,
+      extractedDocuments: 0,
       errorMessage: message,
     };
   }

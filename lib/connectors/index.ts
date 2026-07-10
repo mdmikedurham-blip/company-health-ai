@@ -33,3 +33,21 @@ export type {
   RawConnectorData,
   RawConnectorItem,
 } from "./connector";
+export {
+  extractDocument,
+  extractCsv,
+  extractDocx,
+  extractGoogleDocs,
+  extractGoogleSheets,
+  extractGoogleSlides,
+  extractMarkdown,
+  extractPdf,
+  extractTxt,
+  isExtractableMimeType,
+} from "./extraction";
+export type {
+  DocumentSection,
+  ExtractDocumentInput,
+  ExtractedDocument,
+  ExtractableMimeType,
+} from "./extraction";

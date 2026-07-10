@@ -225,6 +225,21 @@ Flow:
 3. **Sync** — `syncGoogleDriveForCompany()` crawls Drive (`files.list`), upserts `documents`, writes `connector_syncs`.
 4. **Schedule** — Vercel Cron hits `GET /api/cron/sync-connectors` daily (`vercel.json`, auth via `CRON_SECRET`).
 
+**Supported file types** (default crawl filter via `GOOGLE_DRIVE_SUPPORTED_MIME_TYPES`): PDF, DOCX, Google Docs, Google Sheets, Google Slides, TXT, Markdown, CSV.
+
+Each supported file is downloaded/exported and parsed into a shared `ExtractedDocument`:
+
+```ts
+interface ExtractedDocument {
+  text: string;
+  title: string;
+  metadata: Record<string, string | number | boolean | null>;
+  sections: DocumentSection[];
+}
+```
+
+Format extractors live in `lib/connectors/extraction/`. Drive wiring: `download.ts` + `extract.ts` → `createGoogleDriveAdapter.sync()` attaches `extractedDocuments` and text previews on raw items.
+
 Env: see `.env.example` (`GOOGLE_CLIENT_*`, `GOOGLE_OAUTH_REDIRECT_URI`, `TOKEN_ENCRYPTION_KEY`, `CRON_SECRET`, `DEFAULT_COMPANY_ID`). Apply migration `002_connector_credentials.sql`. The mock `googleDriveConnector` remains for the static Acme demo; production uses `createGoogleDriveAdapter` / `syncGoogleDriveForCompany`.
 
 Client + mappers live in `lib/supabase`. Server jobs use `createServiceClient()`; browser reads use `createBrowserClient()` (RLS: members see their company only).

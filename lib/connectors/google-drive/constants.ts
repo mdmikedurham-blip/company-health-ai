@@ -13,6 +13,35 @@ export const GOOGLE_DRIVE_FILES_URL =
 
 export const GOOGLE_DRIVE_CONNECTOR_ID = "google-drive" as const;
 
+/**
+ * Supported Drive file types for inventory + extraction.
+ * PDF, DOCX, Google Docs/Sheets/Slides, TXT, Markdown, CSV.
+ */
+export const GOOGLE_DRIVE_SUPPORTED_MIME_TYPES = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.google-apps.document",
+  "application/vnd.google-apps.spreadsheet",
+  "application/vnd.google-apps.presentation",
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+] as const;
+
+export type GoogleDriveSupportedMimeType =
+  (typeof GOOGLE_DRIVE_SUPPORTED_MIME_TYPES)[number];
+
+export const GOOGLE_DRIVE_SUPPORTED_FORMATS = [
+  "PDF",
+  "DOCX",
+  "Google Docs",
+  "Google Sheets",
+  "Google Slides",
+  "TXT",
+  "Markdown",
+  "CSV",
+] as const;
+
 /** Default company for OAuth until Supabase Auth is wired. */
 export function getDefaultCompanyId(): string {
   return process.env.DEFAULT_COMPANY_ID ?? "company-acme";
