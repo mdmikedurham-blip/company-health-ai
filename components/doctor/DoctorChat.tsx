@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  doctorExplainResponses,
+  doctorDocumentCount,
   doctorInitialMessages,
   doctorResponses,
   doctorSuggestedPrompts,
-} from "@/lib/mock-data";
+  getDoctorExplainPrompt,
+  getDoctorExplainResponse,
+} from "@/lib/doctor";
 import type { DoctorMessage } from "@/lib/types";
 import { DoctorResponseCard } from "./DoctorResponseCard";
 
@@ -87,18 +89,16 @@ export function DoctorChat({ initialPrompt, explainRiskId }: DoctorChatProps) {
   useEffect(() => {
     if (handledRef.current) return;
 
-    if (explainRiskId && doctorExplainResponses[explainRiskId]) {
-      handledRef.current = true;
-      const riskTitles: Record<string, string> = {
-        "risk-1": "Explain the customer concentration risk",
-        "risk-2": "Explain the missing contractor IP assignment risk",
-        "risk-3": "Explain the board consent cleanup issue",
-      };
-      sendMessage(
-        riskTitles[explainRiskId] ?? "Explain this risk",
-        doctorExplainResponses[explainRiskId],
-      );
-    } else if (initialPrompt) {
+    if (explainRiskId) {
+      const explainResponse = getDoctorExplainResponse(explainRiskId);
+      if (explainResponse) {
+        handledRef.current = true;
+        sendMessage(getDoctorExplainPrompt(explainRiskId), explainResponse);
+        return;
+      }
+    }
+
+    if (initialPrompt) {
       handledRef.current = true;
       sendMessage(initialPrompt);
     }
@@ -200,7 +200,8 @@ export function DoctorChat({ initialPrompt, explainRiskId }: DoctorChatProps) {
             </button>
           </form>
           <p className="mt-2 text-center text-[10px] text-zinc-600">
-            Answers include evidence citations from 1,247 analyzed documents
+            Answers include evidence citations from {doctorDocumentCount.toLocaleString()} analyzed
+            documents
           </p>
         </div>
       </div>

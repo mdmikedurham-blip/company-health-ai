@@ -1,4 +1,4 @@
-import type { ScoreChangeExplanation } from "@/lib/types";
+import type { ScoreChangeExplanation } from "@/lib/domain";
 
 interface ScoreChangeCardProps {
   data: ScoreChangeExplanation;

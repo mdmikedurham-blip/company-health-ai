@@ -1,6 +1,6 @@
 "use client";
 
-import type { HealthStatus, TrendDirection } from "@/lib/types";
+import type { HealthStatus, TrendDirection } from "@/lib/domain";
 import { useExplainOptional } from "@/components/explain/ExplainProvider";
 import { TrendIndicator } from "./TrendIndicator";
 

@@ -5,7 +5,6 @@
 import type {
   Company,
   CompanyDNA,
-  CompanyHealthSnapshot,
   ExecutiveBrief,
   HealthDimension,
   HealthScore,
@@ -14,7 +13,7 @@ import type {
   TimelineEvent,
 } from "@/lib/domain";
 import { acmeInsightRules } from "@/lib/engine/rules/acme";
-import { acmeConnectors, buildCompanyHealthSnapshot } from "@/lib/connectors";
+import { acmeConnectors } from "@/lib/connectors";
 import type { PlatformInput } from "@/lib/connectors";
 
 // ─── Company & score ─────────────────────────────────────────────────────────
@@ -499,9 +498,3 @@ export const acmePlatformInput: PlatformInput = {
   rules: acmeInsightRules,
 };
 
-/** @deprecated Use acmePlatformInput */
-export const acmeEngineInput = acmePlatformInput;
-
-/** Full pipeline: Connectors → Insight Engine → CompanyHealthSnapshot */
-export const acmeCorpSnapshot: CompanyHealthSnapshot =
-  buildCompanyHealthSnapshot(acmePlatformInput);

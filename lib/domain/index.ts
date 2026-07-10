@@ -23,8 +23,6 @@ export type {
   TrendDirection,
 } from "./primitives";
 
-export type { ScoreSnapshot } from "./primitives";
-
 export type { Company } from "./company";
 export type {
   CompanyDNA,
@@ -71,10 +69,3 @@ export {
   buildRiskExplainPayload,
   getDimensionIdByName as getDimensionIdByNameFromSnapshot,
 } from "./explain";
-
-// Migration aliases — remove once all imports use canonical names
-export type { HealthDimension as HealthDimensionDetail } from "./health";
-export type { Risk as RiskDetail } from "./risk";
-export type { Evidence as EvidenceItem } from "./evidence";
-export type { Recommendation as RecommendedAction } from "./recommendation";
-export type { RiskSeverity as RiskLevel } from "./primitives";

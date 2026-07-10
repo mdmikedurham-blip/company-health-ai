@@ -1,11 +1,11 @@
 import Link from "next/link";
-import type { EvidenceSource } from "@/lib/types";
+import type { ConnectorSummary } from "@/lib/domain";
 
 interface EvidenceCardProps {
   totalDocuments: number;
   systemsConnected: number;
   lastFullScan: string;
-  sources: EvidenceSource[];
+  sources: ConnectorSummary[];
 }
 
 export function EvidenceCard({

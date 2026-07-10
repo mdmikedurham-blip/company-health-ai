@@ -1,7 +1,6 @@
 "use client";
 
-import type { TimelineEvent, TimelineEventType } from "@/lib/types";
-import { timelineEvents } from "@/lib/data";
+import type { TimelineEvent, TimelineEventType } from "@/lib/domain";
 
 const eventTypeStyles: Record<TimelineEventType, { color: string; label: string }> = {
   "score-change": { color: "bg-indigo-500", label: "Score change" },

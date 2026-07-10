@@ -45,16 +45,6 @@ export interface Trend {
   value: number;
 }
 
-/** @deprecated Use HealthScore from health.ts */
-export interface ScoreSnapshot {
-  score: number;
-  status: HealthStatus;
-  change: number;
-  changeLabel: string;
-  lastUpdated: string;
-  confidence: number;
-}
-
 export interface ScoreChangeDriver {
   dimension: string;
   impact: number;

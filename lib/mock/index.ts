@@ -1,1 +1,1 @@
-export { acmeCorpSnapshot, acmeEngineInput, acmePlatformInput } from "./seeds/acme-corp";
+export { acmePlatformInput } from "./seeds/acme-corp";

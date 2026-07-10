@@ -9,6 +9,7 @@ export type {
   CompanyDNA,
   CompanyHealthSnapshot,
   ConnectorStatus,
+  ConnectorSummary,
   DimensionId,
   Evidence,
   EvidenceCatalog,
@@ -37,32 +38,7 @@ export type {
   TrendDirection,
 } from "@/lib/domain";
 
-/** @deprecated Use Evidence */
-export type { Evidence as EvidenceItem } from "@/lib/domain";
-
-/** @deprecated Use Recommendation */
-export type { Recommendation as RecommendedAction } from "@/lib/domain";
-
-/** @deprecated Use HealthDimension */
-export type { HealthDimension as HealthDimensionDetail } from "@/lib/domain";
-
-/** @deprecated Use Risk */
-export type { Risk as RiskDetail } from "@/lib/domain";
-
-/** @deprecated Use RiskSeverity */
-export type { RiskSeverity as RiskLevel } from "@/lib/domain";
-
-/** Legacy flat dimension row shape */
-export interface HealthDimensionRow {
-  id?: string;
-  name: string;
-  score: number;
-  status: HealthStatus;
-  trend: TrendDirection;
-  trendValue: number;
-}
-
-/** Evidence explorer list view */
+/** Evidence explorer list view projection */
 export interface EvidenceRecordView {
   id: string;
   sourceSystem: string;
@@ -73,18 +49,6 @@ export interface EvidenceRecordView {
   summary: string;
   linkedRisks: string[];
   linkedInsights: string[];
-}
-
-/** @deprecated Use EvidenceRecordView */
-export type EvidenceRecord = EvidenceRecordView;
-
-/** @deprecated Use ConnectorSummary from domain */
-export interface EvidenceSource {
-  id: string;
-  name: string;
-  system: string;
-  documentsAnalyzed: number;
-  lastSynced: string;
 }
 
 export interface EvidenceGraphNode {
@@ -115,9 +79,6 @@ export interface DoctorResponse {
   recommendedAction: string;
 }
 
-/** @deprecated Use Insight from domain */
-export type AIInsight = Insight;
-
 export interface ExplainPayload {
   type: "risk" | "dimension";
   id: string;
@@ -131,5 +92,4 @@ export interface ExplainPayload {
   estimatedScoreImprovement: number;
 }
 
-// Re-import Insight for AIInsight alias
-import type { HealthStatus, Insight, RiskSeverity, TrendDirection } from "@/lib/domain";
+import type { RiskSeverity } from "@/lib/domain";

@@ -1,5 +1,6 @@
 import { AppShell } from "@/components/AppShell";
 import { DoctorChat } from "@/components/doctor/DoctorChat";
+import { evidenceCatalog } from "@/lib/data";
 
 interface DoctorPageProps {
   searchParams: Promise<{
@@ -14,7 +15,7 @@ export default async function DoctorPage({ searchParams }: DoctorPageProps) {
   return (
     <AppShell
       title="Company Doctor"
-      subtitle="AI health analyst · 1,247 documents indexed"
+      subtitle={`AI health analyst · ${evidenceCatalog.totalDocuments.toLocaleString()} documents indexed`}
       flush
     >
       <DoctorChat

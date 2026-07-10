@@ -1,19 +1,19 @@
-import type { RiskLevel } from "@/lib/types";
+import type { RiskSeverity } from "@/lib/domain";
 
-const levelStyles: Record<RiskLevel, string> = {
+const levelStyles: Record<RiskSeverity, string> = {
   high: "risk-high",
   medium: "risk-medium",
   low: "risk-low",
 };
 
-const levelLabels: Record<RiskLevel, string> = {
+const levelLabels: Record<RiskSeverity, string> = {
   high: "High",
   medium: "Medium",
   low: "Low",
 };
 
 interface RiskLevelBadgeProps {
-  level: RiskLevel;
+  level: RiskSeverity;
   className?: string;
 }
 

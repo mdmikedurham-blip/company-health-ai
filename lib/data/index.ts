@@ -17,10 +17,7 @@ import {
   getTopRisks,
   toDimensionSummary,
   toRiskCardView,
-  type CompanyHealthSnapshot,
   type Evidence,
-  type HealthDimension,
-  type Risk,
 } from "@/lib/domain";
 import type { EvidenceRecordView } from "@/lib/types";
 
@@ -71,9 +68,11 @@ function toEvidenceRecordView(item: Evidence): EvidenceRecordView {
     .map((riskId) => getRisk(companySnapshot, riskId)?.title)
     .filter((title): title is string => title !== undefined);
 
-  const linkedInsights = item.findingIds
-    .map((findingId) => getFinding(companySnapshot, findingId)?.title)
-    .filter((title): title is string => title !== undefined);
+  const linkedInsights = companySnapshot.insights
+    .filter((insight) =>
+      insight.findingIds.some((findingId) => item.findingIds.includes(findingId)),
+    )
+    .map((insight) => insight.title);
 
   return {
     id: item.id,

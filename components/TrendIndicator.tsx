@@ -1,4 +1,4 @@
-import type { TrendDirection } from "@/lib/types";
+import type { TrendDirection } from "@/lib/domain";
 
 interface TrendIndicatorProps {
   trend: TrendDirection;

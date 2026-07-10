@@ -1,12 +1,12 @@
 "use client";
 
-import type { RiskLevel } from "@/lib/types";
+import type { RiskSeverity } from "@/lib/domain";
 import { useExplainOptional } from "@/components/explain/ExplainProvider";
 import { RiskLevelBadge } from "./RiskLevelBadge";
 
 interface RiskCardProps {
   title: string;
-  level: RiskLevel;
+  level: RiskSeverity;
   dimension: string;
   summary: string;
   source: string;

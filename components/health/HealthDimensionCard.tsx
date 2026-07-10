@@ -1,11 +1,11 @@
 "use client";
 
-import type { HealthDimensionDetail } from "@/lib/types";
+import type { HealthDimension } from "@/lib/domain";
 import { useExplain } from "@/components/explain/ExplainProvider";
 import { TrendIndicator } from "@/components/TrendIndicator";
 
 interface HealthDimensionCardProps {
-  dimension: HealthDimensionDetail;
+  dimension: HealthDimension;
 }
 
 const statusStyles = {

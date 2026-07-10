@@ -1,10 +1,10 @@
 "use client";
 
-import type { HealthDimensionDetail } from "@/lib/types";
+import type { HealthDimension } from "@/lib/domain";
 import { HealthDimensionCard } from "./HealthDimensionCard";
 
 interface HealthDimensionsGridProps {
-  dimensions: HealthDimensionDetail[];
+  dimensions: HealthDimension[];
 }
 
 export function HealthDimensionsGrid({ dimensions }: HealthDimensionsGridProps) {
