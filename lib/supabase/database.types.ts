@@ -522,23 +522,28 @@ export type Database = {
           company_id: string;
           event_date: string;
           month: string;
-          type:
-            | "score-change"
-            | "evidence-added"
-            | "finding-created"
-            | "risk-created"
-            | "risk-resolved"
-            | "board"
-            | "legal"
-            | "customer"
-            | "financial";
+          type: string;
           title: string;
           description: string;
+          summary: string | null;
+          occurred_at: string | null;
           score_before: number | null;
           score_after: number | null;
           dimension_id: string | null;
           dimension: string | null;
           why_health_changed: string | null;
+          source_document_id: string | null;
+          evidence_ids: string[];
+          finding_ids: string[];
+          risk_ids: string[];
+          previous_value: number | null;
+          current_value: number | null;
+          score_delta: number | null;
+          parent_event_id: string | null;
+          root_event_id: string | null;
+          causal_chain_id: string | null;
+          confidence: number;
+          metadata: Json;
           created_at: string;
         };
         Insert: {
@@ -546,23 +551,28 @@ export type Database = {
           company_id: string;
           event_date: string;
           month: string;
-          type:
-            | "score-change"
-            | "evidence-added"
-            | "finding-created"
-            | "risk-created"
-            | "risk-resolved"
-            | "board"
-            | "legal"
-            | "customer"
-            | "financial";
+          type: string;
           title: string;
           description?: string;
+          summary?: string | null;
+          occurred_at?: string | null;
           score_before?: number | null;
           score_after?: number | null;
           dimension_id?: string | null;
           dimension?: string | null;
           why_health_changed?: string | null;
+          source_document_id?: string | null;
+          evidence_ids?: string[];
+          finding_ids?: string[];
+          risk_ids?: string[];
+          previous_value?: number | null;
+          current_value?: number | null;
+          score_delta?: number | null;
+          parent_event_id?: string | null;
+          root_event_id?: string | null;
+          causal_chain_id?: string | null;
+          confidence?: number;
+          metadata?: Json;
           created_at?: string;
         };
         Update: {
@@ -570,23 +580,28 @@ export type Database = {
           company_id?: string;
           event_date?: string;
           month?: string;
-          type?:
-            | "score-change"
-            | "evidence-added"
-            | "finding-created"
-            | "risk-created"
-            | "risk-resolved"
-            | "board"
-            | "legal"
-            | "customer"
-            | "financial";
+          type?: string;
           title?: string;
           description?: string;
+          summary?: string | null;
+          occurred_at?: string | null;
           score_before?: number | null;
           score_after?: number | null;
           dimension_id?: string | null;
           dimension?: string | null;
           why_health_changed?: string | null;
+          source_document_id?: string | null;
+          evidence_ids?: string[];
+          finding_ids?: string[];
+          risk_ids?: string[];
+          previous_value?: number | null;
+          current_value?: number | null;
+          score_delta?: number | null;
+          parent_event_id?: string | null;
+          root_event_id?: string | null;
+          causal_chain_id?: string | null;
+          confidence?: number;
+          metadata?: Json;
           created_at?: string;
         };
         Relationships: [

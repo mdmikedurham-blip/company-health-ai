@@ -108,6 +108,47 @@ export async function analyzeAndPersistIncremental(
     companyId: input.company.id,
     evidence: allEvidence,
     previousHealthScore,
+    previous: {
+      findings: priorFindings.map((f) => ({
+        id: f.id,
+        title: f.title,
+        description: f.description,
+        dimensionId: f.dimensionId,
+        scoreImpact: f.scoreImpact,
+        materiality: f.materiality,
+        confidence: f.confidence,
+        evidenceIds: f.evidenceIds,
+        direction: f.direction,
+      })),
+      risks: priorRisks.map((r) => ({
+        id: r.id,
+        title: r.title,
+        summary: r.summary,
+        dimensionId: r.dimensionId,
+        severity: r.severity,
+        status: r.status,
+        confidence: r.confidence,
+        evidenceIds: r.evidenceIds,
+        findingIds: r.findingIds,
+        estimatedScoreImpact: r.estimatedScoreImpact,
+      })),
+      dimensions: (priorHealth?.dimensions ?? input.dimensionProfiles).map(
+        (d) => ({
+          id: d.id,
+          name: d.name,
+          score: d.score,
+        }),
+      ),
+      healthScore: previousHealthScore
+        ? {
+            score: previousHealthScore.score,
+            confidence: previousHealthScore.confidence,
+          }
+        : undefined,
+      evidenceIds: allEvidence
+        .filter((e) => !changedIdSet.has(e.id))
+        .map((e) => e.id),
+    },
     dimensionProfiles: input.dimensionProfiles,
     asOf: input.asOf,
   });

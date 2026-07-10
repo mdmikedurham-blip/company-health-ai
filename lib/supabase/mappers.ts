@@ -330,18 +330,37 @@ export function healthScoreToInsert(
 // ─── Timeline ────────────────────────────────────────────────────────────────
 
 export function timelineEventFromRow(row: TimelineEventRow): TimelineEvent {
+  const summary = row.summary ?? row.description;
+  const rootEventId = row.root_event_id ?? row.id;
   return {
     id: row.id,
+    companyId: row.company_id,
     date: row.event_date,
     month: row.month,
-    type: row.type,
+    type: row.type as TimelineEvent["type"],
     title: row.title,
+    summary,
     description: row.description,
+    occurredAt: row.occurred_at ?? `${row.event_date}T00:00:00.000Z`,
     scoreBefore: row.score_before != null ? Number(row.score_before) : undefined,
     scoreAfter: row.score_after != null ? Number(row.score_after) : undefined,
     dimensionId: row.dimension_id ?? undefined,
     dimension: row.dimension ?? undefined,
     whyHealthChanged: row.why_health_changed ?? undefined,
+    sourceDocumentId: row.source_document_id ?? undefined,
+    evidenceIds: row.evidence_ids ?? [],
+    findingIds: row.finding_ids ?? [],
+    riskIds: row.risk_ids ?? [],
+    previousValue:
+      row.previous_value != null ? Number(row.previous_value) : undefined,
+    currentValue:
+      row.current_value != null ? Number(row.current_value) : undefined,
+    scoreDelta: row.score_delta != null ? Number(row.score_delta) : undefined,
+    parentEventId: row.parent_event_id ?? undefined,
+    rootEventId,
+    causalChainId: row.causal_chain_id ?? `chain-${rootEventId}`,
+    confidence: Number(row.confidence ?? 0),
+    metadata: (row.metadata as TimelineEvent["metadata"]) ?? {},
   };
 }
 
@@ -349,6 +368,14 @@ export function timelineEventToInsert(
   companyId: string,
   event: TimelineEvent,
 ): TablesInsert<"timeline_events"> {
+  const previousNumeric =
+    typeof event.previousValue === "number"
+      ? event.previousValue
+      : event.scoreBefore ?? null;
+  const currentNumeric =
+    typeof event.currentValue === "number"
+      ? event.currentValue
+      : event.scoreAfter ?? null;
   return {
     id: event.id,
     company_id: companyId,
@@ -356,11 +383,25 @@ export function timelineEventToInsert(
     month: event.month,
     type: event.type,
     title: event.title,
-    description: event.description,
+    description: event.description || event.summary,
+    summary: event.summary,
+    occurred_at: event.occurredAt,
     score_before: event.scoreBefore ?? null,
     score_after: event.scoreAfter ?? null,
     dimension_id: event.dimensionId ?? null,
     dimension: event.dimension ?? null,
     why_health_changed: event.whyHealthChanged ?? null,
+    source_document_id: event.sourceDocumentId ?? null,
+    evidence_ids: event.evidenceIds ?? [],
+    finding_ids: event.findingIds ?? [],
+    risk_ids: event.riskIds ?? [],
+    previous_value: previousNumeric,
+    current_value: currentNumeric,
+    score_delta: event.scoreDelta ?? null,
+    parent_event_id: event.parentEventId ?? null,
+    root_event_id: event.rootEventId,
+    causal_chain_id: event.causalChainId,
+    confidence: event.confidence,
+    metadata: asJson(event.metadata ?? {}),
   };
 }

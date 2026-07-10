@@ -91,7 +91,10 @@ export function buildCausalExecutiveBrief(
     ...primaryDrivers.flatMap((d) => d.timelineEventIds),
     ...secondaryDrivers.flatMap((d) => d.timelineEventIds),
     ...input.timeline
-      .filter((t) => t.type === "score-change")
+      .filter(
+        (t) =>
+          t.type === "overall-score-changed" || t.type === "score-change",
+      )
       .map((t) => t.id),
   ]);
 

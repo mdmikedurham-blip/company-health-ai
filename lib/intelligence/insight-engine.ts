@@ -21,7 +21,6 @@ import type {
   ScoreChangeExplanation,
   TimelineEvent,
 } from "@/lib/domain";
-import { formatEvidenceLabel } from "@/lib/domain";
 import { analyzeEvidence } from "./evidence-analyzer";
 import { deriveFindings } from "./finding-engine";
 import {
@@ -30,6 +29,11 @@ import {
 } from "./recommendation-engine";
 import { assessRisks } from "./risk-engine";
 import { computeHealthFromFindings } from "./scoring-engine";
+import {
+  buildCausalTimeline,
+  type TimelineDocument,
+  type TimelinePreviousSlice,
+} from "./timeline";
 
 /** Fixed assessment clock for Acme mock runs — keeps snapshots byte-stable. */
 export const DEFAULT_AS_OF = "2026-07-09T13:42:00.000Z";
@@ -38,6 +42,12 @@ export interface InsightEngineInput {
   companyId: string;
   evidence: Evidence[];
   previousHealthScore?: HealthScore;
+  /** Optional prior analysis slice for causal timeline diffs. */
+  previous?: TimelinePreviousSlice;
+  /** Optional documents from connector sync for document-added/updated events. */
+  documents?: TimelineDocument[];
+  /** Optional map evidenceId → source document id. */
+  evidenceDocumentIds?: Record<string, string>;
   /** Optional dimension profiles to preserve owner / whyItMatters metadata. */
   dimensionProfiles?: HealthDimension[];
   /**
@@ -66,23 +76,6 @@ export function resolveAsOf(asOf?: Date | string): Date {
   return new Date(DEFAULT_AS_OF);
 }
 
-function formatTimelineDate(asOf: Date): string {
-  return asOf.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-}
-
-function formatTimelineMonth(asOf: Date): string {
-  return asOf.toLocaleString("en-US", {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-}
-
 function linkEvidence(
   evidence: Evidence[],
   findings: Finding[],
@@ -97,78 +90,6 @@ function linkEvidence(
       .map((r) => r.id);
     return { ...item, findingIds, linkedRiskIds };
   });
-}
-
-function buildTimelineEvents(params: {
-  findings: Finding[];
-  risks: Risk[];
-  evidence: Evidence[];
-  healthScore: HealthScore;
-  previousHealthScore?: HealthScore;
-  asOf: Date;
-}): TimelineEvent[] {
-  const events: TimelineEvent[] = [];
-  const month = formatTimelineMonth(params.asOf);
-  const today = formatTimelineDate(params.asOf);
-
-  if (params.previousHealthScore) {
-    events.push({
-      id: "tl-engine-score",
-      date: today,
-      month,
-      type: "score-change",
-      title: `Health score ${params.healthScore.score}`,
-      description: `Overall health ${params.healthScore.changeLabel} (was ${params.previousHealthScore.score}).`,
-      scoreBefore: params.previousHealthScore.score,
-      scoreAfter: params.healthScore.score,
-      whyHealthChanged: params.healthScore.scoreExplanations
-        ?.filter((e) => e.impacts.length > 0)
-        .map((e) => `${e.dimensionId}: ${e.finalScore - e.baselineScore}`)
-        .join("; "),
-    });
-  }
-
-  for (const finding of params.findings) {
-    events.push({
-      id: `tl-finding-${finding.id}`,
-      date: finding.extractedAt,
-      month,
-      type: "finding-created",
-      title: finding.title,
-      description: finding.description,
-      dimensionId: finding.dimensionId,
-      dimension: finding.dimension,
-    });
-  }
-
-  for (const risk of params.risks) {
-    events.push({
-      id: `tl-risk-${risk.id}`,
-      date: today,
-      month,
-      type: "risk-created",
-      title: risk.title,
-      description: risk.summary,
-      dimensionId: risk.dimensionId,
-      dimension: risk.dimension,
-      whyHealthChanged: risk.whyItMatters,
-    });
-  }
-
-  for (const item of params.evidence) {
-    events.push({
-      id: `tl-evidence-${item.id}`,
-      date: item.collectedAt,
-      month,
-      type: "evidence-added",
-      title: `${formatEvidenceLabel(item)} indexed`,
-      description: item.contentSummary,
-      dimensionId: item.dimensionId,
-      dimension: item.dimension,
-    });
-  }
-
-  return events;
 }
 
 /**
@@ -207,12 +128,32 @@ export function runInsightEngine(input: InsightEngineInput): InsightEngineOutput
   // Stage 6: Link evidence ↔ findings ↔ risks
   const evidence = linkEvidence(rawEvidence, findings, risks);
 
-  const timelineEvents = buildTimelineEvents({
+  // Stage 7: Causal timeline (document → evidence → finding → risk → score)
+  const previous: TimelinePreviousSlice | undefined = input.previous
+    ? input.previous
+    : input.previousHealthScore
+      ? {
+          findings: [],
+          risks: [],
+          healthScore: {
+            score: input.previousHealthScore.score,
+            confidence: input.previousHealthScore.confidence,
+          },
+          evidenceIds: [],
+        }
+      : undefined;
+
+  const timelineEvents = buildCausalTimeline({
+    companyId: input.companyId,
     findings,
     risks,
     evidence,
+    dimensions,
     healthScore,
-    previousHealthScore: input.previousHealthScore,
+    recommendations,
+    previous,
+    documents: input.documents,
+    evidenceDocumentIds: input.evidenceDocumentIds,
     asOf,
   });
 

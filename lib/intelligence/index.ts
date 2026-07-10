@@ -37,6 +37,16 @@ export type {
   ExecutiveBrief as CausalExecutiveBrief,
 } from "./brief";
 export {
+  buildCausalTimeline,
+  diffAnalysis,
+  stableEventId,
+} from "./timeline";
+export type {
+  BuildCausalTimelineInput,
+  TimelineDocument,
+  TimelinePreviousSlice,
+} from "./timeline";
+export {
   BASELINE_DIMENSION_SCORE,
   CONCENTRATION_HIGH,
   CONCENTRATION_MEDIUM,

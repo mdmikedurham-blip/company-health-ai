@@ -25,11 +25,21 @@ export type ReportStatus = "ready" | "draft" | "scheduled";
 export type BoardPrepStatus = "ready" | "needs-attention" | "pending";
 
 export type TimelineEventType =
+  | "document-added"
+  | "document-updated"
+  | "evidence-created"
+  | "finding-created"
+  | "finding-updated"
+  | "risk-created"
+  | "risk-updated"
+  | "risk-resolved"
+  | "dimension-score-changed"
+  | "overall-score-changed"
+  | "recommendation-created"
+  | "recommendation-completed"
+  /** @deprecated Legacy seed / DB types — mapped by timeline UI. */
   | "score-change"
   | "evidence-added"
-  | "finding-created"
-  | "risk-created"
-  | "risk-resolved"
   | "board"
   | "legal"
   | "customer"
