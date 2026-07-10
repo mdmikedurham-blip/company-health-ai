@@ -21,6 +21,22 @@ export {
   generateRecommendations,
 } from "./recommendation-engine";
 export {
+  analyzeCausalDrivers,
+  buildCausalExecutiveBrief,
+  computeScoreDelta,
+  computeWeightedScore,
+  rankDrivers,
+  splitPrimarySecondary,
+} from "./brief";
+export type {
+  BriefSeed,
+  BuildCausalBriefInput,
+  CausalAnalysis,
+  CausalAnalyzerInput,
+  CausalDriver,
+  ExecutiveBrief as CausalExecutiveBrief,
+} from "./brief";
+export {
   BASELINE_DIMENSION_SCORE,
   CONCENTRATION_HIGH,
   CONCENTRATION_MEDIUM,

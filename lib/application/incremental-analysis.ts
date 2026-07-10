@@ -182,12 +182,31 @@ export async function analyzeAndPersistIncremental(
     ],
   };
 
+  const timeline = [...engine.timelineEvents, ...(input.timelineSeed ?? [])];
+  const priorScore =
+    input.previousHealthScore ?? priorHealth?.healthScore ?? undefined;
+
   const executiveBrief = buildExecutiveBrief({
     healthScore,
-    scoreChange,
+    dimensions: merged.dimensions,
     findings: merged.findings,
-    insights: engine.insights,
     risks: merged.risks,
+    recommendations: engine.recommendations,
+    evidence: engine.evidence,
+    timeline,
+    previous: priorScore
+      ? {
+          healthScore: {
+            score: priorScore.score,
+            confidence: priorScore.confidence,
+          },
+          findings: priorFindings.map((f) => ({
+            id: f.id,
+            dimensionId: f.dimensionId,
+            scoreImpact: f.scoreImpact,
+          })),
+        }
+      : undefined,
     seed: input.briefSeed,
     asOf,
   });
@@ -202,7 +221,7 @@ export async function analyzeAndPersistIncremental(
     insights: engine.insights,
     risks: merged.risks,
     recommendations: engine.recommendations,
-    timeline: [...engine.timelineEvents, ...(input.timelineSeed ?? [])],
+    timeline,
     dna,
     reports: input.reports,
     scoreChange,

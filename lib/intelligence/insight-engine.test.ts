@@ -722,8 +722,10 @@ describe("multi-company snapshot accessor", () => {
     const snap = getCompanyHealthSnapshot("company-acme");
     expect(snap.company.id).toBe("company-acme");
     expect(snap.healthScore.score).toBeGreaterThan(0);
-    expect(snap.executiveBrief.highlights.length).toBeGreaterThan(0);
-    expect(snap.executiveBrief.summary).toBe(snap.scoreChange.summary);
+    expect(snap.executiveBrief.primaryDrivers.length).toBeGreaterThan(0);
+    expect(snap.executiveBrief.headline.length).toBeGreaterThan(0);
+    expect(snap.executiveBrief.overallSummary.length).toBeGreaterThan(0);
+    expect(snap.executiveBrief.evidenceReferences.length).toBeGreaterThan(0);
     invalidateCompanySnapshot("company-acme");
     const rebuilt = getCompanyHealthSnapshot("company-acme");
     expect(rebuilt.healthScore.score).toBe(snap.healthScore.score);

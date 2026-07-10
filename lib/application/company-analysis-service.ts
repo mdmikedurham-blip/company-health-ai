@@ -49,7 +49,7 @@ export interface PlatformInput {
   dna: CompanyDNA;
   reports: Report[];
   timelineSeed?: TimelineEvent[];
-  /** Board calendar seed — highlights/wins come from the engine. */
+  /** Board calendar seed — implications are derived from risks/drivers. */
   briefSeed: BriefSeed;
   /** Assessment clock forwarded to the Insight Engine (deterministic runs). */
   asOf?: Date | string;
@@ -81,12 +81,24 @@ function assembleSnapshot(
     ],
   };
 
+  const timeline = [...engine.timelineEvents, ...(input.timelineSeed ?? [])];
+
   const executiveBrief = buildExecutiveBrief({
     healthScore: engine.healthScore,
-    scoreChange: engine.scoreChange,
+    dimensions: engine.dimensions,
     findings: engine.findings,
-    insights: engine.insights,
     risks: engine.risks,
+    recommendations: engine.recommendations,
+    evidence: engine.evidence,
+    timeline,
+    previous: input.previousHealthScore
+      ? {
+          healthScore: {
+            score: input.previousHealthScore.score,
+            confidence: input.previousHealthScore.confidence,
+          },
+        }
+      : undefined,
     seed: input.briefSeed,
     asOf: input.asOf,
   });
@@ -101,7 +113,7 @@ function assembleSnapshot(
     insights: engine.insights,
     risks: engine.risks,
     recommendations: engine.recommendations,
-    timeline: [...engine.timelineEvents, ...(input.timelineSeed ?? [])],
+    timeline,
     dna,
     reports: input.reports,
     scoreChange: engine.scoreChange,
