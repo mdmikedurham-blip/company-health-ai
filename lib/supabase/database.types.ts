@@ -1,6 +1,6 @@
 /**
  * Generated-style Database types for the Company Health schema.
- * Keep in sync with supabase/migrations/001_company_health_schema.sql
+ * Keep in sync with supabase/migrations/*.sql
  */
 
 export type Json =
@@ -14,6 +14,11 @@ export type Json =
 export type UserRole = "owner" | "admin" | "member" | "viewer";
 export type ConnectorSyncStatus = "running" | "succeeded" | "failed" | "partial";
 export type ConnectorCredentialStatus = "pending" | "connected" | "error";
+export type AnalysisSnapshotStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed";
 
 export type Database = {
   public: {
@@ -54,37 +59,106 @@ export type Database = {
         };
         Relationships: [];
       };
-      users: {
+      profiles: {
         Row: {
           id: string;
-          company_id: string | null;
           email: string;
           full_name: string | null;
-          role: UserRole;
           created_at: string;
           updated_at: string;
         };
         Insert: {
           id: string;
-          company_id?: string | null;
           email: string;
           full_name?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          email?: string;
+          full_name?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      company_members: {
+        Row: {
+          id: string;
+          company_id: string;
+          user_id: string;
+          role: UserRole;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          user_id: string;
           role?: UserRole;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           id?: string;
-          company_id?: string | null;
-          email?: string;
-          full_name?: string | null;
+          company_id?: string;
+          user_id?: string;
           role?: UserRole;
           created_at?: string;
           updated_at?: string;
         };
         Relationships: [
           {
-            foreignKeyName: "users_company_id_fkey";
+            foreignKeyName: "company_members_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "company_members_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      analysis_snapshots: {
+        Row: {
+          id: string;
+          company_id: string;
+          status: AnalysisSnapshotStatus;
+          payload: Json;
+          error_message: string | null;
+          as_of: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          status?: AnalysisSnapshotStatus;
+          payload?: Json;
+          error_message?: string | null;
+          as_of?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          status?: AnalysisSnapshotStatus;
+          payload?: Json;
+          error_message?: string | null;
+          as_of?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "analysis_snapshots_company_id_fkey";
             columns: ["company_id"];
             isOneToOne: false;
             referencedRelation: "companies";
@@ -722,7 +796,7 @@ export type Database = {
             foreignKeyName: "connector_credentials_connected_by_user_id_fkey";
             columns: ["connected_by_user_id"];
             isOneToOne: false;
-            referencedRelation: "users";
+            referencedRelation: "profiles";
             referencedColumns: ["id"];
           },
         ];
@@ -733,6 +807,14 @@ export type Database = {
       current_user_company_id: {
         Args: Record<string, never>;
         Returns: string;
+      };
+      current_user_company_ids: {
+        Args: Record<string, never>;
+        Returns: string[];
+      };
+      is_company_member: {
+        Args: { target_company_id: string };
+        Returns: boolean;
       };
     };
     Enums: Record<string, never>;

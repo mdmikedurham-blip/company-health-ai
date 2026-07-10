@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type DriveStatus = {
   status: "pending" | "connected" | "error";
   accountEmail?: string | null;
   lastSyncedAt?: string | null;
   configured?: boolean;
+  syncStatus?: "running" | "succeeded" | "failed" | "partial" | null;
+  syncError?: string | null;
+  documentsAnalyzed?: number | null;
+  evidenceCreated?: number | null;
+  error?: string;
 };
 
 function formatSynced(iso: string | null | undefined): string {
@@ -23,7 +28,7 @@ function bannerFromOAuthParams(
   reason?: string | null,
 ): string | null {
   if (gdrive === "connected") {
-    return "Google Drive connected with read-only access.";
+    return "Google Drive connected. First sync has started.";
   }
   if (gdrive === "error") {
     return reason || "Google Drive connection failed.";
@@ -31,40 +36,81 @@ function bannerFromOAuthParams(
   return null;
 }
 
+function statusLabel(status: DriveStatus | null): {
+  label: string;
+  tone: string;
+} {
+  if (!status) return { label: "Checking…", tone: "bg-zinc-600" };
+  if (status.status === "error") {
+    return { label: "Error", tone: "bg-red-400" };
+  }
+  if (status.status === "connected" && status.syncStatus === "running") {
+    return { label: "Syncing", tone: "bg-amber-400 animate-pulse" };
+  }
+  if (status.status === "connected" && status.syncStatus === "failed") {
+    return { label: "Error", tone: "bg-red-400" };
+  }
+  if (status.status === "connected") {
+    return { label: "Connected", tone: "bg-emerald-400" };
+  }
+  return { label: "Not connected", tone: "bg-zinc-600" };
+}
+
 export function GoogleDriveConnect({
-  companyId,
   oauthResult,
   oauthReason,
+  compact = false,
 }: {
-  companyId?: string;
   oauthResult?: string | null;
   oauthReason?: string | null;
+  compact?: boolean;
 }) {
   const [status, setStatus] = useState<DriveStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [localBanner, setLocalBanner] = useState<string | null>(null);
 
-  useEffect(() => {
-    const qs = companyId ? `?companyId=${encodeURIComponent(companyId)}` : "";
-    fetch(`/api/connectors/google-drive/status${qs}`)
-      .then((r) => r.json())
-      .then((data: DriveStatus) => setStatus(data))
+  const refresh = useCallback(() => {
+    fetch("/api/connectors/google-drive/status")
+      .then(async (r) => {
+        const data = (await r.json()) as DriveStatus;
+        if (!r.ok) {
+          setStatus({ status: "error", error: data.error ?? "Failed to load" });
+          return;
+        }
+        setStatus(data);
+      })
       .catch(() => setStatus({ status: "pending", configured: false }));
-  }, [companyId]);
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    if (status?.syncStatus !== "running") return;
+    const id = window.setInterval(refresh, 4000);
+    return () => window.clearInterval(id);
+  }, [status?.syncStatus, refresh]);
 
   async function disconnect() {
     setBusy(true);
     try {
-      await fetch("/api/connectors/google-drive/disconnect", {
+      const res = await fetch("/api/connectors/google-drive/disconnect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companyId }),
+        body: JSON.stringify({}),
       });
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        setLocalBanner(data.error ?? "Disconnect failed.");
+        return;
+      }
       setStatus((prev) => ({
         status: "pending",
         configured: prev?.configured,
         accountEmail: null,
         lastSyncedAt: null,
+        syncStatus: null,
       }));
       setLocalBanner("Google Drive disconnected.");
     } finally {
@@ -73,31 +119,50 @@ export function GoogleDriveConnect({
   }
 
   const connected = status?.status === "connected";
-  const authorizeHref = companyId
-    ? `/api/connectors/google-drive/authorize?companyId=${encodeURIComponent(companyId)}`
-    : "/api/connectors/google-drive/authorize";
+  const syncing = connected && status?.syncStatus === "running";
+  const { label, tone } = statusLabel(status);
   const banner =
     localBanner ?? bannerFromOAuthParams(oauthResult, oauthReason);
 
   return (
-    <div className="rounded-md border border-[var(--border)] bg-white/[0.02] px-3 py-2.5">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0">
-          <span
-            className={`h-2 w-2 shrink-0 rounded-full ${
-              connected ? "bg-emerald-400" : "bg-zinc-600"
-            }`}
-          />
+    <div
+      className={
+        compact
+          ? "rounded-md border border-[var(--border)] bg-white/[0.02] px-3 py-2.5"
+          : "rounded-xl border border-[var(--border)] bg-white/[0.02] p-5"
+      }
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3 min-w-0">
+          <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${tone}`} />
           <div className="min-w-0">
-            <p className="text-sm text-zinc-300">Google Drive</p>
-            <p className="truncate text-xs text-zinc-600">
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-medium text-zinc-200">Google Drive</p>
+              <span className="rounded-md border border-[var(--border)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-500">
+                {label}
+              </span>
+            </div>
+            <p className="mt-1 truncate text-xs text-zinc-500">
               {connected
                 ? status?.accountEmail || "Read-only access"
-                : "Not connected"}
-              {connected && status?.lastSyncedAt
-                ? ` · ${formatSynced(status.lastSyncedAt)}`
-                : ""}
+                : "Connect with drive.readonly + offline access"}
             </p>
+            {connected ? (
+              <p className="mt-1 text-xs text-zinc-600">
+                {syncing
+                  ? "First sync in progress…"
+                  : formatSynced(status?.lastSyncedAt)}
+                {typeof status?.documentsAnalyzed === "number"
+                  ? ` · ${status.documentsAnalyzed} docs`
+                  : ""}
+                {typeof status?.evidenceCreated === "number"
+                  ? ` · ${status.evidenceCreated} evidence`
+                  : ""}
+              </p>
+            ) : null}
+            {status?.syncError ? (
+              <p className="mt-1 text-xs text-red-400">{status.syncError}</p>
+            ) : null}
           </div>
         </div>
         {connected ? (
@@ -111,15 +176,26 @@ export function GoogleDriveConnect({
           </button>
         ) : (
           <a
-            href={authorizeHref}
+            href="/api/connectors/google-drive/authorize"
             className="shrink-0 rounded-md bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-900 transition hover:bg-white"
           >
-            Connect
+            Connect Google Drive
           </a>
         )}
       </div>
       {banner ? (
-        <p className="mt-2 text-xs text-zinc-500">{banner}</p>
+        <p className="mt-3 text-xs text-zinc-500">{banner}</p>
+      ) : null}
+      {syncing && !compact ? (
+        <div className="mt-4">
+          <div className="h-1.5 overflow-hidden rounded-full bg-white/5">
+            <div className="h-full w-2/3 animate-pulse rounded-full bg-indigo-400/70" />
+          </div>
+          <p className="mt-2 text-[11px] text-zinc-600">
+            Inventorying Drive files and extracting evidence. This page updates
+            automatically.
+          </p>
+        </div>
       ) : null}
     </div>
   );

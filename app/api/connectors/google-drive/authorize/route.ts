@@ -1,22 +1,31 @@
 import { NextResponse } from "next/server";
+import { buildGoogleDriveAuthorizeUrl } from "@/lib/connectors/google-drive";
 import {
-  buildGoogleDriveAuthorizeUrl,
-  getDefaultCompanyId,
-} from "@/lib/connectors/google-drive";
+  authErrorResponse,
+  requirePrimaryCompany,
+} from "@/lib/auth/session";
 
 /**
- * GET /api/connectors/google-drive/authorize?companyId=...
- * Redirects to Google OAuth consent (drive.readonly, offline refresh token).
+ * GET /api/connectors/google-drive/authorize
+ * Requires an authenticated session. companyId is derived from membership.
  */
 export async function GET(request: Request) {
   try {
-    const url = new URL(request.url);
-    const companyId =
-      url.searchParams.get("companyId") ?? getDefaultCompanyId();
-    const authorizeUrl = buildGoogleDriveAuthorizeUrl(companyId);
+    const { ctx, companyId } = await requirePrimaryCompany();
+    const authorizeUrl = buildGoogleDriveAuthorizeUrl({
+      companyId,
+      userId: ctx.user.id,
+    });
     return NextResponse.redirect(authorizeUrl);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    const { message, status } = authErrorResponse(err);
+    const origin = new URL(request.url).origin;
+    if (status === 401) {
+      return NextResponse.redirect(new URL("/login", origin));
+    }
+    if (status === 403) {
+      return NextResponse.redirect(new URL("/onboarding", origin));
+    }
+    return NextResponse.json({ error: message }, { status });
   }
 }

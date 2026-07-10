@@ -1,19 +1,8 @@
 import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
-import { GoogleDriveConnect } from "@/components/GoogleDriveConnect";
 import { company, companyDNA } from "@/lib/data";
 
-export default async function CompanyDNAPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
-}) {
-  const params = await searchParams;
-  const oauthResult =
-    typeof params.gdrive === "string" ? params.gdrive : null;
-  const oauthReason =
-    typeof params.reason === "string" ? params.reason : null;
-
+export default async function CompanyDNAPage() {
   return (
     <AppShell
       title="Company DNA"
@@ -98,34 +87,38 @@ export default async function CompanyDNAPage({
               Key Systems Connected
             </p>
             <div className="mt-3 space-y-2">
-              <GoogleDriveConnect
-                oauthResult={oauthResult}
-                oauthReason={oauthReason}
-              />
-              {companyDNA.keySystems
-                .filter((system) => system.name !== "Google Drive")
-                .map((system) => (
-                  <div
-                    key={system.name}
-                    className="flex items-center justify-between rounded-md border border-[var(--border)] bg-white/[0.02] px-3 py-2.5"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`h-2 w-2 rounded-full ${
-                          system.status === "connected"
-                            ? "bg-emerald-400"
-                            : "bg-zinc-600"
-                        }`}
-                      />
-                      <span className="text-sm text-zinc-300">{system.name}</span>
-                    </div>
-                    <span className="text-xs text-zinc-600">
-                      {system.status === "connected"
-                        ? `${system.documents} docs`
-                        : "Pending"}
-                    </span>
+              <Link
+                href="/connectors"
+                className="flex items-center justify-between rounded-md border border-[var(--border)] bg-white/[0.02] px-3 py-2.5 transition hover:bg-white/[0.04]"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-indigo-400" />
+                  <span className="text-sm text-zinc-300">Manage connectors</span>
+                </div>
+                <span className="text-xs text-zinc-500">Open →</span>
+              </Link>
+              {companyDNA.keySystems.map((system) => (
+                <div
+                  key={system.name}
+                  className="flex items-center justify-between rounded-md border border-[var(--border)] bg-white/[0.02] px-3 py-2.5"
+                >
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`h-2 w-2 rounded-full ${
+                        system.status === "connected"
+                          ? "bg-emerald-400"
+                          : "bg-zinc-600"
+                      }`}
+                    />
+                    <span className="text-sm text-zinc-300">{system.name}</span>
                   </div>
-                ))}
+                  <span className="text-xs text-zinc-600">
+                    {system.status === "connected"
+                      ? `${system.documents} docs`
+                      : "Pending"}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
           <div className="panel p-5">

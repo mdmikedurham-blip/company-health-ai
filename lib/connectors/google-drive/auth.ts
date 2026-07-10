@@ -63,13 +63,18 @@ function oauthStateSecret(): string {
 
 export type OAuthStatePayload = {
   companyId: string;
+  userId: string;
   nonce: string;
   exp: number;
 };
 
-export function createOAuthState(companyId: string): string {
+export function createOAuthState(input: {
+  companyId: string;
+  userId: string;
+}): string {
   const payload: OAuthStatePayload = {
-    companyId,
+    companyId: input.companyId,
+    userId: input.userId,
     nonce: randomBytes(16).toString("hex"),
     exp: Date.now() + 15 * 60 * 1000,
   };
@@ -96,16 +101,24 @@ export function parseOAuthState(state: string): OAuthStatePayload {
   const payload = JSON.parse(
     Buffer.from(body, "base64url").toString("utf8"),
   ) as OAuthStatePayload;
-  if (!payload.companyId || !payload.exp || payload.exp < Date.now()) {
+  if (
+    !payload.companyId ||
+    !payload.userId ||
+    !payload.exp ||
+    payload.exp < Date.now()
+  ) {
     throw new Error("OAuth state expired or malformed");
   }
   return payload;
 }
 
 /** Build Google consent URL with offline access + read-only Drive scope. */
-export function buildGoogleDriveAuthorizeUrl(companyId?: string): string {
+export function buildGoogleDriveAuthorizeUrl(input: {
+  companyId: string;
+  userId: string;
+}): string {
   const { clientId, redirectUri } = requireGoogleOAuthConfig();
-  const state = createOAuthState(companyId ?? getDefaultCompanyId());
+  const state = createOAuthState(input);
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,

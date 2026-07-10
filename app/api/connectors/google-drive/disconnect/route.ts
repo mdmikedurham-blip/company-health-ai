@@ -1,23 +1,21 @@
 import { NextResponse } from "next/server";
+import { disconnectGoogleDrive } from "@/lib/connectors/google-drive";
 import {
-  disconnectGoogleDrive,
-  getDefaultCompanyId,
-} from "@/lib/connectors/google-drive";
+  authErrorResponse,
+  requirePrimaryCompany,
+} from "@/lib/auth/session";
 
 /**
  * POST /api/connectors/google-drive/disconnect
- * Body: { companyId?: string }
+ * Disconnects Drive for the caller's primary company. Ignores body companyId.
  */
-export async function POST(request: Request) {
+export async function POST() {
   try {
-    const body = (await request.json().catch(() => ({}))) as {
-      companyId?: string;
-    };
-    const companyId = body.companyId ?? getDefaultCompanyId();
+    const { companyId } = await requirePrimaryCompany();
     await disconnectGoogleDrive({ companyId });
     return NextResponse.json({ ok: true, companyId });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    const { message, status } = authErrorResponse(err);
+    return NextResponse.json({ error: message }, { status });
   }
 }

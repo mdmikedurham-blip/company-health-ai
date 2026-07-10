@@ -4,9 +4,16 @@ import {
   parseOAuthState,
   syncGoogleDriveForCompany,
 } from "@/lib/connectors/google-drive";
+import {
+  authErrorResponse,
+  requireUser,
+  listMembershipsForUser,
+} from "@/lib/auth/session";
+import { assertCompanyAccess } from "@/lib/auth/route-guards";
 
 /**
  * GET /api/connectors/google-drive/callback
+ * Requires authenticated session matching OAuth state userId.
  * Exchanges code → stores encrypted refresh token → kicks off first sync.
  */
 export async function GET(request: Request) {
@@ -14,7 +21,10 @@ export async function GET(request: Request) {
   const error = url.searchParams.get("error");
   if (error) {
     return NextResponse.redirect(
-      new URL(`/dna?gdrive=error&reason=${encodeURIComponent(error)}`, url.origin),
+      new URL(
+        `/connectors?gdrive=error&reason=${encodeURIComponent(error)}`,
+        url.origin,
+      ),
     );
   }
 
@@ -28,18 +38,48 @@ export async function GET(request: Request) {
   }
 
   try {
-    const { companyId } = parseOAuthState(state);
-    await completeGoogleDriveOAuth({ code, companyId });
+    const user = await requireUser();
+    const payload = parseOAuthState(state);
+
+    if (payload.userId !== user.id) {
+      throw new Error("OAuth state user mismatch");
+    }
+
+    const memberships = await listMembershipsForUser(user.id);
+    const companyId = assertCompanyAccess(
+      memberships.map((m) => m.companyId),
+      payload.companyId,
+    );
+
+    await completeGoogleDriveOAuth({
+      code,
+      companyId,
+      connectedByUserId: user.id,
+    });
+
     // Best-effort initial sync; connection already stored if this fails.
-    await syncGoogleDriveForCompany(companyId);
+    try {
+      await syncGoogleDriveForCompany(companyId);
+    } catch {
+      // Connection succeeded; sync status will show on connectors page.
+    }
+
     return NextResponse.redirect(
-      new URL("/dna?gdrive=connected", url.origin),
+      new URL("/connectors?gdrive=connected", url.origin),
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const { message, status } = authErrorResponse(err);
+    if (status === 401) {
+      return NextResponse.redirect(
+        new URL(
+          `/login?next=${encodeURIComponent("/connectors")}`,
+          url.origin,
+        ),
+      );
+    }
     return NextResponse.redirect(
       new URL(
-        `/dna?gdrive=error&reason=${encodeURIComponent(message)}`,
+        `/connectors?gdrive=error&reason=${encodeURIComponent(message)}`,
         url.origin,
       ),
     );

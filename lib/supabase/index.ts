@@ -1,12 +1,12 @@
-export type {
-  AppSupabaseClient,
-} from "./client";
+export type { AppSupabaseClient } from "./client";
 export {
-  createBrowserClient,
   createServiceClient,
+  isServiceRoleConfigured,
   isSupabaseConfigured,
 } from "./client";
+export { createBrowserClient } from "./browser";
 export type {
+  AnalysisSnapshotStatus,
   ConnectorCredentialStatus,
   ConnectorSyncStatus,
   Database,

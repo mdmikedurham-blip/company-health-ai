@@ -10,9 +10,20 @@ interface AppShellProps {
   title: string;
   subtitle?: string;
   flush?: boolean;
+  userName?: string | null;
+  companyName?: string | null;
+  userEmail?: string | null;
 }
 
-export function AppShell({ children, title, subtitle, flush = false }: AppShellProps) {
+export function AppShell({
+  children,
+  title,
+  subtitle,
+  flush = false,
+  userName,
+  companyName,
+  userEmail,
+}: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
@@ -31,6 +42,9 @@ export function AppShell({ children, title, subtitle, flush = false }: AppShellP
             title={title}
             subtitle={subtitle}
             onMenuClick={() => setSidebarOpen(true)}
+            userName={userName}
+            companyName={companyName}
+            userEmail={userEmail}
           />
           <main className="flex-1 overflow-y-auto">
             {flush ? (

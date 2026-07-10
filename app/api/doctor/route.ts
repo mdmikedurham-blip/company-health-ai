@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
 import { askDoctor } from "@/lib/doctor";
+import {
+  authErrorResponse,
+  requirePrimaryCompany,
+} from "@/lib/auth/session";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
 
 /**
  * POST /api/doctor
- * Body: { question: string, companyId?: string, explainRiskId?: string }
+ * Body: { question: string, explainRiskId?: string }
+ * companyId is derived from the authenticated session when auth is enabled.
  */
 export async function POST(request: Request) {
   let body: unknown;
@@ -27,23 +33,27 @@ export async function POST(request: Request) {
     );
   }
 
-  const { question, companyId, explainRiskId } = body as {
+  const { question, explainRiskId } = body as {
     question: string;
-    companyId?: string;
     explainRiskId?: string;
   };
 
   try {
+    let companyId: string | undefined;
+    if (isSupabaseConfigured()) {
+      const session = await requirePrimaryCompany();
+      companyId = session.companyId;
+    }
+
     const result = await askDoctor({
       question,
-      companyId:
-        typeof companyId === "string" ? companyId : undefined,
+      companyId,
       explainRiskId:
         typeof explainRiskId === "string" ? explainRiskId : undefined,
     });
     return NextResponse.json(result);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: message }, { status: 500 });
+    const { message, status } = authErrorResponse(err);
+    return NextResponse.json({ error: message }, { status });
   }
 }

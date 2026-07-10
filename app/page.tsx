@@ -1,11 +1,88 @@
 import { AppShell } from "@/components/AppShell";
 import { DashboardContent } from "@/components/dashboard/DashboardContent";
+import { EmptyDashboard } from "@/components/dashboard/EmptyDashboard";
 import { executiveBrief } from "@/lib/data";
+import { getSessionContext } from "@/lib/auth/session";
+import {
+  createServiceClient,
+  isServiceRoleConfigured,
+  isSupabaseConfigured,
+} from "@/lib/supabase";
+import { hasCompletedAnalysis } from "@/lib/auth/connector-status";
 
-export default function ExecutiveDashboard() {
+export const dynamic = "force-dynamic";
+
+export default async function ExecutiveDashboard() {
+  // Local demo without Supabase: keep Acme mock experience.
+  if (!isSupabaseConfigured()) {
+    return (
+      <AppShell
+        title="Executive Dashboard"
+        subtitle={executiveBrief.date}
+        userName="Sarah Chen"
+        companyName="Acme Corp"
+        userEmail="sarah@acme.demo"
+      >
+        <DashboardContent />
+      </AppShell>
+    );
+  }
+
+  const ctx = await getSessionContext();
+  const companyName = ctx?.memberships[0]?.companyName;
+  const companyId = ctx?.primaryCompanyId;
+  const userName =
+    (ctx?.user.user_metadata?.full_name as string | undefined) ??
+    ctx?.user.email ??
+    null;
+
+  let analysisReady = false;
+  if (companyId && isServiceRoleConfigured()) {
+    try {
+      analysisReady = await hasCompletedAnalysis(
+        createServiceClient(),
+        companyId,
+      );
+    } catch {
+      analysisReady = false;
+    }
+  }
+
+  // Also treat existing health_scores as analysis for workspaces that
+  // completed sync before analysis_snapshots existed.
+  if (!analysisReady && companyId && isServiceRoleConfigured()) {
+    try {
+      const { data } = await createServiceClient()
+        .from("health_scores")
+        .select("id")
+        .eq("company_id", companyId)
+        .limit(1)
+        .maybeSingle();
+      analysisReady = Boolean(data);
+    } catch {
+      analysisReady = false;
+    }
+  }
+
   return (
-    <AppShell title="Executive Dashboard" subtitle={executiveBrief.date}>
-      <DashboardContent />
+    <AppShell
+      title="Executive Dashboard"
+      subtitle={
+        analysisReady
+          ? executiveBrief.date
+          : companyName
+            ? `${companyName} · setup`
+            : "Setup"
+      }
+      userName={userName}
+      companyName={companyName}
+      userEmail={ctx?.user.email ?? null}
+    >
+      {analysisReady ? (
+        <DashboardContent />
+      ) : (
+        <EmptyDashboard companyName={companyName} />
+      )}
     </AppShell>
   );
 }
