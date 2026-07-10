@@ -1,4 +1,11 @@
 import { createMockConnector } from "../create-mock-connector";
+import { mockEvidence } from "@/lib/data/mock-evidence";
+
+function evidenceById(id: string) {
+  const item = mockEvidence.find((e) => e.id === id);
+  if (!item) throw new Error(`Missing mock evidence ${id}`);
+  return item;
+}
 
 export const boxConnector = createMockConnector({
   id: "box",
@@ -8,19 +15,6 @@ export const boxConnector = createMockConnector({
   lastSynced: "6:28 AM",
   documentsAnalyzed: 189,
   mappings: [
-    {
-      externalId: "box-folder-legal-audit-2026-q3",
-      evidence: {
-        id: "ev-legal-audit",
-        sourceSystem: "Box",
-        documentName: "Legal folder audit",
-        confidence: 91,
-        dimensionId: "dim-legal",
-        dimension: "Legal",
-        lastReviewed: "Today, 6:28 AM",
-        summary:
-          "12 active contractor agreements reviewed. 4 missing signed IP assignment clauses.",
-      },
-    },
+    { externalId: "box-legal-folder-audit", evidence: evidenceById("ev-legal-audit") },
   ],
 });

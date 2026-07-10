@@ -1,26 +1,51 @@
-import type { CompanyHealthSnapshot } from "@/lib/domain";
-import { runInsightEngine, type InsightEngineInput } from "@/lib/engine";
+/**
+ * Full platform pipeline: Connectors → Insight Engine → CompanyHealthSnapshot.
+ * Phase 2 primary path uses lib/data mock evidence; connectors remain for Phase 3.
+ */
+import type { CompanyHealthSnapshot, HealthDimension, HealthScore } from "@/lib/domain";
+import { runInsightEngine } from "@/lib/intelligence";
 import { runConnectorPipeline } from "./ingest";
 import type { HealthConnector } from "./types";
 
-/**
- * Full platform pipeline: Connectors → Insight Engine → CompanyHealthSnapshot.
- *
- * This is the single integration point for production. Adding a connector
- * requires only registering a new HealthConnector adapter — no UI changes.
- */
-export type PlatformInput = Omit<InsightEngineInput, "evidence" | "evidenceCatalog"> & {
+export interface PlatformInput {
   connectors: HealthConnector[];
   lastFullScan: string;
-};
+  company: CompanyHealthSnapshot["company"];
+  dimensions: HealthDimension[];
+  previousHealthScore?: HealthScore;
+  dna: CompanyHealthSnapshot["dna"];
+  reports: CompanyHealthSnapshot["reports"];
+  timeline?: CompanyHealthSnapshot["timeline"];
+  executiveBrief: CompanyHealthSnapshot["executiveBrief"];
+}
 
 export function buildCompanyHealthSnapshot(input: PlatformInput): CompanyHealthSnapshot {
-  const { connectors, lastFullScan, ...engineInput } = input;
-  const { evidence, evidenceCatalog } = runConnectorPipeline({ connectors, lastFullScan });
-
-  return runInsightEngine({
-    ...engineInput,
-    evidence,
-    evidenceCatalog,
+  const { evidence, evidenceCatalog } = runConnectorPipeline({
+    connectors: input.connectors,
+    lastFullScan: input.lastFullScan,
   });
+
+  const engine = runInsightEngine({
+    companyId: input.company.id,
+    evidence,
+    previousHealthScore: input.previousHealthScore,
+    dimensionProfiles: input.dimensions,
+  });
+
+  return {
+    company: input.company,
+    healthScore: engine.healthScore,
+    dimensions: engine.dimensions,
+    evidence: engine.evidence,
+    evidenceCatalog,
+    findings: engine.findings,
+    insights: engine.insights,
+    risks: engine.risks,
+    recommendations: engine.recommendations,
+    timeline: [...engine.timelineEvents, ...(input.timeline ?? [])],
+    dna: input.dna,
+    reports: input.reports,
+    scoreChange: engine.scoreChange,
+    executiveBrief: input.executiveBrief,
+  };
 }

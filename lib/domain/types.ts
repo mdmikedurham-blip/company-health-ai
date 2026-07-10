@@ -1,3 +1,7 @@
+/**
+ * Domain type barrel — Phase 2 public surface for intelligence + UI.
+ * Prefer importing from `@/lib/domain` or `@/lib/domain/types`.
+ */
 export type {
   ActionPriority,
   BoardPrepStatus,
@@ -43,39 +47,12 @@ export type {
   EvidenceCitation,
   ExtractedFacts,
 } from "./evidence";
-export { formatEvidenceLabel } from "./evidence";
 export type { ExecutiveBrief, BriefWin, BoardPrepItem, BoardMeetingPrep } from "./executive-brief";
 export type { Finding } from "./finding";
 export type { HealthDimension, HealthDimensionSummary, HealthScore } from "./health";
-export { toDimensionSummary } from "./health";
 export type { Insight } from "./insight";
 export type { Recommendation } from "./recommendation";
 export type { Report } from "./report";
 export type { Risk, RiskCardView } from "./risk";
-export { toRiskCardView } from "./risk";
 export type { CompanyHealthSnapshot } from "./snapshot";
 export type { TimelineEvent } from "./timeline";
-
-export {
-  getDashboardMetrics,
-  getDimension,
-  getDimensionIdByName,
-  getEvidence,
-  getEvidenceForDimension,
-  getEvidenceForRisk,
-  getFinding,
-  getFindingsForEvidence,
-  getInsight,
-  getNextBestActions,
-  getRecommendation,
-  getRisk,
-  getRisksForDimension,
-  getTopRisks,
-  resolveEvidenceLabels,
-} from "./selectors";
-
-export {
-  buildDimensionExplainPayload,
-  buildRiskExplainPayload,
-  getDimensionIdByName as getDimensionIdByNameFromSnapshot,
-} from "./explain";

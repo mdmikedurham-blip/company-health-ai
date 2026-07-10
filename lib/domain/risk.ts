@@ -5,24 +5,29 @@ import type {
   RecommendationId,
   RiskId,
   RiskSeverity,
+  RiskStatus,
 } from "./primitives";
 
 export interface Risk {
   id: RiskId;
   title: string;
-  severity: RiskSeverity;
+  summary: string;
   dimensionId: DimensionId;
   dimension: string;
-  summary: string;
-  whyItMatters: string;
-  evidenceIds: EvidenceId[];
+  severity: RiskSeverity;
+  likelihood: number;
+  impact: number;
   findingIds: FindingId[];
+  evidenceIds: EvidenceId[];
+  confidence: number;
+  status: RiskStatus;
+  estimatedScoreImpact: number;
+  /** Narrative for explain drawer / doctor — derived from findings. */
+  whyItMatters: string;
   recommendationId: RecommendationId;
   recommendation: string;
-  estimatedScoreImpact: number;
   primaryEvidenceLabel: string;
   explainPrompt: string;
-  confidence: number;
 }
 
 /** Legacy card view — maps domain `severity` to UI `level`. */

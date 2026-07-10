@@ -1,4 +1,11 @@
 import { createMockConnector } from "../create-mock-connector";
+import { mockEvidence } from "@/lib/data/mock-evidence";
+
+function evidenceById(id: string) {
+  const item = mockEvidence.find((e) => e.id === id);
+  if (!item) throw new Error(`Missing mock evidence ${id}`);
+  return item;
+}
 
 export const hubspotConnector = createMockConnector({
   id: "hubspot",
@@ -8,19 +15,10 @@ export const hubspotConnector = createMockConnector({
   lastSynced: "6:32 AM",
   documentsAnalyzed: 605,
   mappings: [
+    { externalId: "hubspot-report-arr-cohort-q2", evidence: evidenceById("ev-arr-cohort") },
     {
-      externalId: "hubspot-report-arr-cohort-q2",
-      evidence: {
-        id: "ev-arr-cohort",
-        sourceSystem: "HubSpot",
-        documentName: "ARR cohort analysis",
-        confidence: 94,
-        dimensionId: "dim-customer",
-        dimension: "Customer",
-        lastReviewed: "Today, 6:32 AM",
-        summary:
-          "Top 3 customers account for 58% of ARR ($4.2M of $7.2M). Meridian Corp alone represents 24%.",
-      },
+      externalId: "hubspot-revenue-quality",
+      evidence: evidenceById("ev-revenue-quality"),
     },
   ],
 });

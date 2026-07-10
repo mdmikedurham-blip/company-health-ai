@@ -1,24 +1,29 @@
 import type {
   DimensionId,
+  EvidenceId,
   FindingId,
   InsightId,
   InsightType,
 } from "./primitives";
 
 /**
- * Executive-facing intelligence synthesized from Findings.
- * Insights surface on the dashboard and inform Recommendations.
+ * Atomic intelligence statement derived from Evidence.
+ * Insights feed Findings; an LLM can generate statements later without UI changes.
  *
- * Pipeline: Evidence → Finding → Insight → Recommendation
+ * Pipeline: Evidence → Insight → Finding → Risk / Recommendation
  */
 export interface Insight {
   id: InsightId;
-  title: string;
-  detail: string;
+  statement: string;
   dimensionId: DimensionId;
   dimension: string;
-  findingIds: FindingId[];
+  evidenceIds: EvidenceId[];
   confidence: number;
   generatedAt: string;
+  /** @deprecated Prefer `statement` — kept for UI adapters. */
+  title: string;
+  /** @deprecated Prefer `statement` — kept for UI adapters. */
+  detail: string;
+  findingIds: FindingId[];
   type: InsightType;
 }

@@ -1,0 +1,280 @@
+/**
+ * Company profile — static identity, DNA, and dimension metadata.
+ * Scores and risks are NOT authored here; they come from runInsightEngine().
+ */
+
+import type {
+  Company,
+  CompanyDNA,
+  ExecutiveBrief,
+  HealthDimension,
+  HealthScore,
+  Report,
+  TimelineEvent,
+} from "@/lib/domain";
+import { BASELINE_DIMENSION_SCORE, DIMENSION_WEIGHTS } from "@/lib/intelligence/rules";
+
+export const companyProfile: Company = {
+  id: "company-acme",
+  name: "Acme Corp",
+  plan: "Executive",
+  founded: "2019",
+  stage: "Series B",
+  employees: 84,
+  arr: "$7.2M",
+};
+
+/** Prior period score — used to compute change vs current engine output. */
+export const previousHealthScore: HealthScore = {
+  score: 82,
+  status: "watch",
+  change: 0,
+  changeLabel: "June baseline",
+  lastUpdated: "Jun 1, 2026",
+  confidence: 88,
+};
+
+const dimensionMeta: Omit<
+  HealthDimension,
+  "score" | "trend" | "status" | "confidence" | "evidenceCount" | "evidenceIds" | "findingIds" | "topDrivers" | "summary" | "estimatedScoreImprovement" | "recommendedActions"
+>[] = [
+  {
+    id: "dim-financial",
+    name: "Financial",
+    owner: "CFO · Lisa Park",
+    whyItMatters:
+      "Financial health underpins investor confidence, fundraising readiness, and operational flexibility.",
+    weight: DIMENSION_WEIGHTS["dim-financial"],
+  },
+  {
+    id: "dim-revenue-quality",
+    name: "Revenue Quality",
+    owner: "VP Revenue · James Wu",
+    whyItMatters:
+      "Revenue quality determines valuation multiples and predictability for board and investors.",
+    weight: DIMENSION_WEIGHTS["dim-revenue-quality"],
+  },
+  {
+    id: "dim-customer",
+    name: "Customer",
+    owner: "VP Customer Success · Maria Santos",
+    whyItMatters:
+      "Customer health drives retention, expansion revenue, and resilience against churn shocks.",
+    weight: DIMENSION_WEIGHTS["dim-customer"],
+  },
+  {
+    id: "dim-legal",
+    name: "Legal",
+    owner: "General Counsel · David Kim",
+    whyItMatters: "Legal gaps create diligence risk during fundraising, M&A, and IP disputes.",
+    weight: DIMENSION_WEIGHTS["dim-legal"],
+  },
+  {
+    id: "dim-governance",
+    name: "Governance",
+    owner: "CEO · Sarah Chen",
+    whyItMatters:
+      "Governance gaps block clean diligence and can delay fundraising or board approvals.",
+    weight: DIMENSION_WEIGHTS["dim-governance"],
+  },
+  {
+    id: "dim-security",
+    name: "Security",
+    owner: "CTO · Alex Rivera",
+    whyItMatters:
+      "Security posture is a prerequisite for enterprise sales and institutional investment.",
+    weight: DIMENSION_WEIGHTS["dim-security"],
+  },
+  {
+    id: "dim-people",
+    name: "People",
+    owner: "VP People · Rachel Torres",
+    whyItMatters: "People stability enables execution velocity and reduces key-person risk.",
+    weight: DIMENSION_WEIGHTS["dim-people"],
+  },
+  {
+    id: "dim-operations",
+    name: "Operations",
+    owner: "COO · Tom Bradley",
+    whyItMatters: "Operational resilience prevents revenue disruption and supports scale.",
+    weight: DIMENSION_WEIGHTS["dim-operations"],
+  },
+  {
+    id: "dim-product",
+    name: "Product",
+    owner: "VP Product · Nina Patel",
+    whyItMatters:
+      "Product velocity and quality drive retention, expansion, and competitive positioning.",
+    weight: DIMENSION_WEIGHTS["dim-product"],
+  },
+  {
+    id: "dim-ai-readiness",
+    name: "AI Readiness",
+    owner: "CTO · Alex Rivera",
+    whyItMatters: "AI readiness affects product differentiation, compliance, and future valuation.",
+    weight: DIMENSION_WEIGHTS["dim-ai-readiness"],
+  },
+];
+
+/** Dimension shells — scores filled by the scoring engine from baseline + findings. */
+export const dimensionProfiles: HealthDimension[] = dimensionMeta.map((meta) => ({
+  ...meta,
+  score: BASELINE_DIMENSION_SCORE,
+  trend: { direction: "flat", value: 0 },
+  status: "healthy",
+  confidence: 50,
+  evidenceCount: 0,
+  summary: "Awaiting evidence-backed assessment.",
+  topDrivers: [],
+  evidenceIds: [],
+  findingIds: [],
+  recommendedActions: [],
+  estimatedScoreImprovement: 0,
+}));
+
+export const companyDNA: CompanyDNA = {
+  mission:
+    "Help mid-market companies operate with the rigor and visibility of Fortune 500 finance teams—without the headcount.",
+  revenueModel:
+    "SaaS subscription (88% recurring) + professional services (12%). ACV ranges $24K–$180K. Net revenue retention: 108%.",
+  customerSegments: [
+    "Mid-market B2B SaaS ($10M–$100M ARR)",
+    "Growth-stage fintech",
+    "PE-backed portfolio companies",
+  ],
+  products: [
+    { name: "Health Dashboard", description: "Real-time company health scoring across 10 dimensions" },
+    { name: "Company Doctor", description: "AI analyst with evidence-backed answers" },
+    { name: "Evidence Explorer", description: "Searchable document intelligence layer" },
+    { name: "Executive Brief", description: "Daily CEO briefing with board prep" },
+  ],
+  keySystems: [
+    { name: "Google Drive", status: "connected", documents: 312 },
+    { name: "Box", status: "connected", documents: 189 },
+    { name: "QuickBooks", status: "connected", documents: 94 },
+    { name: "Carta", status: "connected", documents: 47 },
+    { name: "HubSpot", status: "connected", documents: 605 },
+    { name: "BambooHR", status: "connected", documents: 45 },
+  ],
+  boardAndInvestors: [
+    { name: "Sarah Chen", role: "CEO & Co-founder" },
+    { name: "Michael Torres", role: "Board Chair · Partner, Horizon Ventures" },
+    { name: "Dr. Emily Walsh", role: "Independent Director" },
+    { name: "Horizon Ventures", role: "Series B Lead · $18M" },
+    { name: "Cascade Capital", role: "Series A · $8M" },
+  ],
+  operatingModel:
+    "Remote-first engineering (42), SF hub for GTM (28), distributed CS and ops (14). Quarterly board meetings. Monthly all-hands.",
+  topRisks: [
+    "Customer concentration (58% top-3 ARR)",
+    "Board consent cleanup",
+    "Contractor IP gaps",
+  ],
+  keyMetrics: [
+    { label: "ARR", value: "$7.2M", change: "+32% YoY" },
+    { label: "Runway", value: "14.2 mo", change: "At current burn" },
+    { label: "NRR", value: "108%", change: "+3 pts" },
+    { label: "Employees", value: "84", change: "+6 Q2" },
+    { label: "Gross Margin", value: "78%", change: "+2 pts" },
+  ],
+  upcomingDates: [
+    { date: "Jul 15, 2026", event: "Governance cleanup report due", type: "Governance" },
+    { date: "Jul 22, 2026", event: "Q3 Board meeting", type: "Board" },
+    { date: "Aug 15, 2026", event: "SOC 2 Type I target date", type: "Security" },
+    { date: "Aug 30, 2026", event: "Meridian Corp renewal", type: "Customer" },
+    { date: "Sep 30, 2026", event: "Q3 financial close", type: "Financial" },
+  ],
+};
+
+export const companyReports: Report[] = [
+  { id: "rpt-1", title: "July Executive Brief", type: "board", generatedAt: "Jul 9, 6:42 AM", status: "ready" },
+  { id: "rpt-2", title: "Q2 Health Assessment", type: "investor", generatedAt: "Jul 5, 9:00 AM", status: "ready" },
+  { id: "rpt-3", title: "Governance Cleanup Status", type: "internal", generatedAt: "Jul 3, 2:30 PM", status: "draft" },
+  { id: "rpt-4", title: "August Board Package", type: "board", generatedAt: "Scheduled Jul 20", status: "scheduled" },
+];
+
+export const companyExecutiveBrief: ExecutiveBrief = {
+  date: "Thursday, July 9, 2026",
+  generatedAt: "6:42 AM",
+  summary:
+    "Insight Engine assessment complete. Customer concentration, governance gaps, and security controls are the primary score drivers.",
+  highlights: [
+    "Top-3 customers at 58% ARR — high concentration risk",
+    "3 option grants missing board approval",
+    "Recurring revenue at 88% — positive revenue quality signal",
+  ],
+  topWins: [
+    {
+      title: "High recurring revenue mix",
+      detail: "88% recurring revenue exceeds the 80% quality threshold.",
+    },
+    {
+      title: "Zero voluntary attrition in Q2",
+      detail: "People health remains strong despite key-person dependencies.",
+    },
+    {
+      title: "NRR above risk threshold",
+      detail: "Net revenue retention at 108% supports valuation quality.",
+    },
+  ],
+  boardMeeting: {
+    date: "July 22, 2026",
+    daysUntil: 13,
+    items: [
+      {
+        title: "Q2 financial results & forecast",
+        status: "ready",
+        detail: "P&L, cash flow, and ARR bridge prepared from QuickBooks and HubSpot.",
+      },
+      {
+        title: "Governance cleanup status",
+        status: "needs-attention",
+        detail:
+          "3 option grants need retroactive board consent. Draft prepared, awaiting signature.",
+      },
+      {
+        title: "Customer concentration mitigation plan",
+        status: "ready",
+        detail: "Mid-market expansion pilot proposal ready for board discussion.",
+      },
+      {
+        title: "SOC 2 Type I timeline",
+        status: "pending",
+        detail: "3 critical controls open; MFA coverage at 92%. Target August 15.",
+      },
+    ],
+  },
+};
+
+/** Seed timeline retained for historical context; engine appends live events. */
+export const companyTimelineSeed: TimelineEvent[] = [
+  {
+    id: "tl-seed-1",
+    date: "Jun 1, 2026",
+    month: "June 2026",
+    type: "score-change",
+    title: "June health score: 82",
+    description: "Month-start health assessment prior to Insight Engine refresh.",
+    scoreAfter: 82,
+  },
+  {
+    id: "tl-seed-2",
+    date: "May 22, 2026",
+    month: "May 2026",
+    type: "customer",
+    title: "Meridian Corp renewal notice",
+    description: "Largest customer (24% ARR) renewal due in 90 days.",
+    dimensionId: "dim-customer",
+    dimension: "Customer",
+  },
+  {
+    id: "tl-seed-3",
+    date: "May 10, 2026",
+    month: "May 2026",
+    type: "risk-resolved",
+    title: "Prior litigation risk closed",
+    description: "Vendor dispute resolved. No active litigation remaining.",
+    dimensionId: "dim-legal",
+    dimension: "Legal",
+  },
+];

@@ -1,4 +1,11 @@
 import { createMockConnector } from "../create-mock-connector";
+import { mockEvidence } from "@/lib/data/mock-evidence";
+
+function evidenceById(id: string) {
+  const item = mockEvidence.find((e) => e.id === id);
+  if (!item) throw new Error(`Missing mock evidence ${id}`);
+  return item;
+}
 
 export const cartaConnector = createMockConnector({
   id: "carta",
@@ -8,19 +15,6 @@ export const cartaConnector = createMockConnector({
   lastSynced: "6:10 AM",
   documentsAnalyzed: 47,
   mappings: [
-    {
-      externalId: "carta-equity-grant-review-q2-2024",
-      evidence: {
-        id: "ev-equity-grants",
-        sourceSystem: "Carta",
-        documentName: "Equity grant review",
-        confidence: 97,
-        dimensionId: "dim-governance",
-        dimension: "Governance",
-        lastReviewed: "Today, 6:10 AM",
-        summary:
-          "3 option grants from Q2 2024 lack documented board consent in Carta.",
-      },
-    },
+    { externalId: "carta-equity-grant-review", evidence: evidenceById("ev-equity-grants") },
   ],
 });

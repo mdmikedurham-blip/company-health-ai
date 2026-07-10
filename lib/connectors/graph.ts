@@ -22,7 +22,7 @@ export function buildEvidenceGraph(snapshot: CompanyHealthSnapshot): {
   snapshot.evidence.forEach((doc, i) => {
     nodes.push({
       id: doc.id,
-      label: doc.documentName.split(" ")[0] ?? doc.documentName,
+      label: (doc.title || doc.documentName).split(" ")[0] ?? doc.title,
       type: "document",
       x: DOC_X,
       y: 60 + i * 70,

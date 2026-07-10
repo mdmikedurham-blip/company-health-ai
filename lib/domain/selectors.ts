@@ -41,7 +41,9 @@ export function getEvidenceForDimension(
   snapshot: CompanyHealthSnapshot,
   dimensionId: string,
 ): Evidence[] {
-  return snapshot.evidence.filter((e) => e.dimensionId === dimensionId);
+  return snapshot.evidence.filter(
+    (e) => e.dimensionId === dimensionId || e.dimensionIds?.includes(dimensionId),
+  );
 }
 
 export function getFindingsForEvidence(
@@ -76,8 +78,11 @@ export function getNextBestActions(
   limit = 3,
 ): Recommendation[] {
   return [...snapshot.recommendations]
-    .filter((r) => r.priority === "high")
-    .sort((a, b) => b.estimatedHealthImpact - a.estimatedHealthImpact)
+    .sort(
+      (a, b) =>
+        (b.priorityScore ?? b.estimatedScoreImprovement ?? b.estimatedHealthImpact) -
+        (a.priorityScore ?? a.estimatedScoreImprovement ?? a.estimatedHealthImpact),
+    )
     .slice(0, limit);
 }
 

@@ -10,6 +10,12 @@ export type ActionPriority = "high" | "medium" | "low";
 
 export type InsightType = "alert" | "positive" | "neutral";
 
+export type FindingDirection = "positive" | "negative" | "neutral";
+
+export type RiskStatus = "open" | "monitoring" | "resolved" | "accepted";
+
+export type EffortLevel = "low" | "medium" | "high";
+
 export type ConnectorStatus = "connected" | "pending";
 
 export type ReportType = "board" | "investor" | "internal";
@@ -49,6 +55,8 @@ export interface ScoreChangeDriver {
   dimension: string;
   impact: number;
   reason: string;
+  findingIds?: FindingId[];
+  evidenceIds?: EvidenceId[];
 }
 
 export interface ScoreChangeExplanation {
@@ -58,4 +66,17 @@ export interface ScoreChangeExplanation {
   period: string;
   summary: string;
   drivers: ScoreChangeDriver[];
+}
+
+/** Per-dimension score audit trail produced by the scoring engine. */
+export interface ScoreImpactExplanation {
+  dimensionId: DimensionId;
+  baselineScore: number;
+  finalScore: number;
+  impacts: {
+    findingId: FindingId;
+    impact: number;
+    reason: string;
+    evidenceIds: EvidenceId[];
+  }[];
 }

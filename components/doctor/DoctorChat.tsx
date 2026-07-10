@@ -93,14 +93,20 @@ export function DoctorChat({ initialPrompt, explainRiskId }: DoctorChatProps) {
       const explainResponse = getDoctorExplainResponse(explainRiskId);
       if (explainResponse) {
         handledRef.current = true;
-        sendMessage(getDoctorExplainPrompt(explainRiskId), explainResponse);
-        return;
+        // Defer so setState is not synchronous inside the effect body.
+        const timer = setTimeout(() => {
+          sendMessage(getDoctorExplainPrompt(explainRiskId), explainResponse);
+        }, 0);
+        return () => clearTimeout(timer);
       }
     }
 
     if (initialPrompt) {
       handledRef.current = true;
-      sendMessage(initialPrompt);
+      const timer = setTimeout(() => {
+        sendMessage(initialPrompt);
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [initialPrompt, explainRiskId, sendMessage]);
 

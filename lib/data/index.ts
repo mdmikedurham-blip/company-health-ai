@@ -1,11 +1,19 @@
 /**
  * Application data layer — single read API for all pages.
  *
- * Full pipeline: Connectors → Insight Engine → CompanyHealthSnapshot.
- * Pages import from here; they never touch connector or engine internals.
+ * Pipeline: mock evidence → runInsightEngine() → CompanyHealthSnapshot.
+ * Pages import from here; they never duplicate derived scores or risks.
  */
-import { acmePlatformInput } from "@/lib/mock";
-import { buildCompanyHealthSnapshot, buildEvidenceGraph } from "@/lib/connectors";
+import {
+  companyDNA as dnaProfile,
+  companyExecutiveBrief,
+  companyProfile,
+  companyReports,
+  companyTimelineSeed,
+  dimensionProfiles,
+  previousHealthScore,
+} from "@/lib/data/company-profile";
+import { mockEvidence, mockEvidenceCatalogMeta } from "@/lib/data/mock-evidence";
 import {
   getDashboardMetrics,
   getDimension,
@@ -17,12 +25,140 @@ import {
   getTopRisks,
   toDimensionSummary,
   toRiskCardView,
+  type CompanyHealthSnapshot,
   type Evidence,
+  type EvidenceCatalog,
 } from "@/lib/domain";
-import type { EvidenceRecordView } from "@/lib/types";
+import { runInsightEngine } from "@/lib/intelligence";
+import type { EvidenceGraphEdge, EvidenceGraphNode, EvidenceRecordView } from "@/lib/types";
 
-/** Canonical company health state — Connectors → Engine → Snapshot */
-export const companySnapshot = buildCompanyHealthSnapshot(acmePlatformInput);
+function buildEvidenceCatalog(evidence: Evidence[]): EvidenceCatalog {
+  const systems = new Set(evidence.map((e) => e.sourceSystem));
+  return {
+    totalDocuments: mockEvidenceCatalogMeta.connectors.reduce(
+      (sum, c) => sum + c.documentsAnalyzed,
+      0,
+    ),
+    systemsConnected: systems.size,
+    lastFullScan: mockEvidenceCatalogMeta.lastFullScan,
+    connectors: mockEvidenceCatalogMeta.connectors,
+  };
+}
+
+function buildEvidenceGraph(snapshot: CompanyHealthSnapshot): {
+  nodes: EvidenceGraphNode[];
+  edges: EvidenceGraphEdge[];
+} {
+  const DOC_X = 80;
+  const DIM_X = 280;
+  const OUTCOME_X = 480;
+  const nodes: EvidenceGraphNode[] = [];
+  const edges: EvidenceGraphEdge[] = [];
+  const dimensionY = new Map<string, number>();
+
+  snapshot.evidence.forEach((doc, i) => {
+    const label = (doc.title || doc.documentName).split(" ")[0] ?? doc.title;
+    nodes.push({
+      id: doc.id,
+      label,
+      type: "document",
+      x: DOC_X,
+      y: 60 + i * 70,
+    });
+
+    if (!dimensionY.has(doc.dimensionId)) {
+      dimensionY.set(doc.dimensionId, 60 + dimensionY.size * 80);
+    }
+    edges.push({ from: doc.id, to: doc.dimensionId });
+  });
+
+  for (const [dimId, y] of dimensionY) {
+    const dim = snapshot.dimensions.find((d) => d.id === dimId);
+    nodes.push({
+      id: dimId,
+      label: dim?.name ?? dimId,
+      type: "dimension",
+      x: DIM_X,
+      y,
+    });
+  }
+
+  let outcomeY = 50;
+  for (const risk of snapshot.risks) {
+    nodes.push({
+      id: risk.id,
+      label: risk.title.split(" ")[0] ?? risk.title,
+      type: "risk",
+      x: OUTCOME_X,
+      y: outcomeY,
+    });
+    edges.push({ from: risk.dimensionId, to: risk.id });
+    outcomeY += 80;
+  }
+
+  for (const insight of snapshot.insights) {
+    nodes.push({
+      id: insight.id,
+      label: (insight.title || insight.statement).split(" ")[0] ?? insight.statement,
+      type: "insight",
+      x: OUTCOME_X,
+      y: outcomeY,
+    });
+    edges.push({ from: insight.dimensionId, to: insight.id });
+    outcomeY += 80;
+  }
+
+  return { nodes, edges };
+}
+
+function assembleSnapshot(): CompanyHealthSnapshot {
+  const engine = runInsightEngine({
+    companyId: companyProfile.id,
+    evidence: mockEvidence,
+    previousHealthScore,
+    dimensionProfiles,
+  });
+
+  // Prefer engine timeline; keep a short historical seed for context.
+  const timeline = [...engine.timelineEvents, ...companyTimelineSeed];
+
+  // DNA top risks stay in sync with engine output
+  const dna = {
+    ...dnaProfile,
+    topRisks: engine.risks.slice(0, 3).map((r) => r.title),
+    keyMetrics: [
+      ...dnaProfile.keyMetrics.filter((m) => m.label !== "Health Score"),
+      {
+        label: "Health Score",
+        value: String(engine.healthScore.score),
+        change: engine.healthScore.changeLabel,
+      },
+    ],
+  };
+
+  return {
+    company: companyProfile,
+    healthScore: engine.healthScore,
+    dimensions: engine.dimensions,
+    evidence: engine.evidence,
+    evidenceCatalog: buildEvidenceCatalog(engine.evidence),
+    findings: engine.findings,
+    insights: engine.insights,
+    risks: engine.risks,
+    recommendations: engine.recommendations,
+    timeline,
+    dna,
+    reports: companyReports,
+    scoreChange: engine.scoreChange,
+    executiveBrief: {
+      ...companyExecutiveBrief,
+      summary: engine.scoreChange.summary,
+    },
+  };
+}
+
+/** Canonical company health state — Insight Engine output */
+export const companySnapshot = assembleSnapshot();
 
 // ─── Entity accessors ────────────────────────────────────────────────────────
 
@@ -36,7 +172,6 @@ export const getInsightById = (id: string) => getInsight(companySnapshot, id);
 
 export const company = companySnapshot.company;
 export const healthScore = companySnapshot.healthScore;
-/** Full dimension entities (health page, explain drawer) */
 export const dimensions = companySnapshot.dimensions;
 export const evidence = companySnapshot.evidence;
 export const findings = companySnapshot.findings;
@@ -53,7 +188,6 @@ export const evidenceCatalog = companySnapshot.evidenceCatalog;
 // ─── Derived views ───────────────────────────────────────────────────────────
 
 export const dimensionSummaries = companySnapshot.dimensions.map(toDimensionSummary);
-/** Dashboard row projection of dimensions */
 export const healthDimensions = dimensionSummaries;
 export const topRisks = getTopRisks(companySnapshot).map(toRiskCardView);
 export const nextBestActions = getNextBestActions(companySnapshot);
@@ -69,31 +203,26 @@ function toEvidenceRecordView(item: Evidence): EvidenceRecordView {
     .filter((title): title is string => title !== undefined);
 
   const linkedInsights = companySnapshot.insights
-    .filter((insight) =>
-      insight.findingIds.some((findingId) => item.findingIds.includes(findingId)),
-    )
-    .map((insight) => insight.title);
+    .filter((insight) => insight.evidenceIds.includes(item.id))
+    .map((insight) => insight.title || insight.statement);
 
   return {
     id: item.id,
     sourceSystem: item.sourceSystem,
-    documentName: item.documentName,
-    confidence: item.confidence,
+    documentName: item.title || item.documentName,
+    confidence: item.reliability ?? item.confidence,
     dimension: item.dimension,
-    lastReviewed: item.lastReviewed,
-    summary: item.summary,
+    lastReviewed: item.collectedAt || item.lastReviewed,
+    summary: item.contentSummary || item.summary,
     linkedRisks,
     linkedInsights,
   };
 }
 
-// ─── Evidence graph (derived from snapshot) ─────────────────────────────────
-
 const evidenceGraph = buildEvidenceGraph(companySnapshot);
 export const evidenceGraphNodes = evidenceGraph.nodes;
 export const evidenceGraphEdges = evidenceGraph.edges;
 
-// Re-export domain selectors for explain and other services
 export {
   getDimensionIdByName,
   resolveEvidenceLabels,

@@ -3,12 +3,13 @@ import type {
   EvidenceId,
   FindingId,
   HealthStatus,
+  ScoreImpactExplanation,
   Trend,
 } from "./primitives";
 
 /**
- * Overall company health score — aggregate of all dimension scores.
- * Baseline from config; engine enriches links from pipeline output.
+ * Overall company health score — aggregate of weighted dimension scores.
+ * Produced by the scoring engine from findings; never invented without evidence.
  */
 export interface HealthScore {
   score: number;
@@ -17,6 +18,8 @@ export interface HealthScore {
   changeLabel: string;
   lastUpdated: string;
   confidence: number;
+  /** Per-dimension audit of how findings moved scores from baseline. */
+  scoreExplanations?: ScoreImpactExplanation[];
 }
 
 export interface HealthDimension {
@@ -35,6 +38,8 @@ export interface HealthDimension {
   recommendedActions: string[];
   whyItMatters: string;
   estimatedScoreImprovement: number;
+  /** Dimension weight in overall health (sums to 1.0 across dimensions). */
+  weight?: number;
 }
 
 /** Lightweight projection for dashboard rows and lists. */

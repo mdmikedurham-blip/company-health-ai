@@ -1,4 +1,4 @@
-import type { ConnectorStatus } from "@/lib/domain";
+import type { ConnectorStatus, Evidence } from "@/lib/domain";
 import type { RawEvidence } from "@/lib/engine";
 import type {
   ConnectorDocument,
@@ -24,7 +24,7 @@ export interface MockConnectorConfig {
 
 /**
  * Factory for mock connector adapters.
- * Each mapping pairs an external document ID with its normalized evidence.
+ * Each mapping pairs an external document ID with normalized Evidence.
  */
 export function createMockConnector(config: MockConnectorConfig): HealthConnector {
   const documentByExternalId = new Map(
@@ -40,9 +40,9 @@ export function createMockConnector(config: MockConnectorConfig): HealthConnecto
     sync(): ConnectorSyncResult {
       const documents: ConnectorDocument[] = config.mappings.map((m) => ({
         externalId: m.externalId,
-        title: m.evidence.documentName,
-        syncedAt: m.evidence.lastReviewed,
-        rawSummary: m.evidence.summary,
+        title: m.evidence.title || m.evidence.documentName,
+        syncedAt: m.evidence.collectedAt || m.evidence.lastReviewed,
+        rawSummary: m.evidence.contentSummary || m.evidence.summary,
       }));
 
       return {
@@ -56,7 +56,7 @@ export function createMockConnector(config: MockConnectorConfig): HealthConnecto
       };
     },
 
-    normalize(document: ConnectorDocument): RawEvidence {
+    normalize(document: ConnectorDocument): Evidence {
       const mapping = documentByExternalId.get(document.externalId);
       if (!mapping) {
         throw new Error(

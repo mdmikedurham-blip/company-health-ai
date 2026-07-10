@@ -1,13 +1,13 @@
 /**
- * Company Doctor — application-layer scripted responses for Phase 1.
- * Built from the shared CompanyHealthSnapshot so UI never owns page-local mock data.
- * Real AI integration is Phase 2+.
+ * Company Doctor — scripted responses generated from Insight Engine output.
+ * Answers cite evidence IDs from the current snapshot. No external AI API yet.
  */
 import {
   companySnapshot,
   evidenceCatalog,
   getRiskById,
   healthScore,
+  recommendations,
   risks,
   topRisks,
 } from "@/lib/data";
@@ -19,17 +19,30 @@ import {
 } from "@/lib/domain";
 import type { DoctorMessage, DoctorResponse } from "@/lib/types";
 
+const governance = companySnapshot.dimensions.find((d) => d.id === "dim-governance");
+const governanceScore = governance?.score ?? healthScore.score;
+
 export const doctorSuggestedPrompts = [
   "What are the biggest risks?",
-  "Why is governance only 71?",
+  `Why is governance only ${governanceScore}?`,
   "What should I fix before fundraising?",
   "Generate a board update.",
   "Show evidence for customer concentration.",
 ] as const;
 
+function citeEvidenceIds(ids: string[]): string[] {
+  return ids.map((id) => {
+    const item = companySnapshot.evidence.find((e) => e.id === id);
+    return item ? `${formatEvidenceLabel(item)} [${id}]` : id;
+  });
+}
+
 function evidenceLabelsForRisk(risk: Risk): string[] {
-  const labels = getEvidenceForRisk(companySnapshot, risk).map(formatEvidenceLabel);
-  return labels.length > 0 ? labels : [risk.primaryEvidenceLabel];
+  const fromLinks = getEvidenceForRisk(companySnapshot, risk);
+  if (fromLinks.length > 0) {
+    return fromLinks.map((e) => `${formatEvidenceLabel(e)} [${e.id}]`);
+  }
+  return citeEvidenceIds(risk.evidenceIds);
 }
 
 function riskToDoctorResponse(risk: Risk): DoctorResponse {
@@ -42,50 +55,40 @@ function riskToDoctorResponse(risk: Risk): DoctorResponse {
 }
 
 function buildDoctorResponses(): Record<string, DoctorResponse> {
-  const [primary, secondary, tertiary] = topRisks;
-  const concentration = getRiskById("risk-1");
-  const governance = companySnapshot.dimensions.find((d) => d.id === "dim-governance");
+  const [primary] = topRisks;
+  const concentration = getRiskById("risk-concentration");
+  const boardRisk = getRiskById("risk-board-approval");
+  const topRecs = recommendations.slice(0, 3);
 
-  return {
+  const responses: Record<string, DoctorResponse> = {
     "What are the biggest risks?": {
-      summary: `${risks.length} risks require attention. ${primary?.title ?? "Customer concentration"} is highest priority. Legal and governance gaps should be resolved before fundraising or the July 22 board meeting.`,
+      summary: `${risks.length} risks require attention. ${primary?.title ?? "Customer concentration"} is highest priority. ${risks
+        .map((r) => r.title)
+        .join("; ")}.`,
       riskLevel: (primary?.level ?? "high") as RiskSeverity,
-      evidenceSources: risks.flatMap((r) => evidenceLabelsForRisk(r)).slice(0, 3),
+      evidenceSources: risks.flatMap((r) => evidenceLabelsForRisk(r)).slice(0, 4),
       recommendedAction:
-        tertiary && secondary
-          ? `Prioritize ${secondary.title.toLowerCase()} and address ${tertiary.title.toLowerCase()} this week.`
+        topRecs.length > 0
+          ? `Prioritize: ${topRecs.map((r) => r.title).join("; ")}.`
           : "Review top risks and execute next best actions from the dashboard.",
     },
-    "Why is governance only 71?": (() => {
-      const consentRisk = getRiskById("risk-3");
-      return {
-        summary:
-          governance?.summary ??
-          "Governance scores 71 due to undocumented option grants and incomplete board consent records.",
-        riskLevel: "medium" as RiskSeverity,
-        evidenceSources: consentRisk
-          ? evidenceLabelsForRisk(consentRisk)
-          : ["Carta · Equity grant review", "Google Drive · Board minutes May 2026"],
-        recommendedAction:
-          consentRisk?.recommendation ??
-          "File unanimous written consent for outstanding grants before the next board meeting.",
-      };
-    })(),
     "What should I fix before fundraising?": {
-      summary:
-        "Address governance cleanup, contractor IP assignments, and prepare a customer concentration mitigation narrative.",
-      riskLevel: "medium",
-      evidenceSources: risks.flatMap((r) => evidenceLabelsForRisk(r)).slice(0, 4),
-      recommendedAction: "Complete 3 governance fixes and 4 IP amendments within 2 weeks.",
+      summary: `Before fundraising, address: ${risks.map((r) => r.title).join(", ")}. Engine confidence ${healthScore.confidence}%.`,
+      riskLevel: (primary?.level ?? "medium") as RiskSeverity,
+      evidenceSources: risks.flatMap((r) => evidenceLabelsForRisk(r)).slice(0, 5),
+      recommendedAction:
+        topRecs.map((r) => r.title).join("; ") ||
+        "Complete governance and IP remediation within 2 weeks.",
     },
     "Generate a board update.": {
-      summary: `Board update draft: Company health at ${healthScore.score} (${healthScore.changeLabel}). Key risks: ${risks.map((r) => r.title.toLowerCase()).join(", ")}.`,
+      summary: `Board update draft: Company health at ${healthScore.score} (${healthScore.changeLabel}). Key risks: ${risks.map((r) => r.title.toLowerCase()).join(", ")}. Evidence cited: ${companySnapshot.evidence
+        .slice(0, 3)
+        .map((e) => e.id)
+        .join(", ")}.`,
       riskLevel: "low",
-      evidenceSources: [
-        "QuickBooks · Revenue reconciliation",
-        "Google Drive · Board minutes May 2026",
-        "HubSpot · ARR cohort analysis",
-      ],
+      evidenceSources: companySnapshot.evidence.slice(0, 4).map(
+        (e) => `${formatEvidenceLabel(e)} [${e.id}]`,
+      ),
       recommendedAction:
         "Review generated board update in Executive Brief. Export PDF and send to board distribution list.",
     },
@@ -96,12 +99,29 @@ function buildDoctorResponses(): Record<string, DoctorResponse> {
       riskLevel: (concentration?.severity ?? "high") as RiskSeverity,
       evidenceSources: concentration
         ? evidenceLabelsForRisk(concentration)
-        : ["HubSpot · ARR cohort analysis"],
+        : citeEvidenceIds(["ev-arr-cohort"]),
       recommendedAction:
         concentration?.recommendation ??
         "Open Evidence Explorer for full ARR cohort analysis.",
     },
   };
+
+  // Dynamic governance prompt keyed to current engine score
+  const governancePrompt = `Why is governance only ${governanceScore}?`;
+  responses[governancePrompt] = {
+    summary:
+      governance?.summary ??
+      `Governance scores ${governanceScore} due to missing board approvals on option grants.`,
+    riskLevel: (boardRisk?.severity ?? "medium") as RiskSeverity,
+    evidenceSources: boardRisk
+      ? evidenceLabelsForRisk(boardRisk)
+      : citeEvidenceIds(["ev-equity-grants"]),
+    recommendedAction:
+      boardRisk?.recommendation ??
+      "File unanimous written consent for outstanding grants before the next board meeting.",
+  };
+
+  return responses;
 }
 
 export const doctorResponses: Record<string, DoctorResponse | undefined> =
@@ -114,13 +134,14 @@ export const doctorInitialMessages: DoctorMessage[] = [
     content: "",
     timestamp: "6:40 AM",
     response: {
-      summary: `Good morning. I've analyzed ${evidenceCatalog.totalDocuments.toLocaleString()} documents across ${evidenceCatalog.systemsConnected} systems. Company health is ${healthScore.score} (${healthScore.status === "healthy" ? "Healthy" : healthScore.status}, ${healthScore.changeLabel}) with ${healthScore.confidence}% confidence.`,
-      riskLevel: "medium",
-      evidenceSources: [
-        "HubSpot · ARR cohort analysis",
-        "QuickBooks · Revenue reconciliation",
-        "Carta · Equity grant review",
-      ],
+      summary: `Good morning. I've analyzed ${evidenceCatalog.totalDocuments.toLocaleString()} documents across ${evidenceCatalog.systemsConnected} systems via the Insight Engine. Company health is ${healthScore.score} (${healthScore.status === "healthy" ? "Healthy" : healthScore.status}, ${healthScore.changeLabel}) with ${healthScore.confidence}% confidence. ${risks.length} active risks; top evidence: ${companySnapshot.evidence
+        .slice(0, 3)
+        .map((e) => e.id)
+        .join(", ")}.`,
+      riskLevel: (topRisks[0]?.level ?? "medium") as RiskSeverity,
+      evidenceSources: companySnapshot.evidence.slice(0, 3).map(
+        (e) => `${formatEvidenceLabel(e)} [${e.id}]`,
+      ),
       recommendedAction:
         "Review today's Executive Brief for the full picture, or ask me about any specific dimension or risk.",
     },
