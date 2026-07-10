@@ -75,6 +75,7 @@ export function buildCausalExecutiveBrief(
   const boardImplications = buildBoardImplications(
     input.seed,
     input.risks,
+    input.findings,
     primaryDrivers,
     secondaryDrivers,
   );
@@ -237,16 +238,13 @@ function buildRecommendedActions(
 function buildBoardImplications(
   seed: BriefSeed | undefined,
   risks: Risk[],
+  findings: Finding[],
   primary: CausalDriver[],
   secondary: CausalDriver[],
 ): BriefBoardImplication[] {
-  const driverEvidence = uniqueSorted([
-    ...primary.flatMap((d) => d.evidenceIds),
-    ...secondary.flatMap((d) => d.evidenceIds),
-  ]);
+  const drivers = [...primary, ...secondary];
 
   if (!seed?.boardMeeting?.items?.length) {
-    // Derive board implications from negative primary drivers when no calendar seed
     return primary
       .filter((d) => d.direction === "negative")
       .slice(0, 3)
@@ -259,25 +257,15 @@ function buildBoardImplications(
   }
 
   return seed.boardMeeting.items.map((item) => {
-    const related = risks.find((r) =>
-      item.title
-        .toLowerCase()
-        .includes(r.title.toLowerCase().split(" ")[0] ?? ""),
-    );
-    const evidenceIds = related
-      ? [...related.evidenceIds].sort()
-      : driverEvidence.slice(0, 3);
+    const linked = linkBoardItem(item.title, risks, findings, drivers);
+    const evidenceIds = linked.evidenceIds;
 
     const status =
-      related?.severity === "high"
+      linked.risk?.severity === "high"
         ? ("needs-attention" as const)
         : item.status;
 
-    const detail = related
-      ? `${related.summary} Evidence: ${evidenceIds.join(", ") || "none"}.`
-      : evidenceIds.length > 0
-        ? `Board item linked to period drivers. Evidence: ${evidenceIds.join(", ")}.`
-        : "No linked evidence for this board item.";
+    const detail = linked.detail;
 
     return {
       title: item.title,
@@ -287,6 +275,114 @@ function buildBoardImplications(
     };
   });
 }
+
+/**
+ * Match each board-prep item to its own finding/risk/driver.
+ * Never reuse a shared evidence pool across unmatched items.
+ */
+function linkBoardItem(
+  itemTitle: string,
+  risks: Risk[],
+  findings: Finding[],
+  drivers: CausalDriver[],
+): {
+  risk?: Risk;
+  finding?: Finding;
+  evidenceIds: string[];
+  detail: string;
+} {
+  const needle = itemTitle.toLowerCase();
+
+  const risk =
+    risks.find((r) => {
+      const title = r.title.toLowerCase();
+      return needle.includes(title) || title.includes(needle);
+    }) ??
+    risks.find((r) => significantWordOverlap(needle, r.title.toLowerCase()));
+
+  const finding =
+    (risk
+      ? findings.find((f) => risk.findingIds.includes(f.id))
+      : undefined) ??
+    findings.find((f) => {
+      const title = f.title.toLowerCase();
+      return needle.includes(title) || title.includes(needle);
+    }) ??
+    findings.find((f) => significantWordOverlap(needle, f.title.toLowerCase()));
+
+  const driver =
+    drivers.find(
+      (d) =>
+        (finding && d.findingId === finding.id) ||
+        (risk && d.riskId === risk.id),
+    ) ??
+    drivers.find(
+      (d) =>
+        needle.includes(d.title.toLowerCase()) ||
+        d.title.toLowerCase().includes(needle) ||
+        significantWordOverlap(needle, d.title.toLowerCase()),
+    );
+
+  if (risk) {
+    const evidenceIds = [...risk.evidenceIds].sort();
+    return {
+      risk,
+      finding,
+      evidenceIds,
+      detail: `${risk.summary} Evidence: ${evidenceIds.join(", ") || "none"}.`,
+    };
+  }
+
+  if (finding) {
+    const evidenceIds = [...finding.evidenceIds].sort();
+    return {
+      finding,
+      evidenceIds,
+      detail: `${finding.description} Evidence: ${evidenceIds.join(", ") || "none"}.`,
+    };
+  }
+
+  if (driver) {
+    return {
+      evidenceIds: driver.evidenceIds,
+      detail: driver.statement,
+    };
+  }
+
+  return {
+    evidenceIds: [],
+    detail: "No linked finding or risk for this board item.",
+  };
+}
+
+function significantWordOverlap(a: string, b: string): boolean {
+  const words = (s: string) =>
+    s
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length > 3 && !STOP_WORDS.has(w));
+  const aw = words(a);
+  const bw = new Set(words(b));
+  if (aw.length === 0 || bw.size === 0) return false;
+  const hits = aw.filter((w) => bw.has(w)).length;
+  return hits >= 2 || (hits === 1 && aw.length === 1);
+}
+
+const STOP_WORDS = new Set([
+  "missing",
+  "with",
+  "from",
+  "that",
+  "this",
+  "have",
+  "been",
+  "into",
+  "over",
+  "under",
+  "above",
+  "below",
+  "about",
+  "board",
+]);
 
 function severityRank(severity: string): number {
   if (severity === "high") return 3;

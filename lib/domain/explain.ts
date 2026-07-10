@@ -51,10 +51,10 @@ function buildDimensionExplainFromEntity(
   const { direction, value } = dimension.trend;
   const trendLabel =
     direction === "up"
-      ? `+${value} this month`
+      ? `+${value} vs baseline`
       : direction === "down"
-        ? `-${value} this month`
-        : "unchanged";
+        ? `-${value} vs baseline`
+        : "at baseline";
 
   return {
     type: "dimension",

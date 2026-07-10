@@ -707,6 +707,7 @@ describe("full Acme connector corpus", () => {
     expect(result.findings.some((f) => f.id === "finding-low-attrition")).toBe(true);
     expect(result.findings.some((f) => f.id === "finding-key-person")).toBe(true);
     expect(result.findings.some((f) => f.id === "finding-recurring-revenue")).toBe(true);
+    expect(result.findings.some((f) => f.id === "finding-nrr")).toBe(false);
     expect(result.recommendations.length).toBe(result.risks.length);
   });
 });

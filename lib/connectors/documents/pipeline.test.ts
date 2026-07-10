@@ -62,4 +62,29 @@ describe("evidence extraction pipeline", () => {
     expect(evidence.sourceType).toBe(candidate.sourceType);
     expect(evidence.reliability).toBe(candidate.confidence);
   });
+
+  it("stores percentage facts as decimal ratios", () => {
+    const mfaRaw: RawDocument = {
+      ...raw,
+      externalId: "file-mfa",
+      title: "Security review",
+      rawSummary: "MFA coverage is 92%. Top 3 customers represent 58% of ARR.",
+    };
+    const mfaExtracted: ExtractedDocument = {
+      ...extracted,
+      title: "Security review",
+      text: "MFA coverage is 92%. Top 3 customers represent 58% of ARR.",
+      sections: [
+        {
+          id: "s1",
+          title: "Summary",
+          text: "MFA coverage is 92%. Top 3 customers represent 58% of ARR.",
+          order: 0,
+        },
+      ],
+    };
+    const { evidence } = runEvidenceExtractionPipeline(mfaRaw, mfaExtracted);
+    expect(evidence.extractedFacts.mfaCoverage).toBe(0.92);
+    expect(evidence.extractedFacts.top3CustomerArrShare).toBe(0.58);
+  });
 });

@@ -18,6 +18,9 @@ export {
 } from "./normalize-evidence";
 export {
   buildEvidenceCatalog,
+  buildSingleConnectorCatalog,
+  connectedSystemsFromCatalog,
+  countConnectedSystems,
   ingestFromConnectors,
   runConnectorPipeline,
 } from "./ingest";

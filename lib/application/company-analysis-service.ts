@@ -19,7 +19,11 @@ import type {
 } from "@/lib/domain";
 import type { ConnectorAdapter } from "@/lib/connectors/connector";
 import { syncGoogleDriveForCompany } from "@/lib/connectors/google-drive/sync";
-import { runConnectorPipeline } from "@/lib/connectors/ingest";
+import {
+  buildSingleConnectorCatalog,
+  connectedSystemsFromCatalog,
+  runConnectorPipeline,
+} from "@/lib/connectors/ingest";
 import {
   requireSyncAdapters,
   runConnectorPipelineSync,
@@ -72,6 +76,7 @@ function assembleSnapshot(
 
   const dna = {
     ...input.dna,
+    keySystems: connectedSystemsFromCatalog(evidenceCatalog),
     topRisks: engine.risks.slice(0, 3).map((r) => r.title),
     keyMetrics: [
       ...input.dna.keyMetrics.filter((m) => m.label !== "Health Score"),
@@ -286,20 +291,14 @@ export async function syncStoreAndAnalyzeCompany(
     return { sync, snapshot: null };
   }
 
-  const evidenceCatalog: EvidenceCatalog = {
-    totalDocuments: sync.documentsAnalyzed,
-    systemsConnected: 1,
+  const evidenceCatalog = buildSingleConnectorCatalog({
+    connectorId: "google-drive",
+    name: "Google Drive",
+    system: "Google Drive",
+    documentsAnalyzed: sync.documentsAnalyzed,
+    lastSynced: new Date().toISOString(),
     lastFullScan: new Date().toISOString(),
-    connectors: [
-      {
-        id: "google-drive",
-        name: "Google Drive",
-        system: "Google Drive",
-        documentsAnalyzed: sync.documentsAnalyzed,
-        lastSynced: new Date().toISOString(),
-      },
-    ],
-  };
+  });
 
   const snapshot = await analyzeAndPersistIncremental({
     company: input.company,

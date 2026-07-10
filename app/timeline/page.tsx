@@ -2,10 +2,21 @@ import { AppShell } from "@/components/AppShell";
 import { TimelineContent } from "@/components/timeline/TimelineContent";
 import { scoreChangeExplanation, timelineEvents } from "@/lib/data";
 
+function formatSigned(n: number): string {
+  return n > 0 ? `+${n}` : `${n}`;
+}
+
 export default function TimelinePage() {
   const chains = new Set(
     timelineEvents.map((e) => e.causalChainId || e.rootEventId || e.id),
   ).size;
+
+  const changeColor =
+    scoreChangeExplanation.change > 0
+      ? "text-emerald-400"
+      : scoreChangeExplanation.change < 0
+        ? "text-red-400"
+        : "text-zinc-500";
 
   return (
     <AppShell
@@ -23,8 +34,8 @@ export default function TimelinePage() {
           <span className="text-xl font-bold tabular-nums">
             {scoreChangeExplanation.currentScore}
           </span>
-          <span className="text-sm font-medium text-emerald-400">
-            +{scoreChangeExplanation.change}
+          <span className={`text-sm font-medium ${changeColor}`}>
+            {formatSigned(scoreChangeExplanation.change)}
           </span>
           <span className="text-xs text-zinc-600">
             from {scoreChangeExplanation.previousScore}

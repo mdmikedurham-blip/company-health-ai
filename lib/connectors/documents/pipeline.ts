@@ -64,7 +64,7 @@ function inferTypedFacts(
     /\bmfa\s+coverage\s*(?:is\s*|:?\s*)(\d+(?:\.\d+)?)\s*%/i.exec(text) ??
     /\b(\d+(?:\.\d+)?)\s*%\s*mfa\b/i.exec(text);
   if (mfa?.[1]) {
-    facts.mfaCoverage = Number(mfa[1]);
+    facts.mfaCoverage = Number(mfa[1]) / 100;
   }
 
   const critical =
@@ -89,7 +89,7 @@ function inferTypedFacts(
       text,
     );
   if (concentration?.[1]) {
-    facts.top3CustomerArrShare = Number(concentration[1]);
+    facts.top3CustomerArrShare = Number(concentration[1]) / 100;
   }
 
   if (extraction.dates.length > 0) {

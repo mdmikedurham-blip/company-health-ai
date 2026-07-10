@@ -159,7 +159,7 @@ export async function syncGoogleDriveForCompany(
 
     const toExtract = [...delta.added, ...delta.changed];
     let extractedCount = 0;
-    let evidence: Evidence[] = [];
+    const evidence: Evidence[] = [];
 
     if (toExtract.length > 0) {
       // Extract only the delta set → RawDocument → Evidence via shared pipeline

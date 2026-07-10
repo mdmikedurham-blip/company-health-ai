@@ -25,6 +25,7 @@ import {
   buildScoreChangeExplanation,
   calculateOverallHealth,
 } from "@/lib/intelligence/scoring-engine";
+import { connectedSystemsFromCatalog } from "@/lib/connectors/ingest";
 import {
   createEvidenceRepository,
   type EvidenceRepository,
@@ -219,6 +220,7 @@ export async function analyzeAndPersistIncremental(
 
   const dna = {
     ...input.dna,
+    keySystems: connectedSystemsFromCatalog(input.evidenceCatalog),
     topRisks: merged.risks.slice(0, 3).map((r) => r.title),
     keyMetrics: [
       ...input.dna.keyMetrics.filter((m) => m.label !== "Health Score"),

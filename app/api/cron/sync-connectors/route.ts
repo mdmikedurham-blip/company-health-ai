@@ -3,6 +3,7 @@ import {
   GOOGLE_DRIVE_CONNECTOR_ID,
   syncGoogleDriveForCompany,
 } from "@/lib/connectors/google-drive";
+import { buildSingleConnectorCatalog } from "@/lib/connectors/ingest";
 import { unauthorizedCronResponse } from "@/lib/api/cron-auth";
 import {
   analyzeAndPersistIncremental,
@@ -84,20 +85,14 @@ async function runScheduledSync(request: Request) {
             reports: companyReports,
             timelineSeed: companyTimelineSeed,
             briefSeed: companyBriefSeed,
-            evidenceCatalog: {
-              totalDocuments: sync.documentsAnalyzed,
-              systemsConnected: 1,
+            evidenceCatalog: buildSingleConnectorCatalog({
+              connectorId: GOOGLE_DRIVE_CONNECTOR_ID,
+              name: "Google Drive",
+              system: "Google Drive",
+              documentsAnalyzed: sync.documentsAnalyzed,
+              lastSynced: new Date().toISOString(),
               lastFullScan: new Date().toISOString(),
-              connectors: [
-                {
-                  id: GOOGLE_DRIVE_CONNECTOR_ID,
-                  name: "Google Drive",
-                  system: "Google Drive",
-                  documentsAnalyzed: sync.documentsAnalyzed,
-                  lastSynced: new Date().toISOString(),
-                },
-              ],
-            },
+            }),
             client,
           });
           analysis = {

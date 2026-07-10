@@ -63,7 +63,16 @@ export interface Trend {
 
 export interface ScoreChangeDriver {
   dimension: string;
-  impact: number;
+  /**
+   * Net finding impact on the current dimension score vs baseline
+   * (composition of the current score — not a historical change).
+   */
+  currentScoreImpact: number;
+  /**
+   * Period-over-period dimension score change when a prior score is known.
+   * Zero when no prior dimension score exists — never invent from baseline.
+   */
+  periodDelta: number;
   reason: string;
   findingIds?: FindingId[];
   evidenceIds?: EvidenceId[];
@@ -72,6 +81,7 @@ export interface ScoreChangeDriver {
 export interface ScoreChangeExplanation {
   previousScore: number;
   currentScore: number;
+  /** Period-over-period overall score change (current − previous). */
   change: number;
   period: string;
   summary: string;

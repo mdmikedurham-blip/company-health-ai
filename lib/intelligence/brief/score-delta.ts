@@ -10,9 +10,9 @@ import type {
  * Compare current health against a previous slice and compute
  * overall + per-dimension score deltas.
  *
- * When prior dimension scores are absent, uses finding net impact
- * relative to current dimension score as the delta proxy so drivers
- * remain attributable without inventing a prior snapshot.
+ * Period deltas require a real prior dimension score. When prior
+ * dimensions are absent, periodDelta is 0 — never invent change from
+ * baseline composition (currentScoreImpact lives on ScoreChangeDriver).
  */
 export function computeScoreDelta(params: {
   healthScore: HealthScore;
@@ -26,18 +26,13 @@ export function computeScoreDelta(params: {
   const priorById = new Map(
     (params.previous?.dimensions ?? []).map((d) => [d.id, d.score]),
   );
+  const hasPriorDimensions = priorById.size > 0;
 
   const byDimension: DimensionScoreDelta[] = [...params.dimensions]
     .map((d) => {
       const prior = priorById.get(d.id);
-      const previousDimScore =
-        prior ??
-        // No prior dimension: attribute change from finding impacts on this dim
-        d.score -
-          (params.healthScore.scoreExplanations
-            ?.find((e) => e.dimensionId === d.id)
-            ?.impacts.reduce((sum, i) => sum + i.impact, 0) ?? 0);
-      const dimChange = d.score - previousDimScore;
+      const previousDimScore = hasPriorDimensions ? (prior ?? d.score) : d.score;
+      const dimChange = hasPriorDimensions ? d.score - previousDimScore : 0;
       return {
         dimensionId: d.id,
         dimension: d.name || DIMENSION_NAMES[d.id] || d.id,
