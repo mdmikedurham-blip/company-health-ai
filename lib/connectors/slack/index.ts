@@ -1,0 +1,1 @@
+export { slackConnector } from "./adapter";

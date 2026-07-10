@@ -1,0 +1,1 @@
+export { bambooHrConnector } from "./adapter";

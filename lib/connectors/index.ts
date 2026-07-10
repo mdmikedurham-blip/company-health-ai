@@ -1,7 +1,7 @@
 /**
  * Public connector surface.
  *
- * Canonical path: ConnectorAdapter.collect() → normalize() → buildCompanyHealthSnapshot().
+ * Canonical path: ConnectorAdapter.sync() → normalize() → buildCompanyHealthSnapshot().
  * Sync helpers are not exported — reserved for lib/data mock module-init.
  */
 
@@ -32,8 +32,9 @@ export {
 } from "./registry";
 export type {
   ConnectorAdapter,
+  ConnectorHealth,
   ConnectorId,
   ConnectorIngestResult,
   RawConnectorData,
   RawConnectorItem,
-} from "./types";
+} from "./connector";

@@ -1,0 +1,1 @@
+export { cartaConnector } from "./adapter";

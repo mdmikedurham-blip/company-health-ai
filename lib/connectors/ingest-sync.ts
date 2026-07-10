@@ -9,8 +9,8 @@ import type {
   ConnectorIngestResult,
   RawConnectorData,
   SyncConnectorAdapter,
-} from "./types";
-import { isSyncConnectorAdapter } from "./types";
+} from "./connector";
+import { isSyncConnectorAdapter } from "./connector";
 import { buildEvidenceCatalog } from "./ingest";
 
 export function ingestFromConnectorsSync(
@@ -20,7 +20,7 @@ export function ingestFromConnectorsSync(
   const evidence: Evidence[] = [];
 
   for (const adapter of connectors) {
-    const raw = adapter.collectSync();
+    const raw = adapter.syncSync();
     rawResults.push(raw);
     evidence.push(...adapter.normalizeSync(raw));
   }
