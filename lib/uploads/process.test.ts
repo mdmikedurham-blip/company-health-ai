@@ -271,7 +271,7 @@ describe("dashboard progress states", () => {
 });
 
 describe("immediate kickoff contract", () => {
-  it("complete awaits process kickoff with secret auth path", async () => {
+  it("complete awaits in-process sync kickoff (no after hooks)", async () => {
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
     const kickoffSrc = await fs.readFile(
@@ -285,17 +285,11 @@ describe("immediate kickoff contract", () => {
       ),
       "utf8",
     );
-    const processSrc = await fs.readFile(
-      path.join(process.cwd(), "app/api/documents/process/route.ts"),
-      "utf8",
-    );
-    expect(kickoffSrc).toContain("/api/documents/process");
-    expect(kickoffSrc).toContain("Authorization");
+    expect(kickoffSrc).toContain("acceptDocumentForProcessing");
     expect(kickoffSrc).toContain("manual_upload_processing_kickoff");
-    expect(kickoffSrc).not.toMatch(/\bafter\s*\(/);
+    expect(kickoffSrc).toContain("in-process");
     expect(completeSrc).toContain("await kickoffDocumentProcessing");
+    expect(completeSrc).toContain('mode: "sync"');
     expect(completeSrc).not.toMatch(/\bafter\s*\(/);
-    expect(processSrc).toContain("isAuthorizedProcessSecret");
-    expect(processSrc).toContain("acceptDocumentForProcessing");
   });
 });

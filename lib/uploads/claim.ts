@@ -38,7 +38,8 @@ export async function claimDocumentJob(input: {
     ) {
       return claimDocumentJobFallback(input);
     }
-    throw new Error(`claimDocumentJob: ${error.message}`);
+    // Unknown RPC error — still try fallback so jobs do not stay QUEUED.
+    return claimDocumentJobFallback(input);
   }
 
   if (!data) return null;
@@ -73,25 +74,49 @@ async function claimDocumentJobFallback(input: {
   if (!current) return null;
 
   const isQueued = current.status === "QUEUED";
+  const leaseExpired =
+    current.lease_expires_at != null &&
+    current.lease_expires_at < now.toISOString();
+  const lockedStale =
+    current.locked_at != null && current.locked_at < staleBefore;
   const isStaleProcessing =
     current.status === "PROCESSING" &&
-    (!current.lease_expires_at ||
-      current.lease_expires_at < now.toISOString() ||
-      (current.locked_at != null && current.locked_at < staleBefore));
+    (current.lease_expires_at == null || leaseExpired || lockedStale);
 
   if (!isQueued && !isStaleProcessing) return null;
 
+  const richPatch = {
+    status: "PROCESSING" as const,
+    processing_started_at: current.processing_started_at ?? now.toISOString(),
+    processing_attempts: (current.processing_attempts ?? 0) + 1,
+    locked_at: now.toISOString(),
+    lease_expires_at: leaseExpires,
+    last_stage: "claim",
+    error_message: null,
+  };
+
   const { data: claimed, error: updateError } = await input.client
+    .from("documents")
+    .update(richPatch)
+    .eq("id", input.documentId)
+    .eq("company_id", input.companyId)
+    .eq("status", current.status)
+    .select("*")
+    .maybeSingle();
+
+  if (!updateError && claimed) return claimed;
+
+  // Minimal patch when migration 008 columns are not applied yet.
+  const { data: minimal, error: minimalError } = await input.client
     .from("documents")
     .update({
       status: "PROCESSING",
-      processing_started_at:
-        current.processing_started_at ?? now.toISOString(),
-      processing_attempts: (current.processing_attempts ?? 0) + 1,
-      locked_at: now.toISOString(),
-      lease_expires_at: leaseExpires,
-      last_stage: "claim",
-      error_message: null,
+      metadata: {
+        source: "manual-upload",
+        last_stage: "claim",
+        processing_started_at: now.toISOString(),
+        processing_attempts: (current.processing_attempts ?? 0) + 1,
+      },
     })
     .eq("id", input.documentId)
     .eq("company_id", input.companyId)
@@ -99,10 +124,12 @@ async function claimDocumentJobFallback(input: {
     .select("*")
     .maybeSingle();
 
-  if (updateError) {
-    throw new Error(`claimDocumentJobFallback.update: ${updateError.message}`);
+  if (minimalError) {
+    throw new Error(
+      `claimDocumentJobFallback.update: ${updateError?.message ?? minimalError.message}`,
+    );
   }
-  return claimed;
+  return minimal;
 }
 
 export async function updateDocumentStage(input: {
@@ -113,18 +140,42 @@ export async function updateDocumentStage(input: {
   lastStage: string;
   patch?: Record<string, unknown>;
 }): Promise<void> {
+  const rich = {
+    status: input.status,
+    last_stage: input.lastStage,
+    ...input.patch,
+  };
   const { error } = await input.client
     .from("documents")
+    .update(rich)
+    .eq("id", input.documentId)
+    .eq("company_id", input.companyId);
+
+  if (!error) return;
+
+  // Pre-008 DBs reject EXTRACTED/ANALYZING — keep PROCESSING with stage metadata.
+  const fallbackStatus =
+    input.status === "EXTRACTED" || input.status === "ANALYZING"
+      ? "PROCESSING"
+      : input.status;
+
+  const { error: fallbackError } = await input.client
+    .from("documents")
     .update({
-      status: input.status,
-      last_stage: input.lastStage,
-      ...input.patch,
+      status: fallbackStatus,
+      metadata: {
+        source: "manual-upload",
+        last_stage: input.lastStage,
+        logical_status: input.status,
+      },
     })
     .eq("id", input.documentId)
     .eq("company_id", input.companyId);
 
-  if (error) {
-    throw new Error(`updateDocumentStage: ${error.message}`);
+  if (fallbackError) {
+    throw new Error(
+      `updateDocumentStage: ${error.message}; fallback: ${fallbackError.message}`,
+    );
   }
 }
 
@@ -136,22 +187,46 @@ export async function markDocumentFailed(input: {
   lastStage: string;
 }): Promise<void> {
   const message = input.errorMessage.slice(0, 1000);
-  await input.client
+  const rich = {
+    status: "FAILED" as const,
+    last_stage: input.lastStage,
+    error_message: message,
+    processing_completed_at: new Date().toISOString(),
+    lease_expires_at: null,
+    locked_at: null,
+    metadata: {
+      source: "manual-upload",
+      error: message,
+      last_stage: input.lastStage,
+    },
+  };
+
+  const { error } = await input.client
+    .from("documents")
+    .update(rich)
+    .eq("id", input.documentId)
+    .eq("company_id", input.companyId);
+
+  if (!error) return;
+
+  const { error: minimalError } = await input.client
     .from("documents")
     .update({
       status: "FAILED",
-      last_stage: input.lastStage,
-      error_message: message,
-      processing_completed_at: new Date().toISOString(),
-      lease_expires_at: null,
-      locked_at: null,
       metadata: {
         source: "manual-upload",
         error: message,
+        last_stage: input.lastStage,
       },
     })
     .eq("id", input.documentId)
     .eq("company_id", input.companyId);
+
+  if (minimalError) {
+    throw new Error(
+      `markDocumentFailed: ${error.message}; fallback: ${minimalError.message}`,
+    );
+  }
 }
 
 export async function markDocumentProcessed(input: {
@@ -160,23 +235,48 @@ export async function markDocumentProcessed(input: {
   documentId: string;
   rawSummary: string;
 }): Promise<void> {
-  await input.client
+  const rich = {
+    status: "PROCESSED" as const,
+    last_stage: "processed",
+    raw_summary: input.rawSummary.slice(0, 2000),
+    error_message: null,
+    processing_completed_at: new Date().toISOString(),
+    synced_at: new Date().toISOString(),
+    lease_expires_at: null,
+    locked_at: null,
+  };
+
+  const { error } = await input.client
+    .from("documents")
+    .update(rich)
+    .eq("id", input.documentId)
+    .eq("company_id", input.companyId);
+
+  if (!error) return;
+
+  const { error: minimalError } = await input.client
     .from("documents")
     .update({
       status: "PROCESSED",
-      last_stage: "processed",
       raw_summary: input.rawSummary.slice(0, 2000),
-      error_message: null,
-      processing_completed_at: new Date().toISOString(),
       synced_at: new Date().toISOString(),
-      lease_expires_at: null,
-      locked_at: null,
+      metadata: {
+        source: "manual-upload",
+        last_stage: "processed",
+        processing_completed_at: new Date().toISOString(),
+      },
     })
     .eq("id", input.documentId)
     .eq("company_id", input.companyId);
+
+  if (minimalError) {
+    throw new Error(
+      `markDocumentProcessed: ${error.message}; fallback: ${minimalError.message}`,
+    );
+  }
 }
 
-/** Reset FAILED or stale in-flight jobs to QUEUED for retry. */
+/** Reset FAILED or QUEUED / stale in-flight jobs to QUEUED for retry. */
 export async function requeueDocumentJobs(input: {
   client: AppSupabaseClient;
   companyId: string;
@@ -204,7 +304,6 @@ export async function requeueDocumentJobs(input: {
 
   const ids: string[] = [];
   for (const row of rows ?? []) {
-    // Retry: FAILED always; QUEUED always (re-kickoff); in-flight only when stale.
     const canRetry =
       row.status === "FAILED" ||
       row.status === "QUEUED" ||
@@ -233,14 +332,25 @@ export async function requeueDocumentJobs(input: {
     .in("id", ids);
 
   if (updateError) {
-    throw new Error(`requeueDocumentJobs.update: ${updateError.message}`);
+    const { error: minimalError } = await input.client
+      .from("documents")
+      .update({
+        status: "QUEUED",
+        metadata: {
+          source: "manual-upload",
+          requeued_at: now.toISOString(),
+          last_stage: "requeued",
+        },
+      })
+      .eq("company_id", input.companyId)
+      .in("id", ids);
+    if (minimalError) {
+      throw new Error(
+        `requeueDocumentJobs.update: ${updateError.message}; fallback: ${minimalError.message}`,
+      );
+    }
   }
   return ids;
-}
-
-function isStaleTimestamp(iso: string | null | undefined, now: Date): boolean {
-  if (!iso) return true;
-  return now.getTime() - new Date(iso).getTime() >= PROCESSING_STALE_MS;
 }
 
 function isStaleForRetry(
@@ -255,7 +365,7 @@ function isStaleForRetry(
   staleBefore: string,
 ): boolean {
   if (row.status === "QUEUED") {
-    return isStaleTimestamp(row.updated_at, now);
+    return now.getTime() - new Date(row.updated_at).getTime() >= PROCESSING_STALE_MS;
   }
   if (row.lease_expires_at && row.lease_expires_at < now.toISOString()) {
     return true;

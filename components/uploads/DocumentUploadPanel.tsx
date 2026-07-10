@@ -54,6 +54,26 @@ function statusTone(status: string | undefined): string {
   }
 }
 
+function analysisLabel(status: string | undefined): string {
+  switch (status) {
+    case "QUEUED":
+      return "Queued";
+    case "PROCESSING":
+    case "EXTRACTED":
+      return "Extracting";
+    case "ANALYZING":
+      return "Analyzing";
+    case "PROCESSED":
+      return "Complete";
+    case "FAILED":
+      return "Failed";
+    case "UPLOADED":
+      return "Uploading";
+    default:
+      return "Pending";
+  }
+}
+
 async function uploadFileWithProgress(
   signedUrl: string,
   file: File,
@@ -195,15 +215,20 @@ export function DocumentUploadPanel({
         });
         const completeData = (await completeRes.json()) as {
           status?: string;
+          analysisStatus?: string;
+          uploadComplete?: boolean;
           error?: string;
         };
         if (!completeRes.ok) {
           throw new Error(completeData.error ?? "Could not enqueue document.");
         }
 
+        const analysisStatus =
+          completeData.analysisStatus ?? completeData.status ?? "QUEUED";
+
         patch({
           phase: "done",
-          status: completeData.status ?? "QUEUED",
+          status: analysisStatus,
           progress: 100,
         });
         await refreshList();
@@ -321,24 +346,34 @@ export function DocumentUploadPanel({
                     </p>
                     <p className="mt-0.5 text-xs text-zinc-500">
                       {formatBytes(item.file.size)}
-                      {item.status ? ` · ${item.status}` : ""}
                       {item.phase === "uploading"
-                        ? ` · ${item.progress}%`
+                        ? ` · uploading ${item.progress}%`
                         : item.phase === "signing"
-                          ? " · preparing"
+                          ? " · preparing upload"
                           : item.phase === "enqueueing"
-                            ? " · queueing"
+                            ? " · finishing upload"
                             : item.phase === "done"
-                              ? " · queued for analysis"
-                              : ""}
+                              ? ` · upload complete · analysis: ${analysisLabel(item.status)}`
+                              : item.phase === "error"
+                                ? ""
+                                : " · waiting"}
                     </p>
                     {item.error ? (
                       <p className="mt-1 text-xs text-red-400">{item.error}</p>
                     ) : null}
                   </div>
-                  <span className="shrink-0 text-[11px] uppercase tracking-wide text-zinc-500">
-                    {item.phase}
-                  </span>
+                  <div className="shrink-0 text-right">
+                    <div className="text-[11px] uppercase tracking-wide text-zinc-500">
+                      {item.phase === "done" ? "Upload complete" : item.phase}
+                    </div>
+                    {item.phase === "done" ? (
+                      <div
+                        className={`mt-1 text-[11px] font-medium uppercase tracking-wide ${statusTone(item.status)}`}
+                      >
+                        {analysisLabel(item.status)}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
                 {(item.phase === "uploading" ||
                   item.phase === "enqueueing" ||
@@ -401,12 +436,16 @@ export function DocumentUploadPanel({
                   <p className="mt-0.5 text-xs text-zinc-500">
                     {doc.byteSize != null ? formatBytes(doc.byteSize) : "—"}
                     {doc.mimeType ? ` · ${doc.mimeType}` : ""}
+                    {" · analysis: "}
+                    <span className={statusTone(doc.status)}>
+                      {analysisLabel(doc.status)}
+                    </span>
                   </p>
                 </div>
                 <span
                   className={`shrink-0 text-[11px] font-medium uppercase tracking-wide ${statusTone(doc.status)}`}
                 >
-                  {doc.status}
+                  {analysisLabel(doc.status)}
                 </span>
               </li>
             ))}

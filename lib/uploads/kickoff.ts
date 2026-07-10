@@ -5,11 +5,14 @@ import { markDocumentFailed } from "./claim";
 import { logUploadProcessingEvent } from "./logging";
 import { acceptDocumentForProcessing } from "./run-process";
 
-/** Confirm worker acceptance (claim) within this window for mode=accept. */
+/** Small-file sync should finish well under this (hello.txt target). */
+export const SYNC_PROCESS_TIMEOUT_MS = 30_000;
+
+/** Processing must begin (leave QUEUED) within this window. */
 export const PROCESSING_KICKOFF_TIMEOUT_MS = 10_000;
 
-/** Small files use mode=sync; complete may wait up to this long for PROCESSED. */
-export const SYNC_PROCESS_TIMEOUT_MS = 30_000;
+/** If processing cannot start at all, fail within this window. */
+export const PROCESSING_START_DEADLINE_MS = 60_000;
 
 /** Files at or under this size run mode=sync (hello.txt path). */
 export const SYNC_PROCESS_MAX_BYTES = 1_000_000;
@@ -20,31 +23,16 @@ export type KickoffResult = {
   companyId: string;
   status?: string;
   mode?: "sync" | "accept";
-  via?: "http" | "in-process";
+  via?: "in-process" | "http";
   httpStatus?: number;
   errorMessage?: string;
 };
 
-function resolveAppBaseUrl(request?: Request): string {
-  // Prefer the incoming request host so kickoff hits THIS deployment
-  // (NEXT_PUBLIC_SITE_URL can point at a different/old deployment).
-  if (request) {
-    const host =
-      request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-    const proto = request.headers.get("x-forwarded-proto") ?? "https";
-    if (host) return `${proto}://${host}`;
-  }
-  const site = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
-  if (site) return site;
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, "")}`;
-  }
-  return "http://localhost:3000";
-}
-
 /**
- * Awaited kickoff to POST /api/documents/process with a server-only secret.
- * Falls back to the same in-process worker if HTTP self-fetch fails (Vercel).
+ * Production-safe kickoff: run the worker **in-process** and await it.
+ *
+ * Does not depend on CRON_SECRET, HTTP self-fetch, Next.js after hooks, or cron.
+ * Complete always uses mode=sync so hello.txt reaches PROCESSED here.
  */
 export async function kickoffDocumentProcessing(input: {
   companyId: string;
@@ -58,9 +46,7 @@ export async function kickoffDocumentProcessing(input: {
   const byteSize = input.byteSize ?? null;
   const mode: "sync" | "accept" =
     input.mode ??
-    (byteSize != null && byteSize <= SYNC_PROCESS_MAX_BYTES ? "sync" : "accept");
-  const timeoutMs =
-    mode === "sync" ? SYNC_PROCESS_TIMEOUT_MS : PROCESSING_KICKOFF_TIMEOUT_MS;
+    (byteSize == null || byteSize <= SYNC_PROCESS_MAX_BYTES ? "sync" : "accept");
 
   logUploadProcessingEvent("manual_upload_processing_kickoff", {
     documentId,
@@ -70,99 +56,9 @@ export async function kickoffDocumentProcessing(input: {
     status: mode,
   });
 
-  const secret = getDocumentProcessSecret();
-  if (!secret) {
-    return failKickoff({
-      client: input.client,
-      companyId,
-      documentId,
-      mode,
-      errorMessage:
-        "DOCUMENT_PROCESS_SECRET or CRON_SECRET is not configured",
-    });
-  }
-
-  const baseUrl = resolveAppBaseUrl(input.request);
-  const url = `${baseUrl}/api/documents/process`;
+  const client = input.client ?? createServiceClient();
 
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        Authorization: `Bearer ${secret}`,
-      },
-      body: JSON.stringify({
-        documentId,
-        companyId,
-        mode,
-      }),
-      signal: AbortSignal.timeout(timeoutMs),
-      cache: "no-store",
-    });
-
-    const httpStatus = res.status;
-    let body: {
-      accepted?: boolean;
-      claimed?: boolean;
-      skipped?: boolean;
-      status?: string;
-      error?: string;
-      result?: { status?: string };
-    } = {};
-    try {
-      body = (await res.json()) as typeof body;
-    } catch {
-      body = {};
-    }
-
-    if (res.ok) {
-      const status =
-        body.status ??
-        body.result?.status ??
-        (body.skipped ? "skipped" : "PROCESSING");
-      logUploadProcessingEvent("manual_upload_processing_kickoff", {
-        documentId,
-        companyId,
-        stage: "kickoff",
-        outcome: body.skipped ? "skipped" : "accepted",
-        httpStatus,
-        status,
-      });
-      return {
-        accepted: true,
-        documentId,
-        companyId,
-        status,
-        mode,
-        via: "http",
-        httpStatus,
-      };
-    }
-
-    logUploadProcessingEvent("manual_upload_processing_kickoff", {
-      documentId,
-      companyId,
-      stage: "kickoff",
-      outcome: "http_failed",
-      httpStatus,
-      errorMessage: (body.error ?? `HTTP ${httpStatus}`).slice(0, 500),
-    });
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    logUploadProcessingEvent("manual_upload_processing_kickoff", {
-      documentId,
-      companyId,
-      stage: "kickoff",
-      outcome: "http_failed",
-      errorMessage: errorMessage.slice(0, 500),
-    });
-  }
-
-  // Fallback: same worker code the route uses (no self-fetch deadlock).
-  try {
-    const client = input.client ?? createServiceClient();
     const accepted = await acceptDocumentForProcessing({
       client,
       companyId,
@@ -178,8 +74,42 @@ export async function kickoffDocumentProcessing(input: {
       status: accepted.status,
     });
 
+    if (accepted.skipped && mode === "sync") {
+      // Could not claim — treat as start failure within deadline semantics.
+      await markDocumentFailed({
+        client,
+        companyId,
+        documentId,
+        errorMessage:
+          "processing_kickoff_failed: document was not claimable (still QUEUED)",
+        lastStage: "kickoff",
+      });
+      logUploadProcessingEvent("manual_upload_processing_failed", {
+        documentId,
+        companyId,
+        stage: "kickoff",
+        outcome: "failed",
+        errorMessage: "not_claimable",
+      });
+      return {
+        accepted: false,
+        documentId,
+        companyId,
+        status: "FAILED",
+        mode,
+        via: "in-process",
+        errorMessage: "not_claimable",
+      };
+    }
+
+    void notifyProcessRouteBestEffort({
+      companyId,
+      documentId,
+      request: input.request,
+    });
+
     return {
-      accepted: accepted.accepted || Boolean(accepted.skipped),
+      accepted: true,
       documentId,
       companyId,
       status: accepted.status,
@@ -190,12 +120,44 @@ export async function kickoffDocumentProcessing(input: {
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     return failKickoff({
-      client: input.client,
+      client,
       companyId,
       documentId,
       mode,
       errorMessage,
     });
+  }
+}
+
+async function notifyProcessRouteBestEffort(input: {
+  companyId: string;
+  documentId: string;
+  request?: Request;
+}): Promise<void> {
+  const secret = getDocumentProcessSecret();
+  if (!secret || !input.request) return;
+  try {
+    const host =
+      input.request.headers.get("x-forwarded-host") ??
+      input.request.headers.get("host");
+    const proto = input.request.headers.get("x-forwarded-proto") ?? "https";
+    if (!host) return;
+    await fetch(`${proto}://${host}/api/documents/process`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${secret}`,
+      },
+      body: JSON.stringify({
+        documentId: input.documentId,
+        companyId: input.companyId,
+        mode: "accept",
+      }),
+      signal: AbortSignal.timeout(2_000),
+      cache: "no-store",
+    });
+  } catch {
+    // Observability only — never required for correctness.
   }
 }
 
@@ -239,7 +201,9 @@ async function failKickoff(input: {
     documentId: input.documentId,
     companyId: input.companyId,
     mode: input.mode,
+    status: "FAILED",
     errorMessage: input.errorMessage,
+    via: "in-process",
   };
 }
 

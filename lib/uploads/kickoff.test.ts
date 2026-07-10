@@ -22,73 +22,19 @@ import { logUploadProcessingEvent } from "./logging";
 import { acceptDocumentForProcessing } from "./run-process";
 
 describe("kickoffDocumentProcessing", () => {
-  const originalFetch = globalThis.fetch;
   const originalEnv = { ...process.env };
 
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.CRON_SECRET = "test-cron-secret";
+    delete process.env.CRON_SECRET;
     delete process.env.DOCUMENT_PROCESS_SECRET;
-    delete process.env.NEXT_PUBLIC_SITE_URL;
-    delete process.env.VERCEL_URL;
   });
 
   afterEach(() => {
-    globalThis.fetch = originalFetch;
     process.env = { ...originalEnv };
   });
 
-  it("POSTs /api/documents/process with Bearer secret and awaits acceptance", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        accepted: true,
-        claimed: true,
-        status: "PROCESSED",
-      }),
-    });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
-
-    const result = await kickoffDocumentProcessing({
-      companyId: "co-1",
-      documentId: "doc-1",
-      byteSize: 6,
-      request: new Request("https://app.example.com/api/documents/upload/complete", {
-        headers: {
-          host: "app.example.com",
-          "x-forwarded-proto": "https",
-        },
-      }),
-    });
-
-    expect(result.accepted).toBe(true);
-    expect(result.via).toBe("http");
-    expect(result.mode).toBe("sync");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(url).toBe("https://app.example.com/api/documents/process");
-    expect(init.headers.Authorization).toBe("Bearer test-cron-secret");
-    expect(JSON.parse(init.body)).toMatchObject({
-      documentId: "doc-1",
-      companyId: "co-1",
-      mode: "sync",
-    });
-    expect(logUploadProcessingEvent).toHaveBeenCalledWith(
-      "manual_upload_processing_kickoff",
-      expect.objectContaining({ outcome: "attempt" }),
-    );
-    expect(logUploadProcessingEvent).toHaveBeenCalledWith(
-      "manual_upload_processing_kickoff",
-      expect.objectContaining({ outcome: "accepted" }),
-    );
-  });
-
-  it("falls back to in-process worker when HTTP fails", async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue(
-      new Error("fetch failed"),
-    ) as unknown as typeof fetch;
-
+  it("runs in-process sync without requiring CRON_SECRET", async () => {
     vi.mocked(acceptDocumentForProcessing).mockResolvedValue({
       accepted: true,
       claimed: true,
@@ -108,28 +54,40 @@ describe("kickoffDocumentProcessing", () => {
       companyId: "co-1",
       documentId: "doc-1",
       byteSize: 6,
+      mode: "sync",
       client: {} as never,
     });
 
     expect(result.accepted).toBe(true);
     expect(result.via).toBe("in-process");
+    expect(result.status).toBe("PROCESSED");
     expect(acceptDocumentForProcessing).toHaveBeenCalledWith(
       expect.objectContaining({ mode: "sync", documentId: "doc-1" }),
     );
+    expect(logUploadProcessingEvent).toHaveBeenCalledWith(
+      "manual_upload_processing_kickoff",
+      expect.objectContaining({ outcome: "attempt" }),
+    );
+    expect(logUploadProcessingEvent).toHaveBeenCalledWith(
+      "manual_upload_processing_kickoff",
+      expect.objectContaining({ outcome: "accepted" }),
+    );
   });
 
-  it("fails clearly when process secret is missing", async () => {
-    delete process.env.CRON_SECRET;
-    delete process.env.DOCUMENT_PROCESS_SECRET;
+  it("marks FAILED when sync worker throws", async () => {
+    vi.mocked(acceptDocumentForProcessing).mockRejectedValue(
+      new Error("boom"),
+    );
 
     const result = await kickoffDocumentProcessing({
       companyId: "co-1",
       documentId: "doc-1",
-      byteSize: 6,
+      mode: "sync",
       client: {} as never,
     });
 
     expect(result.accepted).toBe(false);
+    expect(result.status).toBe("FAILED");
     expect(markDocumentFailed).toHaveBeenCalled();
     expect(logUploadProcessingEvent).toHaveBeenCalledWith(
       "manual_upload_processing_failed",
@@ -137,27 +95,18 @@ describe("kickoffDocumentProcessing", () => {
     );
   });
 
-  it("uses sync mode for hello.txt-sized uploads", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ accepted: true, status: "PROCESSED" }),
-    }) as unknown as typeof fetch;
-
-    const result = await kickoffDocumentProcessing({
-      companyId: "co-1",
-      documentId: "doc-hello",
-      byteSize: 6,
-      request: new Request("http://localhost:3000/x", {
-        headers: { host: "localhost:3000", "x-forwarded-proto": "http" },
-      }),
-    });
-
-    expect(result.mode).toBe("sync");
-    const body = JSON.parse(
-      (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1]
-        .body,
+  it("complete route awaits kickoffDocumentProcessing (contract)", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const completeSrc = await fs.readFile(
+      path.join(
+        process.cwd(),
+        "app/api/documents/upload/complete/route.ts",
+      ),
+      "utf8",
     );
-    expect(body.mode).toBe("sync");
+    expect(completeSrc).toContain("await kickoffDocumentProcessing");
+    expect(completeSrc).toContain('mode: "sync"');
+    expect(completeSrc).not.toMatch(/\bafter\s*\(/);
   });
 });

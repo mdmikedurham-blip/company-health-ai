@@ -18,9 +18,9 @@ export const maxDuration = 60;
 /**
  * POST /api/documents/upload/complete
  *
- * After QUEUED, awaits POST /api/documents/process (server-only secret).
- * Small files use mode=sync so hello.txt reaches PROCESSED in this request.
- * Does not return until the worker accepts (or sync finishes / fails).
+ * After QUEUED, **awaits in-process** processing kickoff (same worker as
+ * /api/documents/process). Small files (hello.txt) use mode=sync and reach
+ * PROCESSED before this response returns. No fire-and-forget, no cron dependency.
  */
 export async function POST(request: Request) {
   try {
@@ -52,6 +52,7 @@ export async function POST(request: Request) {
       documentId,
     });
 
+    // Exact kickoff after QUEUED — awaited in-process worker:
     logUploadProcessingEvent("manual_upload_processing_kickoff", {
       documentId: document.id,
       companyId,
@@ -64,6 +65,7 @@ export async function POST(request: Request) {
       companyId,
       documentId: document.id,
       byteSize: document.byteSize,
+      mode: "sync",
       request,
       client,
     });
@@ -74,7 +76,9 @@ export async function POST(request: Request) {
         status: kickoff.status ?? document.status,
       },
       enqueued: true,
+      uploadComplete: true,
       processingKickedOff: kickoff.accepted,
+      analysisStatus: kickoff.status ?? "QUEUED",
       kickoff,
       status: kickoff.status ?? document.status,
     });
