@@ -1,6 +1,8 @@
 export type { AppSupabaseClient } from "./client";
 export {
   createServiceClient,
+  getSupabasePublicKey,
+  getSupabaseUrl,
   isServiceRoleConfigured,
   isSupabaseConfigured,
 } from "./client";
