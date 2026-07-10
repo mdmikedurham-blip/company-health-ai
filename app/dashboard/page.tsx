@@ -7,13 +7,19 @@ import {
   createServiceClient,
   isServiceRoleConfigured,
 } from "@/lib/supabase";
-import { hasCompletedAnalysis } from "@/lib/auth/connector-status";
+import {
+  hasCompletedAnalysis,
+  listLatestConnectorSync,
+} from "@/lib/auth/connector-status";
+import { GOOGLE_DRIVE_CONNECTOR_ID } from "@/lib/connectors/google-drive/constants";
 
 export const dynamic = "force-dynamic";
 
 export default async function ExecutiveDashboard() {
   const ctx = await getSessionContext();
-  const companyName = ctx?.memberships[0]?.companyName;
+  const companyName = ctx?.memberships.find(
+    (m) => m.companyId === ctx.primaryCompanyId,
+  )?.companyName;
   const companyId = ctx?.primaryCompanyId;
   const userName =
     (ctx?.user.user_metadata?.full_name as string | undefined) ??
@@ -21,12 +27,22 @@ export default async function ExecutiveDashboard() {
     null;
 
   let analysisReady = false;
+  let analyzing = false;
   if (companyId && isServiceRoleConfigured()) {
     try {
-      analysisReady = await hasCompletedAnalysis(
-        createServiceClient(),
-        companyId,
-      );
+      const client = createServiceClient();
+      analysisReady = await hasCompletedAnalysis(client, companyId);
+      if (!analysisReady) {
+        const latest = await listLatestConnectorSync(
+          client,
+          companyId,
+          GOOGLE_DRIVE_CONNECTOR_ID,
+        );
+        analyzing =
+          latest?.status === "running" ||
+          latest?.status === "succeeded" ||
+          latest?.status === "partial";
+      }
     } catch {
       analysisReady = false;
     }
@@ -65,7 +81,7 @@ export default async function ExecutiveDashboard() {
       {analysisReady ? (
         <DashboardContent />
       ) : (
-        <EmptyDashboard companyName={companyName} />
+        <EmptyDashboard companyName={companyName} analyzing={analyzing} />
       )}
     </AppShell>
   );

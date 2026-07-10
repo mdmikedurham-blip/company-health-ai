@@ -1,6 +1,6 @@
 import { AppShell } from "@/components/AppShell";
 import { GoogleDriveConnect } from "@/components/GoogleDriveConnect";
-import { AccountDangerZone } from "@/components/AccountDangerZone";
+import { getSessionContext } from "@/lib/auth/session";
 
 export const dynamic = "force-dynamic";
 
@@ -14,11 +14,22 @@ export default async function ConnectorsPage({
     typeof params.gdrive === "string" ? params.gdrive : null;
   const oauthReason =
     typeof params.reason === "string" ? params.reason : null;
+  const ctx = await getSessionContext();
+  const companyName = ctx?.memberships.find(
+    (m) => m.companyId === ctx.primaryCompanyId,
+  )?.companyName;
+  const userName =
+    (ctx?.user.user_metadata?.full_name as string | undefined) ??
+    ctx?.user.email ??
+    null;
 
   return (
     <AppShell
       title="Connectors"
       subtitle="Connect systems to power company health analysis"
+      userName={userName}
+      companyName={companyName}
+      userEmail={ctx?.user.email ?? null}
     >
       <div className="space-y-6">
         <div>
@@ -40,8 +51,6 @@ export default async function ConnectorsPage({
             HubSpot, Carta, QuickBooks, Slack, and BambooHR
           </p>
         </div>
-
-        <AccountDangerZone />
       </div>
     </AppShell>
   );

@@ -32,9 +32,27 @@ describe("protected route redirects", () => {
     expect(isProtectedPath("/login")).toBe(false);
     expect(isProtectedPath("/signup")).toBe(false);
     expect(isProtectedPath("/forgot-password")).toBe(false);
+    expect(isProtectedPath("/reset-password")).toBe(false);
     expect(isProtectedPath("/auth/callback")).toBe(false);
     expect(isProtectedPath("/api/doctor")).toBe(false);
     expect(isAuthPath("/login")).toBe(true);
+    expect(isAuthPath("/reset-password")).toBe(true);
+  });
+
+  it("allows password reset while authenticated", () => {
+    expect(
+      resolveAuthRedirect({
+        pathname: "/reset-password",
+        isAuthenticated: true,
+        hasCompany: true,
+        authEnabled: true,
+      }),
+    ).toEqual({ type: "allow" });
+  });
+
+  it("protects settings and reports", () => {
+    expect(isProtectedPath("/settings")).toBe(true);
+    expect(isProtectedPath("/reports")).toBe(true);
   });
 
   it("redirects unauthenticated users from protected routes to login", () => {

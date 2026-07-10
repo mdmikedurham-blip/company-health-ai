@@ -12,7 +12,7 @@ import {
 export async function GET(request: Request) {
   try {
     const { ctx, companyId } = await requirePrimaryCompany();
-    const authorizeUrl = buildGoogleDriveAuthorizeUrl({
+    const authorizeUrl = await buildGoogleDriveAuthorizeUrl({
       companyId,
       userId: ctx.user.id,
     });

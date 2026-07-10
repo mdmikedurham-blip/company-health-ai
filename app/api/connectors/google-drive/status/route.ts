@@ -9,7 +9,10 @@ import {
   authErrorResponse,
   requirePrimaryCompany,
 } from "@/lib/auth/session";
-import { listLatestConnectorSync } from "@/lib/auth/connector-status";
+import {
+  hasCompletedAnalysis,
+  listLatestConnectorSync,
+} from "@/lib/auth/connector-status";
 
 /**
  * GET /api/connectors/google-drive/status
@@ -26,6 +29,7 @@ export async function GET() {
         status: "pending",
         syncStatus: null,
         configured: false,
+        analysisReady: false,
       });
     }
 
@@ -40,6 +44,7 @@ export async function GET() {
       companyId,
       GOOGLE_DRIVE_CONNECTOR_ID,
     );
+    const analysisReady = await hasCompletedAnalysis(client, companyId);
 
     return NextResponse.json({
       companyId,
@@ -53,6 +58,7 @@ export async function GET() {
       syncError: latestSync?.error_message ?? null,
       documentsAnalyzed: latestSync?.documents_analyzed ?? null,
       evidenceCreated: latestSync?.evidence_created ?? null,
+      analysisReady,
     });
   } catch (err) {
     const { message, status } = authErrorResponse(err);

@@ -87,14 +87,61 @@ export async function listMembershipsForUser(
   }));
 }
 
+export async function getActiveCompanyId(
+  userId: string,
+  client?: AppSupabaseClient,
+): Promise<string | null> {
+  if (!isSupabaseConfigured()) return null;
+  const db = client ?? createServiceClient();
+  const memberships = await listMembershipsForUser(userId, db);
+  if (memberships.length === 0) return null;
+
+  const { data: prefs } = await db
+    .from("user_preferences")
+    .select("active_company_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  const preferred = prefs?.active_company_id;
+  if (preferred && memberships.some((m) => m.companyId === preferred)) {
+    return preferred;
+  }
+
+  return pickPrimaryCompanyId(memberships);
+}
+
+export async function setActiveCompanyId(
+  userId: string,
+  companyId: string,
+  client?: AppSupabaseClient,
+): Promise<void> {
+  if (!isServiceRoleConfigured()) {
+    throw new Error("Supabase service role is not configured");
+  }
+  const db = client ?? createServiceClient();
+  assertCompanyAccess(
+    (await listMembershipsForUser(userId, db)).map((m) => m.companyId),
+    companyId,
+  );
+  await db.from("user_preferences").upsert(
+    {
+      user_id: userId,
+      active_company_id: companyId,
+    },
+    { onConflict: "user_id" },
+  );
+}
+
 export async function getSessionContext(): Promise<SessionContext | null> {
   const user = await getSessionUser();
   if (!user) return null;
   const memberships = await listMembershipsForUser(user.id);
+  const primaryCompanyId =
+    (await getActiveCompanyId(user.id)) ?? pickPrimaryCompanyId(memberships);
   return {
     user,
     memberships,
-    primaryCompanyId: pickPrimaryCompanyId(memberships),
+    primaryCompanyId,
   };
 }
 
@@ -178,7 +225,7 @@ export async function createCompanyWorkspace(input: {
 
   const { data: company, error: companyError } = await db
     .from("companies")
-    .insert({ name })
+    .insert({ name, created_by: input.userId })
     .select("id")
     .single();
 
@@ -198,7 +245,47 @@ export async function createCompanyWorkspace(input: {
     throw new Error(`Failed to add company owner: ${memberError.message}`);
   }
 
+  await db.from("user_preferences").upsert(
+    {
+      user_id: input.userId,
+      active_company_id: company.id,
+    },
+    { onConflict: "user_id" },
+  );
+
   return { companyId: company.id };
+}
+
+export async function deleteCompanyWorkspace(input: {
+  companyId: string;
+  userId: string;
+}): Promise<void> {
+  if (!isServiceRoleConfigured()) {
+    throw new Error("Supabase service role is not configured");
+  }
+
+  const db = createServiceClient();
+  const memberships = await listMembershipsForUser(input.userId, db);
+  const membership = memberships.find((m) => m.companyId === input.companyId);
+  if (!membership || membership.role !== "owner") {
+    throw new Error("Insufficient permissions: owner role required");
+  }
+
+  const { disconnectGoogleDrive } = await import(
+    "@/lib/connectors/google-drive"
+  );
+  await disconnectGoogleDrive({ companyId: input.companyId, client: db });
+  await db.from("companies").delete().eq("id", input.companyId);
+
+  const remaining = await listMembershipsForUser(input.userId, db);
+  const nextActive = pickPrimaryCompanyId(remaining);
+  await db.from("user_preferences").upsert(
+    {
+      user_id: input.userId,
+      active_company_id: nextActive,
+    },
+    { onConflict: "user_id" },
+  );
 }
 
 export function authErrorResponse(err: unknown): {

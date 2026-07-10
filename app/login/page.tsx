@@ -15,12 +15,14 @@ export default async function LoginPage({
       ? params.email
       : null;
   const deleted = params.deleted === "1";
+  const resetSuccess = params.reset === "1";
 
   return (
     <LoginForm
       nextPath={nextPath}
       confirmEmail={confirmEmail}
       deleted={deleted}
+      resetSuccess={resetSuccess}
     />
   );
 }

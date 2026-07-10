@@ -13,7 +13,11 @@ import {
 
 const initial: AuthActionResult = { ok: true };
 
-export function OnboardingForm() {
+export function OnboardingForm({
+  defaultFullName,
+}: {
+  defaultFullName?: string | null;
+}) {
   const [state, formAction, pending] = useActionState(
     async (_prev: AuthActionResult, formData: FormData) => {
       return completeOnboardingAction(formData);
@@ -25,14 +29,23 @@ export function OnboardingForm() {
     <form action={formAction} className="mx-auto max-w-md space-y-5">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight text-white">
-          Name your company
+          Welcome — set up your workspace
         </h1>
         <p className="mt-2 text-sm text-zinc-500">
-          We’ll create a private workspace for your team. You can connect Google
-          Drive next.
+          Tell us who you are and name your company. You’ll connect Google Drive
+          next.
         </p>
       </div>
       <AuthError message={state.ok ? null : state.error} />
+      <AuthField
+        id="fullName"
+        name="fullName"
+        label="Full name"
+        required
+        placeholder="Alex Rivera"
+        autoComplete="name"
+        defaultValue={defaultFullName ?? undefined}
+      />
       <AuthField
         id="companyName"
         name="companyName"

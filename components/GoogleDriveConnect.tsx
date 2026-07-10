@@ -11,6 +11,7 @@ type DriveStatus = {
   syncError?: string | null;
   documentsAnalyzed?: number | null;
   evidenceCreated?: number | null;
+  analysisReady?: boolean;
   error?: string;
 };
 
@@ -41,19 +42,22 @@ function statusLabel(status: DriveStatus | null): {
   tone: string;
 } {
   if (!status) return { label: "Checking…", tone: "bg-zinc-600" };
-  if (status.status === "error") {
-    return { label: "Error", tone: "bg-red-400" };
+  if (status.status === "pending" || status.status === "error") {
+    if (status.status === "error") {
+      return { label: "Error", tone: "bg-red-400" };
+    }
+    return { label: "Disconnected", tone: "bg-zinc-600" };
   }
-  if (status.status === "connected" && status.syncStatus === "running") {
+  if (status.syncStatus === "running") {
     return { label: "Syncing", tone: "bg-amber-400 animate-pulse" };
   }
-  if (status.status === "connected" && status.syncStatus === "failed") {
+  if (status.syncStatus === "failed") {
     return { label: "Error", tone: "bg-red-400" };
   }
-  if (status.status === "connected") {
-    return { label: "Connected", tone: "bg-emerald-400" };
+  if (status.analysisReady || status.syncStatus === "succeeded") {
+    return { label: "Ready", tone: "bg-emerald-400" };
   }
-  return { label: "Not connected", tone: "bg-zinc-600" };
+  return { label: "Connected", tone: "bg-emerald-400" };
 }
 
 export function GoogleDriveConnect({
@@ -111,6 +115,7 @@ export function GoogleDriveConnect({
         accountEmail: null,
         lastSyncedAt: null,
         syncStatus: null,
+        analysisReady: false,
       }));
       setLocalBanner("Google Drive disconnected.");
     } finally {
@@ -120,6 +125,7 @@ export function GoogleDriveConnect({
 
   const connected = status?.status === "connected";
   const syncing = connected && status?.syncStatus === "running";
+  const failed = connected && status?.syncStatus === "failed";
   const { label, tone } = statusLabel(status);
   const banner =
     localBanner ?? bannerFromOAuthParams(oauthResult, oauthReason);
@@ -166,14 +172,24 @@ export function GoogleDriveConnect({
           </div>
         </div>
         {connected ? (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void disconnect()}
-            className="shrink-0 text-xs text-zinc-500 transition hover:text-zinc-300 disabled:opacity-50"
-          >
-            Disconnect
-          </button>
+          <div className="flex shrink-0 items-center gap-3">
+            {failed ? (
+              <a
+                href="/api/connectors/google-drive/authorize"
+                className="text-xs font-medium text-indigo-300 transition hover:text-indigo-200"
+              >
+                Retry
+              </a>
+            ) : null}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void disconnect()}
+              className="text-xs text-zinc-500 transition hover:text-zinc-300 disabled:opacity-50"
+            >
+              Disconnect
+            </button>
+          </div>
         ) : (
           <a
             href="/api/connectors/google-drive/authorize"
@@ -195,6 +211,19 @@ export function GoogleDriveConnect({
             Inventorying Drive files and extracting evidence. This page updates
             automatically.
           </p>
+        </div>
+      ) : null}
+      {label === "Ready" && !compact ? (
+        <div className="mt-4 flex items-center justify-between gap-3">
+          <p className="text-xs text-zinc-500">
+            Sync complete. Your private dashboard is ready.
+          </p>
+          <a
+            href="/dashboard"
+            className="rounded-md bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-900 transition hover:bg-white"
+          >
+            Open dashboard
+          </a>
         </div>
       ) : null}
     </div>

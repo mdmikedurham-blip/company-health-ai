@@ -2,11 +2,13 @@ export { googleDriveConnector } from "./adapter";
 export {
   buildGoogleDriveAuthorizeUrl,
   completeGoogleDriveOAuth,
+  consumeOAuthNonce,
   createOAuthState,
   disconnectGoogleDrive,
   getGoogleDriveCredentials,
   isGoogleDriveAuthenticated,
   parseOAuthState,
+  storeOAuthNonce,
 } from "./auth";
 export type {
   GoogleDriveAuthConfig,

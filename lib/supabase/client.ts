@@ -15,12 +15,12 @@ function requireEnv(name: string): string {
 
 /**
  * Public (anon / publishable) key for browser + cookie-bound server clients.
- * Accepts either the classic anon JWT or the newer publishable key name.
+ * Prefer publishable key when present; fall back to classic anon JWT.
  */
 export function getSupabasePublicKey(): string | undefined {
   return (
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
     undefined
   );
 }

@@ -10,6 +10,7 @@ export const PROTECTED_PATH_PREFIXES = [
   "/dna",
   "/timeline",
   "/evidence",
+  "/reports",
   "/connectors",
   "/onboarding",
   "/settings",
@@ -21,6 +22,7 @@ export const AUTH_PATH_PREFIXES = [
   "/login",
   "/signup",
   "/forgot-password",
+  "/reset-password",
   "/auth/callback",
 ] as const;
 
@@ -98,8 +100,12 @@ export function resolveAuthRedirect(
     };
   }
 
-  // Authenticated users on auth pages → app
-  if (isAuthPath(path) && path !== "/auth/callback") {
+  // Authenticated users on auth pages → app (except recovery password update)
+  if (
+    isAuthPath(path) &&
+    path !== "/auth/callback" &&
+    path !== "/reset-password"
+  ) {
     return {
       type: "redirect",
       to: input.hasCompany ? "/dashboard" : "/onboarding",

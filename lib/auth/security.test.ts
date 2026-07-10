@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { decryptSecret, encryptSecret } from "@/lib/crypto/token-encryption";
 import { parseOAuthState, createOAuthState } from "@/lib/connectors/google-drive/auth";
 import { assertCompanyAccess } from "@/lib/auth/route-guards";
+import { canWriteCompanyData } from "@/lib/auth/roles";
 
 describe("credential encryption", () => {
   it("round-trips refresh tokens without exposing plaintext format leaks", () => {
@@ -15,7 +16,7 @@ describe("credential encryption", () => {
 });
 
 describe("Drive callback auth requirements", () => {
-  it("OAuth state binds both user and company for callback validation", () => {
+  it("OAuth state binds user, company, nonce, and expiration for callback validation", () => {
     process.env.OAUTH_STATE_SECRET = "callback-secret";
     const state = createOAuthState({
       companyId: "company-1",
@@ -23,11 +24,9 @@ describe("Drive callback auth requirements", () => {
     });
     const parsed = parseOAuthState(state);
 
-    // Callback must compare session user to state.userId
-    const sessionUserId = "user-1";
-    expect(parsed.userId).toBe(sessionUserId);
-
-    // And membership must include state.companyId
+    expect(parsed.userId).toBe("user-1");
+    expect(parsed.nonce).toBeTruthy();
+    expect(parsed.exp).toBeGreaterThan(Date.now());
     expect(assertCompanyAccess(["company-1"], parsed.companyId)).toBe(
       "company-1",
     );
@@ -45,5 +44,10 @@ describe("Drive callback auth requirements", () => {
     const parsed = parseOAuthState(state);
     const sessionUserId = "user-2";
     expect(parsed.userId === sessionUserId).toBe(false);
+  });
+
+  it("viewer role cannot perform owner/admin write actions", () => {
+    expect(canWriteCompanyData("viewer")).toBe(false);
+    expect(canWriteCompanyData("owner")).toBe(true);
   });
 });

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   completeGoogleDriveOAuth,
+  consumeOAuthNonce,
   parseOAuthState,
   syncGoogleDriveForCompany,
 } from "@/lib/connectors/google-drive";
@@ -10,11 +11,27 @@ import {
   listMembershipsForUser,
 } from "@/lib/auth/session";
 import { assertCompanyAccess } from "@/lib/auth/route-guards";
+import { buildSingleConnectorCatalog } from "@/lib/connectors/ingest";
+import {
+  analyzeAndPersistIncremental,
+  shouldRescoreIncremental,
+} from "@/lib/application/incremental-analysis";
+import {
+  companyBriefSeed,
+  companyDNA as dnaProfile,
+  companyProfile,
+  companyReports,
+  companyTimelineSeed,
+  dimensionProfiles,
+  previousHealthScore,
+} from "@/lib/data/company-profile";
+import { createServiceClient, isSupabaseConfigured } from "@/lib/supabase";
+import { GOOGLE_DRIVE_CONNECTOR_ID } from "@/lib/connectors/google-drive/constants";
 
 /**
  * GET /api/connectors/google-drive/callback
  * Requires authenticated session matching OAuth state userId.
- * Exchanges code → stores encrypted refresh token → kicks off first sync.
+ * Exchanges code → stores encrypted refresh token → kicks off first sync + analysis.
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -22,7 +39,7 @@ export async function GET(request: Request) {
   if (error) {
     return NextResponse.redirect(
       new URL(
-        `/connectors?gdrive=error&reason=${encodeURIComponent(error)}`,
+        `/connectors?gdrive=error&reason=${encodeURIComponent("Connection cancelled.")}`,
         url.origin,
       ),
     );
@@ -51,15 +68,65 @@ export async function GET(request: Request) {
       payload.companyId,
     );
 
+    const nonceOk = await consumeOAuthNonce({
+      nonce: payload.nonce,
+      userId: user.id,
+      companyId,
+    });
+    if (!nonceOk) {
+      throw new Error("OAuth state already used or expired");
+    }
+
     await completeGoogleDriveOAuth({
       code,
       companyId,
       connectedByUserId: user.id,
     });
 
-    // Best-effort initial sync; connection already stored if this fails.
+    // Best-effort initial sync + analysis; connection already stored if this fails.
     try {
-      await syncGoogleDriveForCompany(companyId);
+      if (isSupabaseConfigured()) {
+        const client = createServiceClient();
+        const sync = await syncGoogleDriveForCompany(companyId, client, {
+          mode: "incremental",
+        });
+
+        if (
+          sync.status === "succeeded" &&
+          shouldRescoreIncremental(sync.delta) &&
+          sync.changedEvidenceIds.length > 0
+        ) {
+          const companyName =
+            memberships.find((m) => m.companyId === companyId)?.companyName ??
+            companyId;
+          const company =
+            companyId === companyProfile.id
+              ? companyProfile
+              : { ...companyProfile, id: companyId, name: companyName };
+
+          await analyzeAndPersistIncremental({
+            company,
+            changedEvidenceIds: sync.changedEvidenceIds,
+            dimensionProfiles,
+            previousHealthScore,
+            dna: dnaProfile,
+            reports: companyReports,
+            timelineSeed: companyTimelineSeed,
+            briefSeed: companyBriefSeed,
+            evidenceCatalog: buildSingleConnectorCatalog({
+              connectorId: GOOGLE_DRIVE_CONNECTOR_ID,
+              name: "Google Drive",
+              system: "Google Drive",
+              documentsAnalyzed: sync.documentsAnalyzed,
+              lastSynced: new Date().toISOString(),
+              lastFullScan: new Date().toISOString(),
+            }),
+            client,
+          });
+        }
+      } else {
+        await syncGoogleDriveForCompany(companyId);
+      }
     } catch {
       // Connection succeeded; sync status will show on connectors page.
     }
@@ -68,7 +135,7 @@ export async function GET(request: Request) {
       new URL("/connectors?gdrive=connected", url.origin),
     );
   } catch (err) {
-    const { message, status } = authErrorResponse(err);
+    const { status } = authErrorResponse(err);
     if (status === 401) {
       return NextResponse.redirect(
         new URL(
@@ -79,7 +146,7 @@ export async function GET(request: Request) {
     }
     return NextResponse.redirect(
       new URL(
-        `/connectors?gdrive=error&reason=${encodeURIComponent(message)}`,
+        `/connectors?gdrive=error&reason=${encodeURIComponent("Connection failed. Please try again.")}`,
         url.origin,
       ),
     );

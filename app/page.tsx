@@ -29,13 +29,13 @@ export default async function HomePage() {
             href="/login"
             className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-300 transition hover:text-white"
           >
-            Log in
+            Sign In
           </Link>
           <Link
             href="/signup"
             className="rounded-lg bg-zinc-100 px-3 py-2 text-sm font-semibold text-zinc-900 transition hover:bg-white"
           >
-            Create account
+            Get Started
           </Link>
         </div>
       </header>
@@ -54,19 +54,19 @@ export default async function HomePage() {
             href="/signup"
             className="rounded-lg bg-zinc-100 px-4 py-2.5 text-sm font-semibold text-zinc-900 transition hover:bg-white"
           >
-            Create account
+            Get Started
           </Link>
           <Link
             href="/login"
             className="rounded-lg border border-[var(--border-strong)] px-4 py-2.5 text-sm font-medium text-zinc-200 transition hover:border-zinc-500 hover:text-white"
           >
-            Log in
+            Sign In
           </Link>
           <Link
             href="/demo"
             className="px-2 py-2.5 text-sm text-zinc-500 transition hover:text-zinc-300"
           >
-            View Acme Corp demo →
+            View Demo →
           </Link>
         </div>
       </main>

@@ -71,11 +71,12 @@ export type OAuthStatePayload = {
 export function createOAuthState(input: {
   companyId: string;
   userId: string;
+  nonce?: string;
 }): string {
   const payload: OAuthStatePayload = {
     companyId: input.companyId,
     userId: input.userId,
-    nonce: randomBytes(16).toString("hex"),
+    nonce: input.nonce ?? randomBytes(16).toString("hex"),
     exp: Date.now() + 15 * 60 * 1000,
   };
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
@@ -104,6 +105,7 @@ export function parseOAuthState(state: string): OAuthStatePayload {
   if (
     !payload.companyId ||
     !payload.userId ||
+    !payload.nonce ||
     !payload.exp ||
     payload.exp < Date.now()
   ) {
@@ -112,13 +114,80 @@ export function parseOAuthState(state: string): OAuthStatePayload {
   return payload;
 }
 
+/** Persist nonce so the callback can enforce single-use. */
+export async function storeOAuthNonce(input: {
+  nonce: string;
+  userId: string;
+  companyId: string;
+  expiresAt: number;
+  client?: AppSupabaseClient;
+}): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const client = input.client ?? createServiceClient();
+  const { error } = await client.from("oauth_state_nonces").insert({
+    nonce: input.nonce,
+    user_id: input.userId,
+    company_id: input.companyId,
+    expires_at: new Date(input.expiresAt).toISOString(),
+  });
+  if (error) {
+    throw new Error("Failed to store OAuth state");
+  }
+}
+
+/**
+ * Consume a nonce exactly once. Returns false if missing, expired, or already used.
+ */
+export async function consumeOAuthNonce(input: {
+  nonce: string;
+  userId: string;
+  companyId: string;
+  client?: AppSupabaseClient;
+}): Promise<boolean> {
+  if (!isSupabaseConfigured()) {
+    // Without DB, signature + expiry still apply; skip replay store.
+    return true;
+  }
+  const client = input.client ?? createServiceClient();
+  const now = new Date().toISOString();
+  const { data, error } = await client
+    .from("oauth_state_nonces")
+    .update({ consumed_at: now })
+    .eq("nonce", input.nonce)
+    .eq("user_id", input.userId)
+    .eq("company_id", input.companyId)
+    .is("consumed_at", null)
+    .gt("expires_at", now)
+    .select("nonce")
+    .maybeSingle();
+
+  if (error) {
+    throw new Error("Failed to validate OAuth state");
+  }
+  return Boolean(data);
+}
+
 /** Build Google consent URL with offline access + read-only Drive scope. */
-export function buildGoogleDriveAuthorizeUrl(input: {
+export async function buildGoogleDriveAuthorizeUrl(input: {
   companyId: string;
   userId: string;
-}): string {
+  client?: AppSupabaseClient;
+}): Promise<string> {
   const { clientId, redirectUri } = requireGoogleOAuthConfig();
-  const state = createOAuthState(input);
+  const nonce = randomBytes(16).toString("hex");
+  const state = createOAuthState({
+    companyId: input.companyId,
+    userId: input.userId,
+    nonce,
+  });
+  const payload = parseOAuthState(state);
+  await storeOAuthNonce({
+    nonce,
+    userId: input.userId,
+    companyId: input.companyId,
+    expiresAt: payload.exp,
+    client: input.client,
+  });
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
