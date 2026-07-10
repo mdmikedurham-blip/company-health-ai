@@ -7,6 +7,7 @@ export {
   isSupabaseConfigured,
 } from "./client";
 export type {
+  ConnectorCredentialStatus,
   ConnectorSyncStatus,
   Database,
   Json,

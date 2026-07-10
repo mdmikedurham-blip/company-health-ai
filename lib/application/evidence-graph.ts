@@ -7,7 +7,7 @@ const OUTCOME_X = 480;
 
 /**
  * Derive the evidence graph from a CompanyHealthSnapshot.
- * Updates automatically as connectors add evidence.
+ * Presentation helper — not part of connector ingestion.
  */
 export function buildEvidenceGraph(snapshot: CompanyHealthSnapshot): {
   nodes: EvidenceGraphNode[];
@@ -59,7 +59,7 @@ export function buildEvidenceGraph(snapshot: CompanyHealthSnapshot): {
   for (const insight of snapshot.insights) {
     nodes.push({
       id: insight.id,
-      label: (insight.statement).split(" ")[0] ?? insight.statement,
+      label: insight.statement.split(" ")[0] ?? insight.statement,
       type: "insight",
       x: OUTCOME_X,
       y: outcomeY,

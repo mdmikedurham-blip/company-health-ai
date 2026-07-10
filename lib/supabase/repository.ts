@@ -16,7 +16,7 @@ import type {
   TimelineEvent,
 } from "@/lib/domain";
 import type { AppSupabaseClient } from "./client";
-import type { TablesInsert } from "./database.types";
+import type { Tables, TablesInsert, TablesUpdate } from "./database.types";
 import {
   companyFromRow,
   companyToInsert,
@@ -390,4 +390,113 @@ export async function persistEngineResult(
     input.scoreChange,
     input.asOf,
   );
+}
+
+// ─── Connector credentials ───────────────────────────────────────────────────
+
+export type ConnectorCredentialRow = Tables<"connector_credentials">;
+
+/** Public connection status — never includes encrypted_refresh_token. */
+export type ConnectorConnectionStatus = {
+  companyId: string;
+  connectorId: string;
+  status: ConnectorCredentialRow["status"];
+  accountEmail: string | null;
+  scopes: string[];
+  lastSyncedAt: string | null;
+  accessTokenExpiresAt: string | null;
+};
+
+export async function getConnectorCredential(
+  client: AppSupabaseClient,
+  companyId: string,
+  connectorId: string,
+): Promise<ConnectorCredentialRow | null> {
+  const { data, error } = await client
+    .from("connector_credentials")
+    .select()
+    .eq("company_id", companyId)
+    .eq("connector_id", connectorId)
+    .maybeSingle();
+  if (error) throw new Error(`getConnectorCredential: ${error.message}`);
+  return data;
+}
+
+export async function upsertConnectorCredential(
+  client: AppSupabaseClient,
+  row: TablesInsert<"connector_credentials">,
+): Promise<ConnectorCredentialRow> {
+  const data = await assertOk(
+    await client
+      .from("connector_credentials")
+      .upsert(row, { onConflict: "company_id,connector_id" })
+      .select()
+      .single(),
+    "upsertConnectorCredential",
+  );
+  return data;
+}
+
+export async function updateConnectorCredential(
+  client: AppSupabaseClient,
+  companyId: string,
+  connectorId: string,
+  patch: TablesUpdate<"connector_credentials">,
+): Promise<void> {
+  await assertNoError(
+    await client
+      .from("connector_credentials")
+      .update(patch)
+      .eq("company_id", companyId)
+      .eq("connector_id", connectorId),
+    "updateConnectorCredential",
+  );
+}
+
+export async function deleteConnectorCredential(
+  client: AppSupabaseClient,
+  companyId: string,
+  connectorId: string,
+): Promise<void> {
+  await assertNoError(
+    await client
+      .from("connector_credentials")
+      .delete()
+      .eq("company_id", companyId)
+      .eq("connector_id", connectorId),
+    "deleteConnectorCredential",
+  );
+}
+
+export async function listConnectedCompaniesForConnector(
+  client: AppSupabaseClient,
+  connectorId: string,
+): Promise<string[]> {
+  const data = await assertOk(
+    await client
+      .from("connector_credentials")
+      .select("company_id")
+      .eq("connector_id", connectorId)
+      .eq("status", "connected"),
+    "listConnectedCompaniesForConnector",
+  );
+  return data.map((row) => row.company_id);
+}
+
+export async function getConnectorConnectionStatus(
+  client: AppSupabaseClient,
+  companyId: string,
+  connectorId: string,
+): Promise<ConnectorConnectionStatus | null> {
+  const row = await getConnectorCredential(client, companyId, connectorId);
+  if (!row) return null;
+  return {
+    companyId: row.company_id,
+    connectorId: row.connector_id,
+    status: row.status,
+    accountEmail: row.account_email,
+    scopes: row.scopes,
+    lastSyncedAt: row.last_synced_at,
+    accessTokenExpiresAt: row.access_token_expires_at,
+  };
 }

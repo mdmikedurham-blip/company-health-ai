@@ -63,12 +63,17 @@ export function buildExecutiveBrief(params: {
     ...params.seed.boardMeeting,
     items: params.seed.boardMeeting.items.map((item) => {
       const related = params.risks.find((r) =>
-        item.title.toLowerCase().includes(r.title.toLowerCase().split(" ")[0] ?? ""),
+        item.title
+          .toLowerCase()
+          .includes(r.title.toLowerCase().split(" ")[0] ?? ""),
       );
       if (!related) return item;
       return {
         ...item,
-        status: related.severity === "high" ? ("needs-attention" as const) : item.status,
+        status:
+          related.severity === "high"
+            ? ("needs-attention" as const)
+            : item.status,
         detail: related.summary,
       };
     }),
@@ -81,7 +86,9 @@ export function buildExecutiveBrief(params: {
     highlights:
       highlights.length > 0
         ? highlights
-        : [`Health score ${params.healthScore.score} (${params.healthScore.changeLabel}).`],
+        : [
+            `Health score ${params.healthScore.score} (${params.healthScore.changeLabel}).`,
+          ],
     topWins:
       topWins.length > 0
         ? topWins

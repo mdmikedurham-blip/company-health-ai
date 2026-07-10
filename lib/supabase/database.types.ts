@@ -13,6 +13,7 @@ export type Json =
 
 export type UserRole = "owner" | "admin" | "member" | "viewer";
 export type ConnectorSyncStatus = "running" | "succeeded" | "failed" | "partial";
+export type ConnectorCredentialStatus = "pending" | "connected" | "error";
 
 export type Database = {
   public: {
@@ -629,6 +630,69 @@ export type Database = {
             columns: ["company_id"];
             isOneToOne: false;
             referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      connector_credentials: {
+        Row: {
+          id: string;
+          company_id: string;
+          connector_id: string;
+          status: ConnectorCredentialStatus;
+          encrypted_refresh_token: string | null;
+          access_token_expires_at: string | null;
+          scopes: string[];
+          account_email: string | null;
+          connected_by_user_id: string | null;
+          last_synced_at: string | null;
+          metadata: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          connector_id: string;
+          status?: ConnectorCredentialStatus;
+          encrypted_refresh_token?: string | null;
+          access_token_expires_at?: string | null;
+          scopes?: string[];
+          account_email?: string | null;
+          connected_by_user_id?: string | null;
+          last_synced_at?: string | null;
+          metadata?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          connector_id?: string;
+          status?: ConnectorCredentialStatus;
+          encrypted_refresh_token?: string | null;
+          access_token_expires_at?: string | null;
+          scopes?: string[];
+          account_email?: string | null;
+          connected_by_user_id?: string | null;
+          last_synced_at?: string | null;
+          metadata?: Json;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "connector_credentials_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "connector_credentials_connected_by_user_id_fkey";
+            columns: ["connected_by_user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
             referencedColumns: ["id"];
           },
         ];

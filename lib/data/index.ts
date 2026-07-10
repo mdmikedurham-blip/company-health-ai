@@ -2,7 +2,7 @@
  * Application data layer — single read API for all pages.
  *
  * Canonical pipeline:
- *   Connectors → Evidence → runInsightEngine() → CompanyHealthSnapshot → UI
+ *   Connectors → Evidence → application analysis → CompanyHealthSnapshot → UI
  *
  * Multi-company scale: call getCompanyHealthSnapshot(companyId) / build for
  * additional tenants. Pages never touch connectors or engine internals.
@@ -16,13 +16,13 @@ import {
   dimensionProfiles,
   previousHealthScore,
 } from "@/lib/data/company-profile";
+import { acmeConnectors } from "@/lib/connectors";
 import {
-  acmeConnectors,
   buildCompanyHealthSnapshot,
+  buildCompanyHealthSnapshotFromSyncAdapters,
   buildEvidenceGraph,
   type PlatformInput,
-} from "@/lib/connectors";
-import { buildCompanyHealthSnapshotFromSyncAdapters } from "@/lib/connectors/pipeline";
+} from "@/lib/application";
 import {
   getDashboardMetrics,
   getDimension,

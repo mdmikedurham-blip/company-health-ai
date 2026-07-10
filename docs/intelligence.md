@@ -11,8 +11,8 @@ Connector adapters
        ↓  normalize(raw) → Evidence[]
    Evidence[]
        ↓
-  runInsightEngine()
-       ↓
+  lib/application (company-analysis-service)
+       ↓  runInsightEngine()
  Insights → Findings → Risks → HealthScore → Recommendations
        ↓
  CompanyHealthSnapshot
@@ -26,12 +26,13 @@ There is **exactly one ingestion path**. Every external system (Google Drive, Hu
 
 | Layer | Responsibility | May import |
 |-------|----------------|------------|
-| `lib/connectors` | Sync + normalize → `Evidence` | `lib/domain` only |
-| `lib/intelligence` | Rules pipeline | `lib/domain` only |
-| `lib/data` | Assemble snapshot for pages | connectors + intelligence + domain + company profile |
+| `lib/connectors` | Sync + normalize → `Evidence`; document persistence | `lib/domain`, `lib/supabase` (persistence only) |
+| `lib/intelligence` | Insight Engine / rules only | `lib/domain` only |
+| `lib/application` | Orchestrate connector ingest → engine → snapshot (+ optional persist) | connectors + intelligence + domain + supabase |
+| `lib/data` | Read API for pages (cached snapshots) | application + connectors + domain + company profile |
 | `app/` / `components/` | Presentation | `lib/data` (and UI helpers) |
 
-**Forbidden:** connectors → intelligence, intelligence → data, UI → connectors/engine internals.
+**Forbidden:** connectors → intelligence, intelligence → data/application, UI → connectors/engine internals.
 
 ## Evidence lifecycle
 
@@ -43,7 +44,7 @@ There is **exactly one ingestion path**. Every external system (Google Drive, Hu
    - structured `extractedFacts` (what rules read)
    - `dimensionIds`, timestamps, `reliability`, `citation`
 4. **Ingest** — `runConnectorPipeline()` merges all adapters into one `Evidence[]` + `EvidenceCatalog`.
-5. **Analyze** — `runInsightEngine({ evidence })` derives insights, findings, risks, scores, recommendations, and timeline events.
+5. **Analyze** — `lib/application` calls `runInsightEngine({ evidence })` (connectors never do this).
 6. **Link** — Engine writes reverse links (`findingIds`, `linkedRiskIds`) onto evidence.
 7. **Present** — `lib/data` exports snapshot slices; pages never recompute scores.
 
@@ -90,7 +91,7 @@ Flow:
 5. `runInsightEngine({ evidence })` derives intelligence.
 6. `health()` / `disconnect()` manage readiness and teardown.
 
-Mock adapters also implement `syncSync` / `normalizeSync` / `healthSync` so the static app snapshot can assemble at module init. Production OAuth adapters use the async path only (`buildCompanyHealthSnapshot`).
+Mock adapters also implement `syncSync` / `normalizeSync` / `healthSync` so the static app snapshot can assemble at module init. Production OAuth adapters use the async path only (`buildCompanyHealthSnapshot` in `@/lib/application`).
 
 ### Adding a connector (checklist)
 
@@ -184,9 +185,9 @@ Determinism: the engine never reads wall clock. Pass `asOf` (or rely on `DEFAULT
 Application entry points:
 
 ```ts
-await buildCompanyHealthSnapshot(platformInput) // canonical async ConnectorAdapter path
+await buildCompanyHealthSnapshot(platformInput) // @/lib/application — connectors + engine
 getCompanyHealthSnapshot(companyId)             // registered company read (lib/data)
-await buildCompanyHealthSnapshotFor(companyId)  // async rebuild + cache
+await buildCompanyHealthSnapshotFor(companyId)  // async rebuild + cache (lib/data → application)
 listRegisteredCompanyIds()                      // multi-tenant registry keys
 invalidateCompanySnapshot(companyId)            // drop cached snapshot (rebuild on next read)
 ```
@@ -195,7 +196,7 @@ Pages read only from `@/lib/data`. Register additional tenants with `registerCom
 
 Evidence UI aliases (`documentName`, `confidence`, …) live only on `EvidenceRecordView` — projected in `lib/data`, never on domain `Evidence`.
 
-Sync ingest (`syncSync` / `buildCompanyHealthSnapshotFromSyncAdapters`) is **internal** to mock module-init and is not part of the public `@/lib/connectors` API.
+Sync ingest (`syncSync` / `buildCompanyHealthSnapshotFromSyncAdapters`) is **internal** to mock module-init via `@/lib/application` and is not part of the public `@/lib/connectors` API. Connectors never call `runInsightEngine`.
 
 ## Persistence (Supabase PostgreSQL)
 
@@ -213,6 +214,18 @@ Canonical tables (migration `supabase/migrations/001_company_health_schema.sql`)
 | `health_scores` | Point-in-time `HealthScore` + dimensions JSON |
 | `timeline_events` | `TimelineEvent` |
 | `connector_syncs` | Ingest run audit (`startConnectorSync` / `finishConnectorSync`) |
+| `connector_credentials` | OAuth refresh tokens (encrypted) + connection status per company/connector |
+
+### Google Drive OAuth + scheduled sync
+
+Flow:
+
+1. **Connect** — `GET /api/connectors/google-drive/authorize` → Google consent (`drive.readonly`, `access_type=offline`).
+2. **Callback** — `GET /api/connectors/google-drive/callback` exchanges the code, encrypts the refresh token (`TOKEN_ENCRYPTION_KEY`), upserts `connector_credentials`.
+3. **Sync** — `syncGoogleDriveForCompany()` crawls Drive (`files.list`), upserts `documents`, writes `connector_syncs`.
+4. **Schedule** — Vercel Cron hits `GET /api/cron/sync-connectors` daily (`vercel.json`, auth via `CRON_SECRET`).
+
+Env: see `.env.example` (`GOOGLE_CLIENT_*`, `GOOGLE_OAUTH_REDIRECT_URI`, `TOKEN_ENCRYPTION_KEY`, `CRON_SECRET`, `DEFAULT_COMPANY_ID`). Apply migration `002_connector_credentials.sql`. The mock `googleDriveConnector` remains for the static Acme demo; production uses `createGoogleDriveAdapter` / `syncGoogleDriveForCompany`.
 
 Client + mappers live in `lib/supabase`. Server jobs use `createServiceClient()`; browser reads use `createBrowserClient()` (RLS: members see their company only).
 

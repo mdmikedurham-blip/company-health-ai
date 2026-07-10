@@ -1,8 +1,8 @@
 /**
  * Public connector surface.
  *
- * Canonical path: ConnectorAdapter.sync() → normalize() → buildCompanyHealthSnapshot().
- * Sync helpers are not exported — reserved for lib/data mock module-init.
+ * Canonical path: ConnectorAdapter.sync() → normalize() → Evidence[].
+ * Insight Engine orchestration lives in `@/lib/application` — not here.
  */
 
 export { createEvidence } from "./create-evidence";
@@ -18,11 +18,6 @@ export {
   ingestFromConnectors,
   runConnectorPipeline,
 } from "./ingest";
-export { buildEvidenceGraph } from "./graph";
-export { buildCompanyHealthSnapshot } from "./pipeline";
-export type { PlatformInput } from "./pipeline";
-export { buildExecutiveBrief } from "./build-brief";
-export type { BriefSeed } from "./build-brief";
 export {
   acmeConnectors,
   getActiveConnectors,
