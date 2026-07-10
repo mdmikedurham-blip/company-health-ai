@@ -3,6 +3,8 @@ import { GOOGLE_DRIVE_FILES_URL } from "./constants";
 
 /**
  * Google Drive crawl / list helpers (read-only files.list).
+ *
+ * Captures inventory metadata: file id, path, modified, owner, mime type, hash.
  */
 
 export interface GoogleDriveCrawlOptions {
@@ -20,6 +22,9 @@ type DriveFile = {
   modifiedTime?: string;
   webViewLink?: string;
   description?: string;
+  md5Checksum?: string;
+  sha1Checksum?: string;
+  parents?: string[];
   owners?: Array<{ emailAddress?: string; displayName?: string }>;
 };
 
@@ -27,6 +32,9 @@ type DriveListResponse = {
   files?: DriveFile[];
   nextPageToken?: string;
 };
+
+const DRIVE_FILE_FIELDS =
+  "id, name, mimeType, modifiedTime, webViewLink, description, owners, md5Checksum, sha1Checksum, parents";
 
 function buildQuery(options: GoogleDriveCrawlOptions): string {
   const parts = ["trashed = false", "mimeType != 'application/vnd.google-apps.folder'"];
@@ -45,27 +53,52 @@ function buildQuery(options: GoogleDriveCrawlOptions): string {
   return parts.join(" and ");
 }
 
+function contentHash(file: DriveFile): string | undefined {
+  if (file.md5Checksum) return `md5:${file.md5Checksum}`;
+  if (file.sha1Checksum) return `sha1:${file.sha1Checksum}`;
+  return undefined;
+}
+
+function ownerLabel(file: DriveFile): string | undefined {
+  const owner = file.owners?.[0];
+  if (!owner) return undefined;
+  return owner.displayName || owner.emailAddress || undefined;
+}
+
+/** Path within Drive: parent folder id prefix when known, else file name. */
+function filePath(file: DriveFile): string {
+  const parent = file.parents?.[0];
+  return parent ? `${parent}/${file.name}` : file.name;
+}
+
 function toRawItem(file: DriveFile, syncedAt: string): RawConnectorItem {
-  const owner =
-    file.owners?.[0]?.displayName || file.owners?.[0]?.emailAddress || "";
+  const owner = ownerLabel(file);
+  const hash = contentHash(file);
+  const path = filePath(file);
   const summaryParts = [
     file.description?.trim(),
     file.mimeType ? `Type: ${file.mimeType}` : null,
     owner ? `Owner: ${owner}` : null,
     file.modifiedTime ? `Modified: ${file.modifiedTime}` : null,
+    hash ? `Hash: ${hash}` : null,
   ].filter(Boolean);
 
   return {
     externalId: file.id,
     title: file.name,
+    path,
+    modifiedAt: file.modifiedTime,
+    owner,
+    mimeType: file.mimeType,
+    contentHash: hash,
     syncedAt,
     rawSummary: summaryParts.join(" · ") || `Google Drive file: ${file.name}`,
-    mimeType: file.mimeType,
     metadata: {
       uri: file.webViewLink ?? "",
       sourceSystem: "Google Drive",
       sourceType: "document",
       occurredAt: file.modifiedTime ?? syncedAt,
+      parentId: file.parents?.[0] ?? "",
       // Production normalize for Drive files uses lightweight metadata until LLM extraction.
       evidenceId: `gdrive-${file.id}`,
       reliability: "70",
@@ -89,8 +122,7 @@ export async function crawlGoogleDrive(
   do {
     const params = new URLSearchParams({
       pageSize: String(pageSize),
-      fields:
-        "nextPageToken, files(id, name, mimeType, modifiedTime, webViewLink, description, owners)",
+      fields: `nextPageToken, files(${DRIVE_FILE_FIELDS})`,
       q: buildQuery(options),
       supportsAllDrives: "true",
       includeItemsFromAllDrives: "true",

@@ -34,6 +34,7 @@ create table public.users (
 create index users_company_id_idx on public.users (company_id);
 
 -- ─── documents (raw source files / records from connectors) ──────────────────
+-- Inventory: external_id (file id), path, modified_at, owner, mime_type, content_hash
 
 create table public.documents (
   id              uuid primary key default gen_random_uuid(),
@@ -41,7 +42,11 @@ create table public.documents (
   connector_id    text not null,
   external_id     text not null,
   title           text not null,
+  path            text,
+  modified_at     timestamptz,
+  owner           text,
   mime_type       text,
+  content_hash    text,
   uri             text,
   raw_summary     text,
   metadata        jsonb not null default '{}'::jsonb,
@@ -53,6 +58,11 @@ create table public.documents (
 
 create index documents_company_id_idx on public.documents (company_id);
 create index documents_connector_id_idx on public.documents (company_id, connector_id);
+create index documents_content_hash_idx
+  on public.documents (company_id, content_hash)
+  where content_hash is not null;
+create index documents_modified_at_idx
+  on public.documents (company_id, modified_at desc nulls last);
 
 -- ─── evidence (normalized Insight Engine input) ──────────────────────────────
 

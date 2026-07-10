@@ -206,7 +206,7 @@ Canonical tables (migration `supabase/migrations/001_company_health_schema.sql`)
 |-------|----------------|
 | `companies` | `Company` |
 | `users` | App profiles linked to `auth.users` + `company_id` |
-| `documents` | Raw connector items (`RawConnectorItem`) before normalize |
+| `documents` | Raw connector items (`RawConnectorItem`) before normalize — file id (`external_id`), path, modified (`modified_at`), owner, mime type, hash (`content_hash`) |
 | `evidence` | `Evidence` |
 | `findings` | `Finding` |
 | `risks` | `Risk` |

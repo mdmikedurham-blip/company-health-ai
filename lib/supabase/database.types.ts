@@ -97,9 +97,16 @@ export type Database = {
           id: string;
           company_id: string;
           connector_id: string;
+          /** Connector-native file id (e.g. Google Drive file id). */
           external_id: string;
           title: string;
+          /** Logical path / name within the source system. */
+          path: string | null;
+          modified_at: string | null;
+          owner: string | null;
           mime_type: string | null;
+          /** Content fingerprint (e.g. Drive md5Checksum / sha1Checksum). */
+          content_hash: string | null;
           uri: string | null;
           raw_summary: string | null;
           metadata: Json;
@@ -113,7 +120,11 @@ export type Database = {
           connector_id: string;
           external_id: string;
           title: string;
+          path?: string | null;
+          modified_at?: string | null;
+          owner?: string | null;
           mime_type?: string | null;
+          content_hash?: string | null;
           uri?: string | null;
           raw_summary?: string | null;
           metadata?: Json;
@@ -127,7 +138,11 @@ export type Database = {
           connector_id?: string;
           external_id?: string;
           title?: string;
+          path?: string | null;
+          modified_at?: string | null;
+          owner?: string | null;
           mime_type?: string | null;
+          content_hash?: string | null;
           uri?: string | null;
           raw_summary?: string | null;
           metadata?: Json;
