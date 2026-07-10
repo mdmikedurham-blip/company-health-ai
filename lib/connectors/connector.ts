@@ -17,7 +17,7 @@ export type ConnectorId =
   | (string & {});
 
 /**
- * Opaque payload returned by collect().
+ * Opaque payload returned by sync().
  * Each system shapes `items` differently; normalize() turns this into Evidence[].
  */
 export interface RawConnectorItem {
@@ -39,14 +39,25 @@ export interface RawConnectorData {
   items: RawConnectorItem[];
 }
 
+/** Runtime health snapshot from health(). */
+export interface ConnectorHealth {
+  status: ConnectorStatus;
+  ok: boolean;
+  lastSynced: string;
+  documentsAnalyzed: number;
+  message?: string;
+}
+
 /**
  * Canonical connector adapter — the only ingestion boundary.
  *
  * ```ts
  * interface ConnectorAdapter {
- *   connectorId: string;
- *   collect(): Promise<RawConnectorData>;
+ *   connect(): Promise<void>;
+ *   sync(): Promise<RawConnectorData>;
  *   normalize(raw: RawConnectorData): Promise<Evidence[]>;
+ *   health(): Promise<ConnectorHealth>;
+ *   disconnect(): Promise<void>;
  * }
  * ```
  */
@@ -54,9 +65,13 @@ export interface ConnectorAdapter {
   connectorId: string;
   name: string;
   system: string;
+  /** Current connection status (updated by connect / disconnect). */
   status: ConnectorStatus;
-  collect(): Promise<RawConnectorData>;
+  connect(): Promise<void>;
+  sync(): Promise<RawConnectorData>;
   normalize(raw: RawConnectorData): Promise<Evidence[]>;
+  health(): Promise<ConnectorHealth>;
+  disconnect(): Promise<void>;
 }
 
 /**
@@ -64,16 +79,18 @@ export interface ConnectorAdapter {
  * Production OAuth adapters implement only the async ConnectorAdapter methods.
  */
 export interface SyncConnectorAdapter extends ConnectorAdapter {
-  collectSync(): RawConnectorData;
+  syncSync(): RawConnectorData;
   normalizeSync(raw: RawConnectorData): Evidence[];
+  healthSync(): ConnectorHealth;
 }
 
 export function isSyncConnectorAdapter(
   adapter: ConnectorAdapter,
 ): adapter is SyncConnectorAdapter {
   return (
-    typeof (adapter as SyncConnectorAdapter).collectSync === "function" &&
-    typeof (adapter as SyncConnectorAdapter).normalizeSync === "function"
+    typeof (adapter as SyncConnectorAdapter).syncSync === "function" &&
+    typeof (adapter as SyncConnectorAdapter).normalizeSync === "function" &&
+    typeof (adapter as SyncConnectorAdapter).healthSync === "function"
   );
 }
 

@@ -3,10 +3,10 @@ import type {
   ConnectorAdapter,
   ConnectorIngestResult,
   RawConnectorData,
-} from "./types";
+} from "./connector";
 
 /**
- * Canonical ingest — collect() → normalize() → Evidence[] for every adapter.
+ * Canonical ingest — sync() → normalize() → Evidence[] for every adapter.
  */
 export async function ingestFromConnectors(
   connectors: ConnectorAdapter[],
@@ -15,7 +15,7 @@ export async function ingestFromConnectors(
   const evidence: Evidence[] = [];
 
   for (const adapter of connectors) {
-    const raw = await adapter.collect();
+    const raw = await adapter.sync();
     rawResults.push(raw);
     const normalized = await adapter.normalize(raw);
     evidence.push(...normalized);
@@ -24,7 +24,7 @@ export async function ingestFromConnectors(
   return { evidence, rawResults };
 }
 
-/** Build EvidenceCatalog from raw collect() results + adapter display metadata. */
+/** Build EvidenceCatalog from raw sync() results + adapter display metadata. */
 export function buildEvidenceCatalog(
   adapters: ConnectorAdapter[],
   rawResults: RawConnectorData[],

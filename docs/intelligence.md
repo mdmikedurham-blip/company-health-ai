@@ -6,7 +6,8 @@ The Insight Engine turns normalized **Evidence** into actionable company health 
 
 ```
 Connector adapters
-       ↓  collect() → RawConnectorData
+       ↓  connect()
+       ↓  sync() → RawConnectorData
        ↓  normalize(raw) → Evidence[]
    Evidence[]
        ↓
@@ -34,16 +35,19 @@ There is **exactly one ingestion path**. Every external system (Google Drive, Hu
 
 ## Evidence lifecycle
 
-1. **Collect** — `ConnectorAdapter.collect()` returns `RawConnectorData` from an external API (or mock seed).
-2. **Normalize** — `ConnectorAdapter.normalize(raw)` produces `Evidence[]` with:
+1. **Connect** — `ConnectorAdapter.connect()` establishes auth / marks the system connected.
+2. **Sync** — `ConnectorAdapter.sync()` returns `RawConnectorData` from an external API (or mock seed).
+3. **Normalize** — `ConnectorAdapter.normalize(raw)` produces `Evidence[]` with:
    - identity (`id`, `sourceSystem`, `sourceType`, `title`)
    - narrative (`contentSummary`)
    - structured `extractedFacts` (what rules read)
    - `dimensionIds`, timestamps, `reliability`, `citation`
-3. **Ingest** — `runConnectorPipeline()` merges all adapters into one `Evidence[]` + `EvidenceCatalog`.
-4. **Analyze** — `runInsightEngine({ evidence })` derives insights, findings, risks, scores, recommendations, and timeline events.
-5. **Link** — Engine writes reverse links (`findingIds`, `linkedRiskIds`) onto evidence.
-6. **Present** — `lib/data` exports snapshot slices; pages never recompute scores.
+4. **Ingest** — `runConnectorPipeline()` merges all adapters into one `Evidence[]` + `EvidenceCatalog`.
+5. **Analyze** — `runInsightEngine({ evidence })` derives insights, findings, risks, scores, recommendations, and timeline events.
+6. **Link** — Engine writes reverse links (`findingIds`, `linkedRiskIds`) onto evidence.
+7. **Present** — `lib/data` exports snapshot slices; pages never recompute scores.
+
+`health()` reports connection readiness; `disconnect()` tears the link down (status → pending).
 
 Missing evidence **reduces confidence**. The engine never invents conclusions to fill gaps.
 
@@ -67,27 +71,31 @@ Canonical contract:
 
 ```ts
 interface ConnectorAdapter {
-  connectorId: string;
-  collect(): Promise<RawConnectorData>;
+  connect(): Promise<void>;
+  sync(): Promise<RawConnectorData>;
   normalize(raw: RawConnectorData): Promise<Evidence[]>;
+  health(): Promise<ConnectorHealth>;
+  disconnect(): Promise<void>;
 }
 ```
 
-Display metadata (`name`, `system`, `status`) is also on the adapter for the evidence catalog.
+Display metadata (`connectorId`, `name`, `system`, `status`) is also on the adapter for the evidence catalog.
 
 Flow:
 
-1. `collect()` pulls opaque `RawConnectorData` from the external system (or mock seed).
-2. `normalize(raw)` turns that payload into `Evidence[]`.
-3. `runConnectorPipeline()` merges all adapters and builds the catalog.
-4. `runInsightEngine({ evidence })` derives intelligence.
+1. `connect()` authenticates / enables the connector.
+2. `sync()` pulls opaque `RawConnectorData` from the external system (or mock seed).
+3. `normalize(raw)` turns that payload into `Evidence[]`.
+4. `runConnectorPipeline()` merges all adapters and builds the catalog.
+5. `runInsightEngine({ evidence })` derives intelligence.
+6. `health()` / `disconnect()` manage readiness and teardown.
 
-Mock adapters also implement `collectSync` / `normalizeSync` so the static app snapshot can assemble at module init. Production OAuth adapters use the async path only (`buildCompanyHealthSnapshot`).
+Mock adapters also implement `syncSync` / `normalizeSync` / `healthSync` so the static app snapshot can assemble at module init. Production OAuth adapters use the async path only (`buildCompanyHealthSnapshot`).
 
 ### Adding a connector (checklist)
 
-1. Create `lib/connectors/adapters/<system>.ts` implementing `ConnectorAdapter` (use `createMockConnector` + `createEvidence` for prototypes).
-2. Export from `lib/connectors/adapters/index.ts`.
+1. Create `lib/connectors/<system>/adapter.ts` implementing `ConnectorAdapter` (use `createMockConnector` + `createEvidence` for prototypes). Add `auth.ts` / `crawler.ts` when the system needs them (see `google-drive/`).
+2. Export the connector from `lib/connectors/<system>/index.ts`.
 3. Register in `lib/connectors/registry.ts`.
 4. Ensure `normalize()` fills the `extractedFacts` keys your rules need.
 5. No UI, domain, or intelligence changes required unless you add a **new rule**.
@@ -187,7 +195,7 @@ Pages read only from `@/lib/data`. Register additional tenants with `registerCom
 
 Evidence UI aliases (`documentName`, `confidence`, …) live only on `EvidenceRecordView` — projected in `lib/data`, never on domain `Evidence`.
 
-Sync ingest (`collectSync` / `buildCompanyHealthSnapshotFromSyncAdapters`) is **internal** to mock module-init and is not part of the public `@/lib/connectors` API.
+Sync ingest (`syncSync` / `buildCompanyHealthSnapshotFromSyncAdapters`) is **internal** to mock module-init and is not part of the public `@/lib/connectors` API.
 
 ## Testing
 

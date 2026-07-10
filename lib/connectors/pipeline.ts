@@ -1,6 +1,6 @@
 /**
  * Canonical platform pipeline:
- *   ConnectorAdapter.collect() → normalize() → Evidence
+ *   ConnectorAdapter.sync() → normalize() → Evidence
  *   → Insight Engine → CompanyHealthSnapshot
  *
  * Public API: buildCompanyHealthSnapshot (async only).
@@ -25,7 +25,7 @@ import {
   requireSyncAdapters,
   runConnectorPipelineSync,
 } from "./ingest-sync";
-import type { ConnectorAdapter } from "./types";
+import type { ConnectorAdapter } from "./connector";
 
 export interface PlatformInput {
   company: Company;
@@ -97,7 +97,7 @@ function assembleSnapshot(
 }
 
 /**
- * Canonical entry — await collect() + normalize() on every adapter, then run the engine.
+ * Canonical entry — await sync() + normalize() on every adapter, then run the engine.
  * Use this for production and for per-company request paths.
  */
 export async function buildCompanyHealthSnapshot(

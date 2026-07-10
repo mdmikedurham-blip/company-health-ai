@@ -1,12 +1,12 @@
 /**
  * Builds domain Evidence from a raw connector item's metadata.
- * Mock collect() stores structured fields in metadata; production adapters
+ * Mock sync() stores structured fields in metadata; production adapters
  * will extract the same keys from API payloads.
  */
 
 import type { Evidence, ExtractedFacts } from "@/lib/domain";
 import { createEvidence } from "./create-evidence";
-import type { RawConnectorItem } from "./types";
+import type { RawConnectorItem } from "./connector";
 
 const META = {
   evidenceId: "evidenceId",
@@ -18,7 +18,7 @@ const META = {
   sourceSystem: "sourceSystem",
 } as const;
 
-/** Serialize Evidence into raw-item metadata for collect() → normalize() round-trip. */
+/** Serialize Evidence into raw-item metadata for sync() → normalize() round-trip. */
 export function evidenceToRawMetadata(evidence: Evidence): Record<string, string> {
   return {
     [META.evidenceId]: evidence.id,

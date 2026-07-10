@@ -1,13 +1,11 @@
-import {
-  bambooHrConnector,
-  boxConnector,
-  cartaConnector,
-  googleDriveConnector,
-  hubspotConnector,
-  quickbooksConnector,
-  slackConnector,
-} from "./adapters";
-import type { ConnectorAdapter, ConnectorId } from "./types";
+import { bambooHrConnector } from "./bamboohr";
+import { boxConnector } from "./box";
+import { cartaConnector } from "./carta";
+import type { ConnectorAdapter, ConnectorId } from "./connector";
+import { googleDriveConnector } from "./google-drive";
+import { hubspotConnector } from "./hubspot";
+import { quickbooksConnector } from "./quickbooks";
+import { slackConnector } from "./slack";
 
 const connectorRegistry = new Map<ConnectorId, ConnectorAdapter>([
   ["google-drive", googleDriveConnector],

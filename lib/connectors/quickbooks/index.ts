@@ -1,0 +1,1 @@
+export { quickbooksConnector } from "./adapter";

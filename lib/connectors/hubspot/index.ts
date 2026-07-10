@@ -1,0 +1,1 @@
+export { hubspotConnector } from "./adapter";

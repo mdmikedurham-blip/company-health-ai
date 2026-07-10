@@ -548,7 +548,7 @@ describe("connector normalization (ConnectorAdapter)", () => {
     ).toBeUndefined();
   });
 
-  it("collect() + normalize(raw) rebuilds Evidence from metadata (no hidden Evidence object)", async () => {
+  it("sync() + normalize(raw) rebuilds Evidence from metadata (no hidden Evidence object)", async () => {
     const evidence = createEvidence({
       id: "ev-norm",
       sourceSystem: "Box",
@@ -571,7 +571,7 @@ describe("connector normalization (ConnectorAdapter)", () => {
       mappings: [{ externalId: "ext-1", evidence }],
     });
     expect(connector.connectorId).toBe("box");
-    const raw = await connector.collect();
+    const raw = await connector.sync();
     expect(raw.items).toHaveLength(1);
     expect(raw.items[0]?.metadata?.evidenceId).toBe("ev-norm");
     expect(
@@ -582,6 +582,25 @@ describe("connector normalization (ConnectorAdapter)", () => {
     expect(normalized[0]?.id).toBe("ev-norm");
     expect(normalized[0]?.extractedFacts.agreementsMissingIpAssignment).toBe(1);
     expect(normalized[0]?.title).toBe("Legal audit");
+  });
+
+  it("connect / disconnect / health update connector status", async () => {
+    const connector = createMockConnector({
+      id: "slack",
+      name: "Slack",
+      system: "Slack",
+      status: "pending",
+      lastSynced: "n/a",
+      documentsAnalyzed: 0,
+      mappings: [],
+    });
+    expect((await connector.health()).ok).toBe(false);
+    await connector.connect();
+    expect(connector.status).toBe("connected");
+    expect((await connector.health()).ok).toBe(true);
+    await connector.disconnect();
+    expect(connector.status).toBe("pending");
+    expect((await connector.health()).message).toMatch(/not connected/i);
   });
 
   it("normalize returns [] for pending connectors", async () => {
