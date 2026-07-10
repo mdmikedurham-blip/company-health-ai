@@ -1,10 +1,6 @@
 /**
  * Scoring Engine — Findings → dimension scores → overall HealthScore.
- *
- * - Every dimension starts at BASELINE_DIMENSION_SCORE (85).
- * - Positive/negative finding impacts are applied.
- * - Overall health is a weighted average of dimensions.
- * - Confidence reflects evidence quantity, freshness, and reliability — never invents conclusions.
+ * All numeric policy comes from rules.ts.
  */
 
 import type {
@@ -15,9 +11,16 @@ import type {
   ScoreChangeExplanation,
   ScoreImpactExplanation,
 } from "@/lib/domain";
+import { DIMENSION_NAMES } from "@/lib/domain/dimensions";
 import {
   BASELINE_DIMENSION_SCORE,
-  DIMENSION_NAMES,
+  CONFIDENCE_EMPTY,
+  CONFIDENCE_FRESHNESS_DAYS,
+  CONFIDENCE_FRESHNESS_FACTOR,
+  CONFIDENCE_QUANTITY_SATURATION,
+  CONFIDENCE_UNKNOWN_FRESHNESS,
+  CONFIDENCE_WEIGHTS,
+  DEFAULT_DIMENSION_WEIGHT,
   DIMENSION_WEIGHTS,
   clampScore,
   deriveStatus,
@@ -25,8 +28,7 @@ import {
 
 const MS_PER_DAY = 86_400_000;
 
-function parseFreshnessDays(collectedAt: string, now = new Date()): number | null {
-  // Accept ISO dates; relative labels ("Today", "Yesterday") count as fresh.
+function parseFreshnessDays(collectedAt: string, asOf: Date): number | null {
   const lower = collectedAt.toLowerCase();
   if (lower.includes("today") || lower.includes("just now") || lower.includes("hour")) {
     return 0;
@@ -34,36 +36,40 @@ function parseFreshnessDays(collectedAt: string, now = new Date()): number | nul
   if (lower.includes("yesterday")) return 1;
   const iso = Date.parse(collectedAt);
   if (!Number.isNaN(iso)) {
-    return Math.max(0, (now.getTime() - iso) / MS_PER_DAY);
+    return Math.max(0, (asOf.getTime() - iso) / MS_PER_DAY);
   }
   return null;
 }
 
-/**
- * Confidence from evidence quantity, freshness, and reliability.
- * Missing evidence reduces confidence — it does not invent scores.
- */
-export function calculateConfidence(evidence: Evidence[], now = new Date()): number {
-  if (evidence.length === 0) return 40;
+export function calculateConfidence(evidence: Evidence[], asOf: Date): number {
+  if (evidence.length === 0) return CONFIDENCE_EMPTY;
 
   const reliabilityAvg =
     evidence.reduce((sum, e) => sum + e.reliability, 0) / evidence.length;
 
-  const quantityFactor = Math.min(1, evidence.length / 8);
+  const quantityFactor = Math.min(1, evidence.length / CONFIDENCE_QUANTITY_SATURATION);
 
   const freshnessScores = evidence.map((e) => {
-    const days = parseFreshnessDays(e.collectedAt, now);
-    if (days === null) return 0.7;
-    if (days <= 7) return 1;
-    if (days <= 30) return 0.85;
-    if (days <= 90) return 0.65;
-    return 0.45;
+    const days = parseFreshnessDays(e.collectedAt, asOf);
+    if (days === null) return CONFIDENCE_UNKNOWN_FRESHNESS;
+    if (days <= CONFIDENCE_FRESHNESS_DAYS.excellent) {
+      return CONFIDENCE_FRESHNESS_FACTOR.excellent;
+    }
+    if (days <= CONFIDENCE_FRESHNESS_DAYS.good) {
+      return CONFIDENCE_FRESHNESS_FACTOR.good;
+    }
+    if (days <= CONFIDENCE_FRESHNESS_DAYS.fair) {
+      return CONFIDENCE_FRESHNESS_FACTOR.fair;
+    }
+    return CONFIDENCE_FRESHNESS_FACTOR.poor;
   });
   const freshnessAvg =
     freshnessScores.reduce((sum, s) => sum + s, 0) / freshnessScores.length;
 
   const score =
-    reliabilityAvg * 0.5 + quantityFactor * 100 * 0.25 + freshnessAvg * 100 * 0.25;
+    reliabilityAvg * CONFIDENCE_WEIGHTS.reliability +
+    quantityFactor * 100 * CONFIDENCE_WEIGHTS.quantity +
+    freshnessAvg * 100 * CONFIDENCE_WEIGHTS.freshness;
 
   return clampScore(score);
 }
@@ -72,6 +78,7 @@ export function calculateDimensionScores(
   findings: Finding[],
   evidence: Evidence[],
   dimensionIds: string[] = Object.keys(DIMENSION_WEIGHTS),
+  asOf: Date,
 ): {
   dimensions: HealthDimension[];
   explanations: ScoreImpactExplanation[];
@@ -99,7 +106,7 @@ export function calculateDimensionScores(
     }
 
     const finalScore = clampScore(score);
-    const confidence = calculateConfidence(dimEvidence);
+    const confidence = calculateConfidence(dimEvidence, asOf);
 
     explanations.push({
       dimensionId,
@@ -156,20 +163,34 @@ export function calculateDimensionScores(
           .map((f) => Math.abs(f.scoreImpact)),
         0,
       ),
-      weight: DIMENSION_WEIGHTS[dimensionId] ?? 0.1,
+      weight: DIMENSION_WEIGHTS[dimensionId] ?? DEFAULT_DIMENSION_WEIGHT,
     });
   }
 
   return { dimensions, explanations };
 }
 
+function formatLastUpdated(asOf: Date): string {
+  return asOf.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "UTC",
+  });
+}
+
 export function calculateOverallHealth(
   dimensions: HealthDimension[],
   evidence: Evidence[],
-  previousHealthScore?: HealthScore,
+  previousHealthScore: HealthScore | undefined,
+  asOf: Date,
 ): HealthScore {
   const totalWeight = dimensions.reduce(
-    (sum, d) => sum + (d.weight ?? DIMENSION_WEIGHTS[d.id] ?? 0.1),
+    (sum, d) =>
+      sum + (d.weight ?? DIMENSION_WEIGHTS[d.id] ?? DEFAULT_DIMENSION_WEIGHT),
     0,
   );
 
@@ -177,12 +198,12 @@ export function calculateOverallHealth(
     totalWeight === 0
       ? BASELINE_DIMENSION_SCORE
       : dimensions.reduce((sum, d) => {
-          const w = d.weight ?? DIMENSION_WEIGHTS[d.id] ?? 0.1;
+          const w = d.weight ?? DIMENSION_WEIGHTS[d.id] ?? DEFAULT_DIMENSION_WEIGHT;
           return sum + d.score * w;
         }, 0) / totalWeight;
 
   const score = clampScore(weighted);
-  const confidence = calculateConfidence(evidence);
+  const confidence = calculateConfidence(evidence, asOf);
   const previous = previousHealthScore?.score ?? score;
   const change = score - previous;
 
@@ -192,7 +213,7 @@ export function calculateOverallHealth(
     change,
     changeLabel:
       change > 0 ? `+${change} vs prior` : change < 0 ? `${change} vs prior` : "unchanged",
-    lastUpdated: "Updated just now",
+    lastUpdated: formatLastUpdated(asOf),
     confidence,
   };
 }
@@ -237,8 +258,9 @@ export function buildScoreChangeExplanation(
 export function computeHealthFromFindings(
   findings: Finding[],
   evidence: Evidence[],
-  previousHealthScore?: HealthScore,
-  dimensionProfiles?: HealthDimension[],
+  previousHealthScore: HealthScore | undefined,
+  dimensionProfiles: HealthDimension[] | undefined,
+  asOf: Date,
 ): {
   dimensions: HealthDimension[];
   healthScore: HealthScore;
@@ -254,9 +276,9 @@ export function computeHealthFromFindings(
     findings,
     evidence,
     dimensionIds,
+    asOf,
   );
 
-  // Preserve UI metadata (owner, whyItMatters) from profiles when provided
   const dimensions = scored.map((d) => {
     const profile = dimensionProfiles?.find((p) => p.id === d.id);
     if (!profile) return d;
@@ -272,7 +294,12 @@ export function computeHealthFromFindings(
     };
   });
 
-  const healthScore = calculateOverallHealth(dimensions, evidence, previousHealthScore);
+  const healthScore = calculateOverallHealth(
+    dimensions,
+    evidence,
+    previousHealthScore,
+    asOf,
+  );
   healthScore.scoreExplanations = explanations;
 
   const scoreChange = buildScoreChangeExplanation(

@@ -1,58 +1,83 @@
-import type { ConnectorStatus } from "@/lib/domain";
-import type { RawEvidence } from "@/lib/engine";
+import type { ConnectorStatus, Evidence } from "@/lib/domain";
 
-/** Supported external system identifiers. */
+/**
+ * Connector identifiers. Known systems are listed; string allows future
+ * Salesforce, Jira, etc. without changing the interface.
+ */
 export type ConnectorId =
   | "google-drive"
   | "hubspot"
   | "carta"
   | "quickbooks"
   | "box"
-  | "slack";
+  | "slack"
+  | "bamboohr"
+  | "salesforce"
+  | "jira"
+  | (string & {});
 
 /**
- * Raw document as returned by an external system's API.
- * Connectors normalize this into domain RawEvidence.
+ * Opaque payload returned by collect().
+ * Each system shapes `items` differently; normalize() turns this into Evidence[].
  */
-export interface ConnectorDocument {
+export interface RawConnectorItem {
   externalId: string;
   title: string;
   syncedAt: string;
   rawSummary: string;
   mimeType?: string;
+  /** Structured fields for normalize() — never a pre-built Evidence object. */
   metadata?: Record<string, string>;
 }
 
-/** Result of a single connector sync operation. */
-export interface ConnectorSyncResult {
-  connectorId: ConnectorId;
-  name: string;
-  system: string;
+export interface RawConnectorData {
+  connectorId: string;
   status: ConnectorStatus;
   lastSynced: string;
   /** Total documents indexed in this system (may exceed normalized evidence count). */
   documentsAnalyzed: number;
-  documents: ConnectorDocument[];
+  items: RawConnectorItem[];
 }
 
 /**
- * A connector adapter — the integration boundary for Phase 3.
+ * Canonical connector adapter — the only ingestion boundary.
  *
- * Production: `sync()` calls OAuth APIs (Drive, HubSpot, etc.).
- * Prototype: `sync()` returns seeded ConnectorDocuments.
+ * ```ts
+ * interface ConnectorAdapter {
+ *   connectorId: string;
+ *   collect(): Promise<RawConnectorData>;
+ *   normalize(raw: RawConnectorData): Promise<Evidence[]>;
+ * }
+ * ```
  */
-export interface HealthConnector {
-  id: ConnectorId;
+export interface ConnectorAdapter {
+  connectorId: string;
   name: string;
   system: string;
   status: ConnectorStatus;
-  /** Pull documents from the external system. */
-  sync(): ConnectorSyncResult;
-  /** Map a connector document to domain evidence. */
-  normalize(document: ConnectorDocument): RawEvidence;
+  collect(): Promise<RawConnectorData>;
+  normalize(raw: RawConnectorData): Promise<Evidence[]>;
+}
+
+/**
+ * Sync surface for mock adapters used at module-init time.
+ * Production OAuth adapters implement only the async ConnectorAdapter methods.
+ */
+export interface SyncConnectorAdapter extends ConnectorAdapter {
+  collectSync(): RawConnectorData;
+  normalizeSync(raw: RawConnectorData): Evidence[];
+}
+
+export function isSyncConnectorAdapter(
+  adapter: ConnectorAdapter,
+): adapter is SyncConnectorAdapter {
+  return (
+    typeof (adapter as SyncConnectorAdapter).collectSync === "function" &&
+    typeof (adapter as SyncConnectorAdapter).normalizeSync === "function"
+  );
 }
 
 export interface ConnectorIngestResult {
-  evidence: RawEvidence[];
-  connectors: ConnectorSyncResult[];
+  evidence: Evidence[];
+  rawResults: RawConnectorData[];
 }

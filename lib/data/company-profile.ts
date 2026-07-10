@@ -6,13 +6,11 @@
 import type {
   Company,
   CompanyDNA,
-  ExecutiveBrief,
   HealthDimension,
   HealthScore,
   Report,
   TimelineEvent,
 } from "@/lib/domain";
-import { BASELINE_DIMENSION_SCORE, DIMENSION_WEIGHTS } from "@/lib/intelligence/rules";
 
 export const companyProfile: Company = {
   id: "company-acme",
@@ -34,17 +32,17 @@ export const previousHealthScore: HealthScore = {
   confidence: 88,
 };
 
-const dimensionMeta: Omit<
-  HealthDimension,
-  "score" | "trend" | "status" | "confidence" | "evidenceCount" | "evidenceIds" | "findingIds" | "topDrivers" | "summary" | "estimatedScoreImprovement" | "recommendedActions"
->[] = [
+/**
+ * Dimension shells — owner / whyItMatters metadata only.
+ * Scores, weights, confidence, and links are filled by the Insight Engine.
+ */
+const dimensionMeta: Pick<HealthDimension, "id" | "name" | "owner" | "whyItMatters">[] = [
   {
     id: "dim-financial",
     name: "Financial",
     owner: "CFO · Lisa Park",
     whyItMatters:
       "Financial health underpins investor confidence, fundraising readiness, and operational flexibility.",
-    weight: DIMENSION_WEIGHTS["dim-financial"],
   },
   {
     id: "dim-revenue-quality",
@@ -52,7 +50,6 @@ const dimensionMeta: Omit<
     owner: "VP Revenue · James Wu",
     whyItMatters:
       "Revenue quality determines valuation multiples and predictability for board and investors.",
-    weight: DIMENSION_WEIGHTS["dim-revenue-quality"],
   },
   {
     id: "dim-customer",
@@ -60,14 +57,12 @@ const dimensionMeta: Omit<
     owner: "VP Customer Success · Maria Santos",
     whyItMatters:
       "Customer health drives retention, expansion revenue, and resilience against churn shocks.",
-    weight: DIMENSION_WEIGHTS["dim-customer"],
   },
   {
     id: "dim-legal",
     name: "Legal",
     owner: "General Counsel · David Kim",
     whyItMatters: "Legal gaps create diligence risk during fundraising, M&A, and IP disputes.",
-    weight: DIMENSION_WEIGHTS["dim-legal"],
   },
   {
     id: "dim-governance",
@@ -75,7 +70,6 @@ const dimensionMeta: Omit<
     owner: "CEO · Sarah Chen",
     whyItMatters:
       "Governance gaps block clean diligence and can delay fundraising or board approvals.",
-    weight: DIMENSION_WEIGHTS["dim-governance"],
   },
   {
     id: "dim-security",
@@ -83,21 +77,18 @@ const dimensionMeta: Omit<
     owner: "CTO · Alex Rivera",
     whyItMatters:
       "Security posture is a prerequisite for enterprise sales and institutional investment.",
-    weight: DIMENSION_WEIGHTS["dim-security"],
   },
   {
     id: "dim-people",
     name: "People",
     owner: "VP People · Rachel Torres",
     whyItMatters: "People stability enables execution velocity and reduces key-person risk.",
-    weight: DIMENSION_WEIGHTS["dim-people"],
   },
   {
     id: "dim-operations",
     name: "Operations",
     owner: "COO · Tom Bradley",
     whyItMatters: "Operational resilience prevents revenue disruption and supports scale.",
-    weight: DIMENSION_WEIGHTS["dim-operations"],
   },
   {
     id: "dim-product",
@@ -105,24 +96,21 @@ const dimensionMeta: Omit<
     owner: "VP Product · Nina Patel",
     whyItMatters:
       "Product velocity and quality drive retention, expansion, and competitive positioning.",
-    weight: DIMENSION_WEIGHTS["dim-product"],
   },
   {
     id: "dim-ai-readiness",
     name: "AI Readiness",
     owner: "CTO · Alex Rivera",
     whyItMatters: "AI readiness affects product differentiation, compliance, and future valuation.",
-    weight: DIMENSION_WEIGHTS["dim-ai-readiness"],
   },
 ];
 
-/** Dimension shells — scores filled by the scoring engine from baseline + findings. */
 export const dimensionProfiles: HealthDimension[] = dimensionMeta.map((meta) => ({
   ...meta,
-  score: BASELINE_DIMENSION_SCORE,
+  score: 0,
   trend: { direction: "flat", value: 0 },
-  status: "healthy",
-  confidence: 50,
+  status: "watch",
+  confidence: 0,
   evidenceCount: 0,
   summary: "Awaiting evidence-backed assessment.",
   topDrivers: [],
@@ -165,11 +153,7 @@ export const companyDNA: CompanyDNA = {
   ],
   operatingModel:
     "Remote-first engineering (42), SF hub for GTM (28), distributed CS and ops (14). Quarterly board meetings. Monthly all-hands.",
-  topRisks: [
-    "Customer concentration (58% top-3 ARR)",
-    "Board consent cleanup",
-    "Contractor IP gaps",
-  ],
+  topRisks: [] as string[],
   keyMetrics: [
     { label: "ARR", value: "$7.2M", change: "+32% YoY" },
     { label: "Runway", value: "14.2 mo", change: "At current burn" },
@@ -193,54 +177,30 @@ export const companyReports: Report[] = [
   { id: "rpt-4", title: "August Board Package", type: "board", generatedAt: "Scheduled Jul 20", status: "scheduled" },
 ];
 
-export const companyExecutiveBrief: ExecutiveBrief = {
-  date: "Thursday, July 9, 2026",
-  generatedAt: "6:42 AM",
-  summary:
-    "Insight Engine assessment complete. Customer concentration, governance gaps, and security controls are the primary score drivers.",
-  highlights: [
-    "Top-3 customers at 58% ARR — high concentration risk",
-    "3 option grants missing board approval",
-    "Recurring revenue at 88% — positive revenue quality signal",
-  ],
-  topWins: [
-    {
-      title: "High recurring revenue mix",
-      detail: "88% recurring revenue exceeds the 80% quality threshold.",
-    },
-    {
-      title: "Zero voluntary attrition in Q2",
-      detail: "People health remains strong despite key-person dependencies.",
-    },
-    {
-      title: "NRR above risk threshold",
-      detail: "Net revenue retention at 108% supports valuation quality.",
-    },
-  ],
+export const companyBriefSeed = {
   boardMeeting: {
     date: "July 22, 2026",
     daysUntil: 13,
     items: [
       {
         title: "Q2 financial results & forecast",
-        status: "ready",
+        status: "ready" as const,
         detail: "P&L, cash flow, and ARR bridge prepared from QuickBooks and HubSpot.",
       },
       {
-        title: "Governance cleanup status",
-        status: "needs-attention",
-        detail:
-          "3 option grants need retroactive board consent. Draft prepared, awaiting signature.",
+        title: "Missing board approvals",
+        status: "needs-attention" as const,
+        detail: "Option grants need retroactive board consent.",
       },
       {
-        title: "Customer concentration mitigation plan",
-        status: "ready",
+        title: "Customer concentration",
+        status: "ready" as const,
         detail: "Mid-market expansion pilot proposal ready for board discussion.",
       },
       {
-        title: "SOC 2 Type I timeline",
-        status: "pending",
-        detail: "3 critical controls open; MFA coverage at 92%. Target August 15.",
+        title: "Security readiness gaps",
+        status: "pending" as const,
+        detail: "Critical controls and MFA coverage under review.",
       },
     ],
   },

@@ -49,6 +49,7 @@ export function DashboardContent() {
             changeLabel={healthScore.changeLabel}
             lastUpdated={healthScore.lastUpdated}
             confidence={healthScore.confidence}
+            summary={scoreChangeExplanation.summary}
           />
         </div>
         <div className="panel lg:col-span-3 p-5">

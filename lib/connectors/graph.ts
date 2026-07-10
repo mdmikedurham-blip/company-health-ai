@@ -7,7 +7,7 @@ const OUTCOME_X = 480;
 
 /**
  * Derive the evidence graph from a CompanyHealthSnapshot.
- * Replaces hardcoded graph data — updates automatically as connectors add evidence.
+ * Updates automatically as connectors add evidence.
  */
 export function buildEvidenceGraph(snapshot: CompanyHealthSnapshot): {
   nodes: EvidenceGraphNode[];
@@ -15,14 +15,12 @@ export function buildEvidenceGraph(snapshot: CompanyHealthSnapshot): {
 } {
   const nodes: EvidenceGraphNode[] = [];
   const edges: EvidenceGraphEdge[] = [];
-
-  const dimensionIds = new Set<string>();
   const dimensionY = new Map<string, number>();
 
   snapshot.evidence.forEach((doc, i) => {
     nodes.push({
       id: doc.id,
-      label: (doc.title || doc.documentName).split(" ")[0] ?? doc.title,
+      label: doc.title.split(" ")[0] ?? doc.title,
       type: "document",
       x: DOC_X,
       y: 60 + i * 70,
@@ -31,8 +29,6 @@ export function buildEvidenceGraph(snapshot: CompanyHealthSnapshot): {
     if (!dimensionY.has(doc.dimensionId)) {
       dimensionY.set(doc.dimensionId, 60 + dimensionY.size * 80);
     }
-    dimensionIds.add(doc.dimensionId);
-
     edges.push({ from: doc.id, to: doc.dimensionId });
   });
 
@@ -63,7 +59,7 @@ export function buildEvidenceGraph(snapshot: CompanyHealthSnapshot): {
   for (const insight of snapshot.insights) {
     nodes.push({
       id: insight.id,
-      label: insight.title.split(" ")[0] ?? insight.title,
+      label: (insight.statement).split(" ")[0] ?? insight.statement,
       type: "insight",
       x: OUTCOME_X,
       y: outcomeY,

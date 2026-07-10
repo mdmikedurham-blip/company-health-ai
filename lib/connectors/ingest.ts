@@ -1,66 +1,77 @@
-import type { EvidenceCatalog } from "@/lib/domain";
-import type { RawEvidence } from "@/lib/engine";
-import type { ConnectorIngestResult, ConnectorSyncResult, HealthConnector } from "./types";
+import type { Evidence, EvidenceCatalog } from "@/lib/domain";
+import type {
+  ConnectorAdapter,
+  ConnectorIngestResult,
+  RawConnectorData,
+} from "./types";
 
 /**
- * Run all connectors, normalize documents, and merge into a single evidence corpus.
- * This is the ingestion entry point — UI never calls connectors directly.
+ * Canonical ingest — collect() → normalize() → Evidence[] for every adapter.
  */
-export function ingestFromConnectors(connectors: HealthConnector[]): ConnectorIngestResult {
-  const syncResults = connectors.map((connector) => connector.sync());
+export async function ingestFromConnectors(
+  connectors: ConnectorAdapter[],
+): Promise<ConnectorIngestResult> {
+  const rawResults: RawConnectorData[] = [];
+  const evidence: Evidence[] = [];
 
-  const evidence = syncResults.flatMap((result) =>
-    result.documents.map((doc) => {
-      const connector = connectors.find((c) => c.id === result.connectorId);
-      if (!connector) {
-        throw new Error(`Connector ${result.connectorId} not registered`);
-      }
-      return connector.normalize(doc);
-    }),
-  );
+  for (const adapter of connectors) {
+    const raw = await adapter.collect();
+    rawResults.push(raw);
+    const normalized = await adapter.normalize(raw);
+    evidence.push(...normalized);
+  }
 
-  return { evidence, connectors: syncResults };
+  return { evidence, rawResults };
 }
 
-/** Build EvidenceCatalog from connector sync metadata. */
+/** Build EvidenceCatalog from raw collect() results + adapter display metadata. */
 export function buildEvidenceCatalog(
-  syncResults: ConnectorSyncResult[],
+  adapters: ConnectorAdapter[],
+  rawResults: RawConnectorData[],
   lastFullScan: string,
 ): EvidenceCatalog {
-  const connected = syncResults.filter((r) => r.status === "connected");
+  const byId = new Map(adapters.map((a) => [a.connectorId, a]));
+  const connected = rawResults.filter((r) => r.status === "connected");
 
   return {
     totalDocuments: connected.reduce((sum, r) => sum + r.documentsAnalyzed, 0),
     systemsConnected: connected.length,
     lastFullScan,
-    connectors: syncResults.map((r) => ({
-      id: `conn-${r.connectorId}`,
-      name: r.name,
-      system: r.system,
-      documentsAnalyzed: r.documentsAnalyzed,
-      lastSynced: r.lastSynced,
-    })),
+    connectors: rawResults.map((r) => {
+      const adapter = byId.get(r.connectorId);
+      return {
+        id: `conn-${r.connectorId}`,
+        name: adapter?.name ?? r.connectorId,
+        system: adapter?.system ?? r.connectorId,
+        documentsAnalyzed: r.documentsAnalyzed,
+        lastSynced: r.lastSynced,
+      };
+    }),
   };
 }
 
 export interface ConnectorPipelineInput {
-  connectors: HealthConnector[];
+  connectors: ConnectorAdapter[];
   lastFullScan: string;
 }
 
 export interface ConnectorPipelineOutput {
-  evidence: RawEvidence[];
+  evidence: Evidence[];
   evidenceCatalog: EvidenceCatalog;
 }
 
-/** Ingest + catalog — ready to feed the Insight Engine. */
-export function runConnectorPipeline(
+/** Canonical pipeline — ready to feed the Insight Engine. */
+export async function runConnectorPipeline(
   input: ConnectorPipelineInput,
-): ConnectorPipelineOutput {
-  const { evidence, connectors } = ingestFromConnectors(input.connectors);
+): Promise<ConnectorPipelineOutput> {
+  const { evidence, rawResults } = await ingestFromConnectors(input.connectors);
 
   return {
     evidence,
-    evidenceCatalog: buildEvidenceCatalog(connectors, input.lastFullScan),
+    evidenceCatalog: buildEvidenceCatalog(
+      input.connectors,
+      rawResults,
+      input.lastFullScan,
+    ),
   };
 }

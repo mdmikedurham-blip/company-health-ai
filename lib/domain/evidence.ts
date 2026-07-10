@@ -19,8 +19,7 @@ export interface EvidenceCitation {
 
 /**
  * Normalized evidence record — input to the Insight Engine.
- *
- * Pipeline: Evidence → Insight → Finding → Risk → HealthScore → Recommendation
+ * UI list views project this via EvidenceRecordView (lib/types) — no dual fields here.
  */
 export interface Evidence {
   id: EvidenceId;
@@ -38,14 +37,6 @@ export interface Evidence {
   reliability: number;
   metadata: Record<string, string | number | boolean | null>;
   citation: EvidenceCitation;
-  /** @deprecated Prefer `title` — kept for UI adapters. */
-  documentName: string;
-  /** @deprecated Prefer `reliability` — kept for UI adapters. */
-  confidence: number;
-  /** @deprecated Prefer `collectedAt` — kept for UI adapters. */
-  lastReviewed: string;
-  /** @deprecated Prefer `contentSummary` — kept for UI adapters. */
-  summary: string;
   /** Engine-populated reverse links */
   findingIds: FindingId[];
   linkedRiskIds: RiskId[];
@@ -67,8 +58,7 @@ export interface EvidenceCatalog {
 }
 
 export function formatEvidenceLabel(
-  evidence: Pick<Evidence, "sourceSystem" | "title" | "documentName">,
+  evidence: Pick<Evidence, "sourceSystem" | "title">,
 ): string {
-  const title = evidence.title || evidence.documentName;
-  return `${evidence.sourceSystem} · ${title}`;
+  return `${evidence.sourceSystem} · ${evidence.title}`;
 }

@@ -27,10 +27,12 @@ export function AIInsightsPanel({ insights }: AIInsightsPanelProps) {
             className="rounded-md border border-[var(--border)] bg-white/[0.02] p-3"
           >
             <div className="flex items-start justify-between gap-2">
-              <p className="text-[13px] font-medium text-zinc-200">{insight.title}</p>
+              <p className="text-[13px] font-medium text-zinc-200">
+                {insight.statement.split(".")[0] ?? insight.statement}
+              </p>
               <span className="shrink-0 text-[10px] text-zinc-600">{insight.generatedAt}</span>
             </div>
-            <p className="mt-1 text-xs leading-relaxed text-zinc-500">{insight.detail}</p>
+            <p className="mt-1 text-xs leading-relaxed text-zinc-500">{insight.statement}</p>
             <span className="mt-2 inline-block text-[10px] font-medium text-indigo-400/80">
               {insight.dimension}
             </span>

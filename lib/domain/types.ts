@@ -40,6 +40,12 @@ export type {
   KeyMetric,
   UpcomingDate,
 } from "./company-dna";
+export {
+  DIMENSION_IDS,
+  DIMENSION_NAMES,
+  dimensionName,
+  type KnownDimensionId,
+} from "./dimensions";
 export type {
   Evidence,
   ConnectorSummary,
@@ -56,3 +62,4 @@ export type { Report } from "./report";
 export type { Risk, RiskCardView } from "./risk";
 export type { CompanyHealthSnapshot } from "./snapshot";
 export type { TimelineEvent } from "./timeline";
+

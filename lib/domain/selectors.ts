@@ -78,11 +78,7 @@ export function getNextBestActions(
   limit = 3,
 ): Recommendation[] {
   return [...snapshot.recommendations]
-    .sort(
-      (a, b) =>
-        (b.priorityScore ?? b.estimatedScoreImprovement ?? b.estimatedHealthImpact) -
-        (a.priorityScore ?? a.estimatedScoreImprovement ?? a.estimatedHealthImpact),
-    )
+    .sort((a, b) => b.priorityScore - a.priorityScore)
     .slice(0, limit);
 }
 
@@ -107,28 +103,49 @@ export function getDimensionIdByName(
   return snapshot.dimensions.find((d) => d.name === name)?.id;
 }
 
-/** Dashboard KPI metrics derived from snapshot */
 export function getDashboardMetrics(snapshot: CompanyHealthSnapshot) {
+  const highPriorityActions = snapshot.recommendations.filter(
+    (r) => r.priority === "high",
+  ).length;
+  const highRisks = snapshot.risks.filter((r) => r.severity === "high").length;
+  const evidenceCount = snapshot.evidence.length;
+  const catalogDocs = snapshot.evidenceCatalog.totalDocuments;
+
   return [
     {
       label: "Documents analyzed",
-      value: snapshot.evidenceCatalog.totalDocuments.toLocaleString(),
-      change: "+38 this week",
+      value: catalogDocs.toLocaleString(),
+      change: `${evidenceCount} in current assessment`,
     },
     {
       label: "Active risks",
       value: String(snapshot.risks.length),
-      change: "1 new",
+      change:
+        highRisks > 0
+          ? `${highRisks} high severity`
+          : snapshot.risks.length === 0
+            ? "None open"
+            : "No high severity",
     },
     {
       label: "Open actions",
       value: String(snapshot.recommendations.length),
-      change: "2 due this week",
+      change:
+        highPriorityActions > 0
+          ? `${highPriorityActions} high priority`
+          : snapshot.recommendations.length === 0
+            ? "None open"
+            : "Prioritized by engine",
     },
     {
       label: "Confidence score",
       value: `${snapshot.healthScore.confidence}%`,
-      change: "High reliability",
+      change:
+        snapshot.healthScore.confidence >= 85
+          ? "High reliability"
+          : snapshot.healthScore.confidence >= 60
+            ? "Moderate reliability"
+            : "Low — add evidence",
     },
   ];
 }

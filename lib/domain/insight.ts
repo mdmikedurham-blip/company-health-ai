@@ -8,9 +8,7 @@ import type {
 
 /**
  * Atomic intelligence statement derived from Evidence.
- * Insights feed Findings; an LLM can generate statements later without UI changes.
- *
- * Pipeline: Evidence → Insight → Finding → Risk / Recommendation
+ * UI should display `statement` (title/detail aliases removed).
  */
 export interface Insight {
   id: InsightId;
@@ -20,10 +18,8 @@ export interface Insight {
   evidenceIds: EvidenceId[];
   confidence: number;
   generatedAt: string;
-  /** @deprecated Prefer `statement` — kept for UI adapters. */
-  title: string;
-  /** @deprecated Prefer `statement` — kept for UI adapters. */
-  detail: string;
+  /** Stable rule identifier used by finding/risk engines (not display copy). */
+  ruleId: string;
   findingIds: FindingId[];
   type: InsightType;
 }

@@ -2,8 +2,8 @@ import type { ExplainPayload } from "./types";
 import {
   buildDimensionExplainPayload,
   buildRiskExplainPayload,
-  getDimensionIdByName,
 } from "./domain/explain";
+import { getDimensionIdByName } from "./domain/selectors";
 import { companySnapshot } from "./data";
 
 export function buildRiskExplainPayloadForApp(riskId: string): ExplainPayload | null {

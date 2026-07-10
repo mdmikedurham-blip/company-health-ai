@@ -36,6 +36,12 @@ export type {
   KeyMetric,
   UpcomingDate,
 } from "./company-dna";
+export {
+  DIMENSION_IDS,
+  DIMENSION_NAMES,
+  dimensionName,
+  type KnownDimensionId,
+} from "./dimensions";
 export type {
   Evidence,
   ConnectorSummary,
@@ -77,5 +83,4 @@ export {
 export {
   buildDimensionExplainPayload,
   buildRiskExplainPayload,
-  getDimensionIdByName as getDimensionIdByNameFromSnapshot,
 } from "./explain";

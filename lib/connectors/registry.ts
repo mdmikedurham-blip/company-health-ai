@@ -1,4 +1,5 @@
 import {
+  bambooHrConnector,
   boxConnector,
   cartaConnector,
   googleDriveConnector,
@@ -6,30 +7,36 @@ import {
   quickbooksConnector,
   slackConnector,
 } from "./adapters";
-import type { ConnectorId, HealthConnector } from "./types";
+import type { ConnectorAdapter, ConnectorId } from "./types";
 
-const connectorRegistry = new Map<ConnectorId, HealthConnector>([
+const connectorRegistry = new Map<ConnectorId, ConnectorAdapter>([
   ["google-drive", googleDriveConnector],
   ["hubspot", hubspotConnector],
   ["carta", cartaConnector],
   ["quickbooks", quickbooksConnector],
   ["box", boxConnector],
+  ["bamboohr", bambooHrConnector],
   ["slack", slackConnector],
 ]);
 
 /** All registered connector adapters. */
-export function getAllConnectors(): HealthConnector[] {
+export function getAllConnectors(): ConnectorAdapter[] {
   return [...connectorRegistry.values()];
 }
 
-export function getConnector(id: ConnectorId): HealthConnector | undefined {
+export function getConnector(id: ConnectorId): ConnectorAdapter | undefined {
   return connectorRegistry.get(id);
 }
 
 /** Connected connectors only — used for active ingestion. */
-export function getActiveConnectors(): HealthConnector[] {
+export function getActiveConnectors(): ConnectorAdapter[] {
   return getAllConnectors().filter((c) => c.status === "connected");
 }
 
-/** Acme Corp uses all connectors including pending Slack (shown in catalog). */
+/** Register an additional connector at runtime (tests / future plugins). */
+export function registerConnector(connector: ConnectorAdapter): void {
+  connectorRegistry.set(connector.connectorId, connector);
+}
+
+/** Default Acme Corp connector set including pending Slack. */
 export const acmeConnectors = getAllConnectors();

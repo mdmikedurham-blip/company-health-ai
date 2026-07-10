@@ -5,6 +5,9 @@
  *
  * Rules-only in Phase 2. Architecture allows an LLM to replace evidence-analyzer
  * / finding synthesis later without changing the UI or domain model.
+ *
+ * Determinism: pass a fixed `asOf` (Date or ISO string). The same evidence + asOf
+ * always produces the same snapshot. Wall clock is never read inside the engine.
  */
 
 import type {
@@ -28,12 +31,20 @@ import {
 import { assessRisks } from "./risk-engine";
 import { computeHealthFromFindings } from "./scoring-engine";
 
+/** Fixed assessment clock for Acme mock runs — keeps snapshots byte-stable. */
+export const DEFAULT_AS_OF = "2026-07-09T13:42:00.000Z";
+
 export interface InsightEngineInput {
   companyId: string;
   evidence: Evidence[];
   previousHealthScore?: HealthScore;
   /** Optional dimension profiles to preserve owner / whyItMatters metadata. */
   dimensionProfiles?: HealthDimension[];
+  /**
+   * Assessment clock. Same evidence + same asOf ⇒ identical engine output.
+   * Defaults to DEFAULT_AS_OF (not wall clock).
+   */
+  asOf?: Date | string;
 }
 
 export interface InsightEngineOutput {
@@ -47,6 +58,29 @@ export interface InsightEngineOutput {
   dimensions: HealthDimension[];
   scoreChange: ScoreChangeExplanation;
   evidence: Evidence[];
+}
+
+export function resolveAsOf(asOf?: Date | string): Date {
+  if (asOf instanceof Date) return asOf;
+  if (typeof asOf === "string") return new Date(asOf);
+  return new Date(DEFAULT_AS_OF);
+}
+
+function formatTimelineDate(asOf: Date): string {
+  return asOf.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function formatTimelineMonth(asOf: Date): string {
+  return asOf.toLocaleString("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 function linkEvidence(
@@ -71,14 +105,11 @@ function buildTimelineEvents(params: {
   evidence: Evidence[];
   healthScore: HealthScore;
   previousHealthScore?: HealthScore;
+  asOf: Date;
 }): TimelineEvent[] {
   const events: TimelineEvent[] = [];
-  const month = new Date().toLocaleString("en-US", { month: "long", year: "numeric" });
-  const today = new Date().toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  const month = formatTimelineMonth(params.asOf);
+  const today = formatTimelineDate(params.asOf);
 
   if (params.previousHealthScore) {
     events.push({
@@ -144,6 +175,7 @@ function buildTimelineEvents(params: {
  * Primary entry point for the Company Health Insight Engine.
  */
 export function runInsightEngine(input: InsightEngineInput): InsightEngineOutput {
+  const asOf = resolveAsOf(input.asOf);
   const rawEvidence = input.evidence.map((e) => ({
     ...e,
     findingIds: e.findingIds ?? [],
@@ -165,6 +197,7 @@ export function runInsightEngine(input: InsightEngineInput): InsightEngineOutput
     rawEvidence,
     input.previousHealthScore,
     input.dimensionProfiles,
+    asOf,
   );
 
   // Stage 5: Risks → Prioritized recommendations
@@ -180,6 +213,7 @@ export function runInsightEngine(input: InsightEngineInput): InsightEngineOutput
     evidence,
     healthScore,
     previousHealthScore: input.previousHealthScore,
+    asOf,
   });
 
   return {

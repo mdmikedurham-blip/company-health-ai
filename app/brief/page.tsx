@@ -62,6 +62,7 @@ export default function ExecutiveBriefPage() {
             changeLabel={healthScore.changeLabel}
             lastUpdated={healthScore.lastUpdated}
             confidence={healthScore.confidence}
+            summary={executiveBrief.summary}
           />
           <div className="panel p-5 lg:col-span-2">
             <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">

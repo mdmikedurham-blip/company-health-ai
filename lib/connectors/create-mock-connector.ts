@@ -1,15 +1,14 @@
 import type { ConnectorStatus, Evidence } from "@/lib/domain";
-import type { RawEvidence } from "@/lib/engine";
+import { evidenceFromRawItem, evidenceToRawMetadata } from "./normalize-evidence";
 import type {
-  ConnectorDocument,
   ConnectorId,
-  ConnectorSyncResult,
-  HealthConnector,
+  RawConnectorData,
+  SyncConnectorAdapter,
 } from "./types";
 
 export interface MockEvidenceMapping {
   externalId: string;
-  evidence: RawEvidence;
+  evidence: Evidence;
 }
 
 export interface MockConnectorConfig {
@@ -23,47 +22,44 @@ export interface MockConnectorConfig {
 }
 
 /**
- * Factory for mock connector adapters.
- * Each mapping pairs an external document ID with normalized Evidence.
+ * Factory for mock ConnectorAdapters.
+ * collect() emits raw items with metadata; normalize() rebuilds Evidence
+ * via evidenceFromRawItem — same path a real API adapter would use.
  */
-export function createMockConnector(config: MockConnectorConfig): HealthConnector {
-  const documentByExternalId = new Map(
-    config.mappings.map((m) => [m.externalId, m]),
-  );
+export function createMockConnector(config: MockConnectorConfig): SyncConnectorAdapter {
+  function collectSync(): RawConnectorData {
+    return {
+      connectorId: config.id,
+      status: config.status,
+      lastSynced: config.lastSynced,
+      documentsAnalyzed: config.documentsAnalyzed,
+      items: config.mappings.map((m) => ({
+        externalId: m.externalId,
+        title: m.evidence.title,
+        syncedAt: m.evidence.collectedAt,
+        rawSummary: m.evidence.contentSummary,
+        metadata: evidenceToRawMetadata(m.evidence),
+      })),
+    };
+  }
+
+  function normalizeSync(raw: RawConnectorData): Evidence[] {
+    if (raw.status !== "connected") return [];
+    return raw.items.map((item) => evidenceFromRawItem(item));
+  }
 
   return {
-    id: config.id,
+    connectorId: config.id,
     name: config.name,
     system: config.system,
     status: config.status,
-
-    sync(): ConnectorSyncResult {
-      const documents: ConnectorDocument[] = config.mappings.map((m) => ({
-        externalId: m.externalId,
-        title: m.evidence.title || m.evidence.documentName,
-        syncedAt: m.evidence.collectedAt || m.evidence.lastReviewed,
-        rawSummary: m.evidence.contentSummary || m.evidence.summary,
-      }));
-
-      return {
-        connectorId: config.id,
-        name: config.name,
-        system: config.system,
-        status: config.status,
-        lastSynced: config.lastSynced,
-        documentsAnalyzed: config.documentsAnalyzed,
-        documents,
-      };
+    collectSync,
+    normalizeSync,
+    async collect(): Promise<RawConnectorData> {
+      return collectSync();
     },
-
-    normalize(document: ConnectorDocument): Evidence {
-      const mapping = documentByExternalId.get(document.externalId);
-      if (!mapping) {
-        throw new Error(
-          `Unknown document ${document.externalId} for connector ${config.id}`,
-        );
-      }
-      return mapping.evidence;
+    async normalize(raw: RawConnectorData): Promise<Evidence[]> {
+      return normalizeSync(raw);
     },
   };
 }

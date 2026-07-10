@@ -1,19 +1,28 @@
 /**
  * Application data layer — single read API for all pages.
  *
- * Pipeline: mock evidence → runInsightEngine() → CompanyHealthSnapshot.
- * Pages import from here; they never duplicate derived scores or risks.
+ * Canonical pipeline:
+ *   Connectors → Evidence → runInsightEngine() → CompanyHealthSnapshot → UI
+ *
+ * Multi-company scale: call getCompanyHealthSnapshot(companyId) / build for
+ * additional tenants. Pages never touch connectors or engine internals.
  */
 import {
+  companyBriefSeed,
   companyDNA as dnaProfile,
-  companyExecutiveBrief,
   companyProfile,
   companyReports,
   companyTimelineSeed,
   dimensionProfiles,
   previousHealthScore,
 } from "@/lib/data/company-profile";
-import { mockEvidence, mockEvidenceCatalogMeta } from "@/lib/data/mock-evidence";
+import {
+  acmeConnectors,
+  buildCompanyHealthSnapshot,
+  buildEvidenceGraph,
+  type PlatformInput,
+} from "@/lib/connectors";
+import { buildCompanyHealthSnapshotFromSyncAdapters } from "@/lib/connectors/pipeline";
 import {
   getDashboardMetrics,
   getDimension,
@@ -27,138 +36,83 @@ import {
   toRiskCardView,
   type CompanyHealthSnapshot,
   type Evidence,
-  type EvidenceCatalog,
 } from "@/lib/domain";
-import { runInsightEngine } from "@/lib/intelligence";
-import type { EvidenceGraphEdge, EvidenceGraphNode, EvidenceRecordView } from "@/lib/types";
+import { DEFAULT_AS_OF } from "@/lib/intelligence";
+import type { EvidenceRecordView } from "@/lib/types";
 
-function buildEvidenceCatalog(evidence: Evidence[]): EvidenceCatalog {
-  const systems = new Set(evidence.map((e) => e.sourceSystem));
-  return {
-    totalDocuments: mockEvidenceCatalogMeta.connectors.reduce(
-      (sum, c) => sum + c.documentsAnalyzed,
-      0,
-    ),
-    systemsConnected: systems.size,
-    lastFullScan: mockEvidenceCatalogMeta.lastFullScan,
-    connectors: mockEvidenceCatalogMeta.connectors,
-  };
-}
-
-function buildEvidenceGraph(snapshot: CompanyHealthSnapshot): {
-  nodes: EvidenceGraphNode[];
-  edges: EvidenceGraphEdge[];
-} {
-  const DOC_X = 80;
-  const DIM_X = 280;
-  const OUTCOME_X = 480;
-  const nodes: EvidenceGraphNode[] = [];
-  const edges: EvidenceGraphEdge[] = [];
-  const dimensionY = new Map<string, number>();
-
-  snapshot.evidence.forEach((doc, i) => {
-    const label = (doc.title || doc.documentName).split(" ")[0] ?? doc.title;
-    nodes.push({
-      id: doc.id,
-      label,
-      type: "document",
-      x: DOC_X,
-      y: 60 + i * 70,
-    });
-
-    if (!dimensionY.has(doc.dimensionId)) {
-      dimensionY.set(doc.dimensionId, 60 + dimensionY.size * 80);
-    }
-    edges.push({ from: doc.id, to: doc.dimensionId });
-  });
-
-  for (const [dimId, y] of dimensionY) {
-    const dim = snapshot.dimensions.find((d) => d.id === dimId);
-    nodes.push({
-      id: dimId,
-      label: dim?.name ?? dimId,
-      type: "dimension",
-      x: DIM_X,
-      y,
-    });
-  }
-
-  let outcomeY = 50;
-  for (const risk of snapshot.risks) {
-    nodes.push({
-      id: risk.id,
-      label: risk.title.split(" ")[0] ?? risk.title,
-      type: "risk",
-      x: OUTCOME_X,
-      y: outcomeY,
-    });
-    edges.push({ from: risk.dimensionId, to: risk.id });
-    outcomeY += 80;
-  }
-
-  for (const insight of snapshot.insights) {
-    nodes.push({
-      id: insight.id,
-      label: (insight.title || insight.statement).split(" ")[0] ?? insight.statement,
-      type: "insight",
-      x: OUTCOME_X,
-      y: outcomeY,
-    });
-    edges.push({ from: insight.dimensionId, to: insight.id });
-    outcomeY += 80;
-  }
-
-  return { nodes, edges };
-}
-
-function assembleSnapshot(): CompanyHealthSnapshot {
-  const engine = runInsightEngine({
-    companyId: companyProfile.id,
-    evidence: mockEvidence,
-    previousHealthScore,
-    dimensionProfiles,
-  });
-
-  // Prefer engine timeline; keep a short historical seed for context.
-  const timeline = [...engine.timelineEvents, ...companyTimelineSeed];
-
-  // DNA top risks stay in sync with engine output
-  const dna = {
-    ...dnaProfile,
-    topRisks: engine.risks.slice(0, 3).map((r) => r.title),
-    keyMetrics: [
-      ...dnaProfile.keyMetrics.filter((m) => m.label !== "Health Score"),
-      {
-        label: "Health Score",
-        value: String(engine.healthScore.score),
-        change: engine.healthScore.changeLabel,
-      },
-    ],
-  };
-
-  return {
-    company: companyProfile,
-    healthScore: engine.healthScore,
-    dimensions: engine.dimensions,
-    evidence: engine.evidence,
-    evidenceCatalog: buildEvidenceCatalog(engine.evidence),
-    findings: engine.findings,
-    insights: engine.insights,
-    risks: engine.risks,
-    recommendations: engine.recommendations,
-    timeline,
-    dna,
-    reports: companyReports,
-    scoreChange: engine.scoreChange,
-    executiveBrief: {
-      ...companyExecutiveBrief,
-      summary: engine.scoreChange.summary,
+const platformConfigs = new Map<string, PlatformInput>([
+  [
+    companyProfile.id,
+    {
+      company: companyProfile,
+      connectors: acmeConnectors,
+      lastFullScan: "Today, 5:00 AM",
+      dimensionProfiles,
+      previousHealthScore,
+      dna: dnaProfile,
+      reports: companyReports,
+      timelineSeed: companyTimelineSeed,
+      briefSeed: companyBriefSeed,
+      asOf: DEFAULT_AS_OF,
     },
-  };
+  ],
+]);
+
+const snapshotCache = new Map<string, CompanyHealthSnapshot>();
+
+function loadSnapshotSync(companyId: string): CompanyHealthSnapshot {
+  const cached = snapshotCache.get(companyId);
+  if (cached) return cached;
+
+  const config = platformConfigs.get(companyId);
+  if (!config) {
+    throw new Error(`Unknown companyId: ${companyId}`);
+  }
+
+  const snapshot = buildCompanyHealthSnapshotFromSyncAdapters(config);
+  snapshotCache.set(companyId, snapshot);
+  return snapshot;
 }
 
-/** Canonical company health state — Insight Engine output */
-export const companySnapshot = assembleSnapshot();
+/** Register additional company platform configs (scale path). */
+export function registerCompanyPlatform(input: PlatformInput): void {
+  platformConfigs.set(input.company.id, input);
+  snapshotCache.delete(input.company.id);
+}
+
+/** Company IDs currently registered for snapshot assembly. */
+export function listRegisteredCompanyIds(): string[] {
+  return [...platformConfigs.keys()];
+}
+
+/** Drop a cached snapshot so the next read rebuilds from connectors. */
+export function invalidateCompanySnapshot(companyId: string): void {
+  snapshotCache.delete(companyId);
+}
+
+/** Sync read for registered companies (mock SyncConnectorAdapters only). */
+export function getCompanyHealthSnapshot(companyId: string): CompanyHealthSnapshot {
+  return loadSnapshotSync(companyId);
+}
+
+/**
+ * Canonical async rebuild for any ConnectorAdapter set.
+ * Prefer this for production / request-time paths.
+ */
+export async function buildCompanyHealthSnapshotFor(
+  companyId: string,
+): Promise<CompanyHealthSnapshot> {
+  const config = platformConfigs.get(companyId);
+  if (!config) {
+    throw new Error(`Unknown companyId: ${companyId}`);
+  }
+  const snapshot = await buildCompanyHealthSnapshot(config);
+  snapshotCache.set(companyId, snapshot);
+  return snapshot;
+}
+
+/** Canonical Acme snapshot used by all current pages. */
+export const companySnapshot = getCompanyHealthSnapshot(companyProfile.id);
 
 // ─── Entity accessors ────────────────────────────────────────────────────────
 
@@ -204,16 +158,16 @@ function toEvidenceRecordView(item: Evidence): EvidenceRecordView {
 
   const linkedInsights = companySnapshot.insights
     .filter((insight) => insight.evidenceIds.includes(item.id))
-    .map((insight) => insight.title || insight.statement);
+    .map((insight) => insight.statement);
 
   return {
     id: item.id,
     sourceSystem: item.sourceSystem,
-    documentName: item.title || item.documentName,
-    confidence: item.reliability ?? item.confidence,
+    documentName: item.title,
+    confidence: item.reliability,
     dimension: item.dimension,
-    lastReviewed: item.collectedAt || item.lastReviewed,
-    summary: item.contentSummary || item.summary,
+    lastReviewed: item.collectedAt,
+    summary: item.contentSummary,
     linkedRisks,
     linkedInsights,
   };

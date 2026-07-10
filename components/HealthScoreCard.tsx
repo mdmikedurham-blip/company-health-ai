@@ -5,6 +5,8 @@ interface HealthScoreCardProps {
   changeLabel: string;
   lastUpdated: string;
   confidence?: number;
+  /** Engine-derived score change summary — no hardcoded narrative. */
+  summary?: string;
 }
 
 const statusConfig = {
@@ -20,10 +22,19 @@ export function HealthScoreCard({
   changeLabel,
   lastUpdated,
   confidence,
+  summary,
 }: HealthScoreCardProps) {
   const config = statusConfig[status];
   const circumference = 2 * Math.PI * 54;
   const dashOffset = circumference - (score / 100) * circumference;
+  const changePositive = change > 0;
+  const changeNegative = change < 0;
+  const changeColor = changePositive
+    ? "text-emerald-400"
+    : changeNegative
+      ? "text-red-400"
+      : "text-zinc-400";
+  const changeDisplay = changePositive ? `+${change}` : String(change);
 
   return (
     <div className="panel flex flex-col justify-between p-5">
@@ -77,15 +88,24 @@ export function HealthScoreCard({
 
         <div>
           <div className="flex items-center gap-1.5">
-            <svg viewBox="0 0 24 24" className="h-4 w-4 text-emerald-400" fill="none" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
-            </svg>
-            <span className="text-lg font-semibold text-emerald-400">+{change}</span>
+            {changePositive && (
+              <svg viewBox="0 0 24 24" className={`h-4 w-4 ${changeColor}`} fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+              </svg>
+            )}
+            {changeNegative && (
+              <svg viewBox="0 0 24 24" className={`h-4 w-4 ${changeColor}`} fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+              </svg>
+            )}
+            <span className={`text-lg font-semibold ${changeColor}`}>{changeDisplay}</span>
           </div>
           <p className="mt-0.5 text-sm text-zinc-400">{changeLabel}</p>
-          <p className="mt-3 max-w-[200px] text-xs leading-relaxed text-zinc-500">
-            Score improved across Financial and People dimensions this month.
-          </p>
+          {summary && (
+            <p className="mt-3 max-w-[200px] text-xs leading-relaxed text-zinc-500">
+              {summary}
+            </p>
+          )}
         </div>
       </div>
     </div>

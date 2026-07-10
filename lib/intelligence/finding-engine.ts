@@ -1,14 +1,16 @@
 /**
  * Finding Engine — Insights → Findings.
- * Groups related insights into material observations with direction and score impact.
+ * Groups insights by ruleId / findingId using FINDING_POLICY from rules.ts.
  */
 
-import type { Evidence, Finding, FindingDirection, Insight } from "@/lib/domain";
-import { DIMENSION_NAMES } from "./rules";
-
-function dimName(id: string): string {
-  return DIMENSION_NAMES[id] ?? id;
-}
+import type { Evidence, Finding, Insight } from "@/lib/domain";
+import { dimensionName } from "@/lib/domain/dimensions";
+import {
+  FINDING_POLICY,
+  SECURITY_RULE_IDS,
+  type FindingPolicy,
+  type RuleId,
+} from "./rules";
 
 function primarySource(evidence: Evidence[], evidenceIds: string[]): string {
   const first = evidence.find((e) => evidenceIds.includes(e.id));
@@ -20,211 +22,140 @@ function collectedAt(evidence: Evidence[], evidenceIds: string[]): string {
   return first?.collectedAt ?? "Unknown";
 }
 
-function makeFinding(params: {
-  id: string;
-  title: string;
-  description: string;
-  dimensionId: string;
-  insights: Insight[];
-  direction: FindingDirection;
-  materiality: number;
-  scoreImpact: number;
-  evidence: Evidence[];
-}): Finding {
-  const evidenceIds = [...new Set(params.insights.flatMap((i) => i.evidenceIds))];
+function makeFinding(
+  policy: FindingPolicy,
+  insights: Insight[],
+  evidence: Evidence[],
+): Finding {
+  const evidenceIds = [...new Set(insights.flatMap((i) => i.evidenceIds))];
   const confidence = Math.round(
-    params.insights.reduce((sum, i) => sum + i.confidence, 0) / params.insights.length,
+    insights.reduce((sum, i) => sum + i.confidence, 0) / insights.length,
   );
+  const description = insights.map((i) => i.statement).join(" ");
 
   return {
-    id: params.id,
-    title: params.title,
-    description: params.description,
-    dimensionId: params.dimensionId,
-    dimension: dimName(params.dimensionId),
-    insightIds: params.insights.map((i) => i.id),
+    id: policy.findingId,
+    title: policy.title,
+    description,
+    dimensionId: policy.dimensionId,
+    dimension: dimensionName(policy.dimensionId),
+    insightIds: insights.map((i) => i.id),
     evidenceIds,
-    direction: params.direction,
-    materiality: params.materiality,
+    direction: policy.direction,
+    materiality: policy.materiality,
     confidence,
-    scoreImpact: params.scoreImpact,
-    summary: params.description,
-    extractedAt: collectedAt(params.evidence, evidenceIds),
-    sourceSystem: primarySource(params.evidence, evidenceIds),
+    scoreImpact: policy.scoreImpact,
+    summary: description,
+    extractedAt: collectedAt(evidence, evidenceIds),
+    sourceSystem: primarySource(evidence, evidenceIds),
   };
 }
 
+function isRuleId(value: string): value is RuleId {
+  return value in FINDING_POLICY;
+}
+
 /**
- * Convert insights into findings. One finding per insight rule family
- * (deduped by dimension + rule prefix) so scoring stays stable.
+ * Convert insights into findings using structured ruleId (never statement text).
  */
 export function deriveFindings(insights: Insight[], evidence: Evidence[]): Finding[] {
+  const byRule = new Map<RuleId, Insight[]>();
+  for (const insight of insights) {
+    if (!isRuleId(insight.ruleId)) continue;
+    const list = byRule.get(insight.ruleId) ?? [];
+    list.push(insight);
+    byRule.set(insight.ruleId, list);
+  }
+
   const findings: Finding[] = [];
+  const emittedFindingIds = new Set<string>();
 
-  const byPrefix = (prefix: string) =>
-    insights.filter((i) => i.id.startsWith(prefix));
-
-  const concentration = byPrefix("insight-concentration-");
-  if (concentration.length > 0) {
-    const high = concentration.some((i) => i.statement.includes("high-risk"));
+  // Concentration: prefer high over medium when both present
+  if (byRule.has("concentration-high")) {
     findings.push(
-      makeFinding({
-        id: "finding-concentration",
-        title: high
-          ? "Revenue concentration above 50% threshold"
-          : "Elevated customer concentration",
-        description: concentration.map((i) => i.statement).join(" "),
-        dimensionId: "dim-customer",
-        insights: concentration,
-        direction: "negative",
-        materiality: high ? 9 : 6,
-        scoreImpact: high ? -8 : -4,
+      makeFinding(
+        FINDING_POLICY["concentration-high"],
+        byRule.get("concentration-high")!,
         evidence,
-      }),
+      ),
     );
+    emittedFindingIds.add("finding-concentration");
+  } else if (byRule.has("concentration-medium")) {
+    findings.push(
+      makeFinding(
+        FINDING_POLICY["concentration-medium"],
+        byRule.get("concentration-medium")!,
+        evidence,
+      ),
+    );
+    emittedFindingIds.add("finding-concentration");
   }
 
-  const ipGaps = byPrefix("insight-ip-gap-");
-  if (ipGaps.length > 0) {
+  // Runway: prefer most severe band
+  if (byRule.has("runway-high")) {
     findings.push(
-      makeFinding({
-        id: "finding-ip-gap",
-        title: "Missing intellectual-property assignments",
-        description: ipGaps.map((i) => i.statement).join(" "),
-        dimensionId: "dim-legal",
-        insights: ipGaps,
-        direction: "negative",
-        materiality: 7,
-        scoreImpact: -6,
-        evidence,
-      }),
+      makeFinding(FINDING_POLICY["runway-high"], byRule.get("runway-high")!, evidence),
     );
+    emittedFindingIds.add("finding-runway");
+  } else if (byRule.has("runway-medium")) {
+    findings.push(
+      makeFinding(
+        FINDING_POLICY["runway-medium"],
+        byRule.get("runway-medium")!,
+        evidence,
+      ),
+    );
+    emittedFindingIds.add("finding-runway");
+  } else if (byRule.has("runway-positive")) {
+    findings.push(
+      makeFinding(
+        FINDING_POLICY["runway-positive"],
+        byRule.get("runway-positive")!,
+        evidence,
+      ),
+    );
+    emittedFindingIds.add("finding-runway");
   }
 
-  const board = byPrefix("insight-board-approval-");
-  if (board.length > 0) {
-    findings.push(
-      makeFinding({
-        id: "finding-board-approval",
-        title: "Missing board approvals",
-        description: board.map((i) => i.statement).join(" "),
-        dimensionId: "dim-governance",
-        insights: board,
-        direction: "negative",
-        materiality: 8,
-        scoreImpact: -14,
-        evidence,
-      }),
-    );
-  }
-
-  const runway = byPrefix("insight-runway-");
-  if (runway.length > 0) {
-    const positive = runway.every((i) => i.type === "positive");
-    const highRisk = runway.some((i) => i.statement.includes("high-risk"));
-    findings.push(
-      makeFinding({
-        id: "finding-runway",
-        title: positive ? "Strong cash runway" : "Cash runway concern",
-        description: runway.map((i) => i.statement).join(" "),
-        dimensionId: "dim-financial",
-        insights: runway,
-        direction: positive ? "positive" : "negative",
-        materiality: positive ? 5 : highRisk ? 9 : 6,
-        scoreImpact: positive ? 5 : highRisk ? -12 : -6,
-        evidence,
-      }),
-    );
-  }
-
-  const recurring = byPrefix("insight-recurring-");
-  if (recurring.length > 0) {
-    findings.push(
-      makeFinding({
-        id: "finding-recurring-revenue",
-        title: "High recurring revenue quality",
-        description: recurring.map((i) => i.statement).join(" "),
-        dimensionId: "dim-revenue-quality",
-        insights: recurring,
-        direction: "positive",
-        materiality: 5,
-        scoreImpact: 4,
-        evidence,
-      }),
-    );
-  }
-
-  const nrr = byPrefix("insight-nrr-");
-  if (nrr.length > 0) {
-    findings.push(
-      makeFinding({
-        id: "finding-nrr",
-        title: "Net revenue retention below threshold",
-        description: nrr.map((i) => i.statement).join(" "),
-        dimensionId: "dim-revenue-quality",
-        insights: nrr,
-        direction: "negative",
-        materiality: 8,
-        scoreImpact: -8,
-        evidence,
-      }),
-    );
-  }
-
-  const critical = byPrefix("insight-critical-controls-");
-  const mfa = byPrefix("insight-mfa-");
-  const securityInsights = [...critical, ...mfa];
+  // Security: merge critical-controls + mfa into one finding
+  const securityInsights = SECURITY_RULE_IDS.flatMap((id) => byRule.get(id) ?? []);
   if (securityInsights.length > 0) {
-    findings.push(
-      makeFinding({
-        id: "finding-security-readiness",
-        title: "Security readiness gaps",
-        description: securityInsights.map((i) => i.statement).join(" "),
-        dimensionId: "dim-security",
-        insights: securityInsights,
-        direction: "negative",
-        materiality: 7,
-        scoreImpact: -8,
-        evidence,
-      }),
+    const base = FINDING_POLICY["critical-controls"];
+    const materiality = Math.max(
+      ...securityInsights.map((i) => FINDING_POLICY[i.ruleId as RuleId].materiality),
     );
+    const scoreImpact = Math.min(
+      ...securityInsights.map((i) => FINDING_POLICY[i.ruleId as RuleId].scoreImpact),
+    );
+    findings.push(
+      makeFinding(
+        { ...base, materiality, scoreImpact },
+        securityInsights,
+        evidence,
+      ),
+    );
+    emittedFindingIds.add(base.findingId);
+    for (const id of SECURITY_RULE_IDS) byRule.delete(id);
   }
 
-  const attrition = byPrefix("insight-attrition-");
-  if (attrition.length > 0) {
-    findings.push(
-      makeFinding({
-        id: "finding-low-attrition",
-        title: "Low voluntary attrition",
-        description: attrition.map((i) => i.statement).join(" "),
-        dimensionId: "dim-people",
-        insights: attrition,
-        direction: "positive",
-        materiality: 4,
-        scoreImpact: 5,
-        evidence,
-      }),
-    );
+  // Remaining single-rule findings
+  const remaining: RuleId[] = [
+    "ip-gap",
+    "board-approval",
+    "recurring-revenue",
+    "nrr",
+    "low-attrition",
+    "key-person",
+  ];
+  for (const ruleId of remaining) {
+    const group = byRule.get(ruleId);
+    if (!group || group.length === 0) continue;
+    const policy = FINDING_POLICY[ruleId];
+    if (emittedFindingIds.has(policy.findingId)) continue;
+    findings.push(makeFinding(policy, group, evidence));
+    emittedFindingIds.add(policy.findingId);
   }
 
-  const keyPerson = byPrefix("insight-key-person-");
-  if (keyPerson.length > 0) {
-    findings.push(
-      makeFinding({
-        id: "finding-key-person",
-        title: "Key-person dependency",
-        description: keyPerson.map((i) => i.statement).join(" "),
-        dimensionId: "dim-people",
-        insights: keyPerson,
-        direction: "negative",
-        materiality: 7,
-        scoreImpact: -5,
-        evidence,
-      }),
-    );
-  }
-
-  // Link findings back onto insights for UI reverse lookups
   for (const finding of findings) {
     for (const insight of insights) {
       if (finding.insightIds.includes(insight.id)) {

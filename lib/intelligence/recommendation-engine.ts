@@ -1,30 +1,26 @@
 /**
  * Recommendation Engine — Risks → prioritized Recommendations.
- *
- * priorityScore =
- *   estimatedScoreImprovement × risk severity multiplier × confidence
- *   ÷ effort multiplier
+ * priorityScore formula and bands come from rules.ts.
  */
 
 import type {
-  ActionPriority,
   EffortLevel,
   Finding,
   Recommendation,
   Risk,
   RiskSeverity,
 } from "@/lib/domain";
-import { DIMENSION_NAMES, EFFORT_MULTIPLIER, SEVERITY_MULTIPLIER } from "./rules";
-
-function dimName(id: string): string {
-  return DIMENSION_NAMES[id] ?? id;
-}
-
-function priorityFromScore(score: number): ActionPriority {
-  if (score >= 8) return "high";
-  if (score >= 4) return "medium";
-  return "low";
-}
+import { dimensionName } from "@/lib/domain/dimensions";
+import {
+  CONCENTRATION_TARGET,
+  EFFORT_MULTIPLIER,
+  MFA_COVERAGE_THRESHOLD,
+  NRR_RISK_THRESHOLD,
+  RUNWAY_MEDIUM_RISK,
+  SEVERITY_MULTIPLIER,
+  formatPercent,
+  priorityFromScore,
+} from "./rules";
 
 interface RecTemplate {
   title: string;
@@ -37,8 +33,7 @@ interface RecTemplate {
 const REC_TEMPLATES: Record<string, RecTemplate> = {
   "rec-diversify-customers": {
     title: "Diversify top-customer exposure",
-    description:
-      "Launch mid-market expansion to reduce top-3 ARR concentration below the 45% target.",
+    description: `Launch mid-market expansion to reduce top-3 ARR concentration below the ${formatPercent(CONCENTRATION_TARGET)} target.`,
     effort: "high",
     rationale: "Concentration above investor thresholds is the largest customer-dimension drag.",
     nextSteps: [
@@ -73,7 +68,7 @@ const REC_TEMPLATES: Record<string, RecTemplate> = {
   },
   "rec-extend-runway": {
     title: "Extend cash runway",
-    description: "Reduce burn or accelerate collections to push runway above 12 months.",
+    description: `Reduce burn or accelerate collections to push runway above ${RUNWAY_MEDIUM_RISK} months.`,
     effort: "high",
     rationale: "Runway below thresholds constrains hiring and negotiating leverage.",
     nextSteps: [
@@ -84,9 +79,9 @@ const REC_TEMPLATES: Record<string, RecTemplate> = {
   },
   "rec-improve-nrr": {
     title: "Improve net revenue retention",
-    description: "Deploy retention and expansion playbooks for contracting cohorts.",
+    description: `Deploy retention and expansion playbooks until NRR exceeds ${formatPercent(NRR_RISK_THRESHOLD)}.`,
     effort: "medium",
-    rationale: "NRR below 90% compresses valuation and growth forecasts.",
+    rationale: "NRR below policy threshold compresses valuation and growth forecasts.",
     nextSteps: [
       "Segment contracting accounts by reason code",
       "Assign CS owners to at-risk logos",
@@ -95,7 +90,7 @@ const REC_TEMPLATES: Record<string, RecTemplate> = {
   },
   "rec-security-controls": {
     title: "Close security control gaps",
-    description: "Remediate open critical controls and raise MFA coverage above 95%.",
+    description: `Remediate open critical controls and raise MFA coverage above ${formatPercent(MFA_COVERAGE_THRESHOLD)}.`,
     effort: "medium",
     rationale: "Security gaps block enterprise deals and elevate breach exposure.",
     nextSteps: [
@@ -156,7 +151,7 @@ export function generateRecommendations(
       title: template.title,
       description: template.description,
       dimensionId: risk.dimensionId,
-      dimension: dimName(risk.dimensionId),
+      dimension: dimensionName(risk.dimensionId),
       riskIds: [risk.id],
       evidenceIds: risk.evidenceIds,
       priority: priorityFromScore(priorityScore),
@@ -166,16 +161,13 @@ export function generateRecommendations(
       rationale: template.rationale,
       nextSteps: template.nextSteps,
       priorityScore,
-      supportingEvidenceIds: risk.evidenceIds,
       findingIds: relatedFindings.map((f) => f.id),
-      estimatedHealthImpact: estimatedScoreImprovement,
     });
   }
 
   return recommendations.sort((a, b) => b.priorityScore - a.priorityScore);
 }
 
-/** Attach recommendation titles onto dimension profiles for UI cards. */
 export function attachRecommendationsToDimensions(
   dimensions: { id: string; recommendedActions: string[] }[],
   recommendations: Recommendation[],

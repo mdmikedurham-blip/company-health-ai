@@ -1,3 +1,4 @@
+export { bambooHrConnector } from "./bamboohr";
 export { boxConnector } from "./box";
 export { cartaConnector } from "./carta";
 export { googleDriveConnector } from "./google-drive";

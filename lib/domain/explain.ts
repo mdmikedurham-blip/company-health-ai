@@ -1,5 +1,7 @@
 import type { ExplainPayload } from "@/lib/types";
-import type { CompanyHealthSnapshot, HealthDimension, Risk } from "./index";
+import type { CompanyHealthSnapshot } from "./snapshot";
+import type { HealthDimension } from "./health";
+import type { Risk } from "./risk";
 import {
   getDimension,
   getRisk,
@@ -67,11 +69,4 @@ function buildDimensionExplainFromEntity(
       dimension.recommendedActions[0] ?? "No action required at this time.",
     estimatedScoreImprovement: dimension.estimatedScoreImprovement,
   };
-}
-
-export function getDimensionIdByName(
-  snapshot: CompanyHealthSnapshot,
-  name: string,
-): string | undefined {
-  return snapshot.dimensions.find((d) => d.name === name)?.id;
 }

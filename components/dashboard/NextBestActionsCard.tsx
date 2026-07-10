@@ -30,7 +30,7 @@ export function NextBestActionsCard({ actions }: NextBestActionsCardProps) {
               <div className="flex items-start justify-between gap-2">
                 <p className="text-[13px] font-medium text-zinc-200">{action.title}</p>
                 <span className="shrink-0 text-[11px] font-semibold tabular-nums text-indigo-400">
-                  +{action.estimatedHealthImpact}
+                  +{action.estimatedScoreImprovement}
                 </span>
               </div>
               <p className="mt-0.5 text-[11px] text-zinc-500">

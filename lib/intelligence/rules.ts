@@ -1,11 +1,20 @@
 /**
- * Deterministic rule constants and helpers for the Insight Engine.
- * Rules read Evidence.extractedFacts — an LLM can populate facts later without changing these rules.
+ * Insight Engine policy — every numeric threshold, weight, multiplier,
+ * score adjustment, and priority band lives here.
+ *
+ * This is the future policy engine: change behavior by editing this file,
+ * not by scattering magic numbers across analyzers.
  */
 
-import type { EffortLevel, RiskSeverity } from "@/lib/domain";
+import type { EffortLevel, FindingDirection, RiskSeverity } from "@/lib/domain";
+import { DIMENSION_NAMES } from "@/lib/domain/dimensions";
+
+// ─── Baseline & status ───────────────────────────────────────────────────────
 
 export const BASELINE_DIMENSION_SCORE = 85;
+
+export const STATUS_HEALTHY_MIN = 85;
+export const STATUS_WATCH_MIN = 70;
 
 /** Default weights for overall health (must sum ≈ 1.0). */
 export const DIMENSION_WEIGHTS: Record<string, number> = {
@@ -21,18 +30,173 @@ export const DIMENSION_WEIGHTS: Record<string, number> = {
   "dim-ai-readiness": 0.06,
 };
 
-export const DIMENSION_NAMES: Record<string, string> = {
-  "dim-financial": "Financial",
-  "dim-revenue-quality": "Revenue Quality",
-  "dim-customer": "Customer",
-  "dim-legal": "Legal",
-  "dim-governance": "Governance",
-  "dim-people": "People",
-  "dim-security": "Security",
-  "dim-operations": "Operations",
-  "dim-product": "Product",
-  "dim-ai-readiness": "AI Readiness",
+export const DEFAULT_DIMENSION_WEIGHT = 0.1;
+
+export { DIMENSION_NAMES };
+
+// ─── Detection thresholds ────────────────────────────────────────────────────
+
+export const CONCENTRATION_HIGH = 0.5;
+export const CONCENTRATION_MEDIUM = 0.35;
+
+export const RUNWAY_HIGH_RISK = 6;
+export const RUNWAY_MEDIUM_RISK = 12;
+export const RUNWAY_POSITIVE = 18;
+
+export const RECURRING_REVENUE_POSITIVE = 0.8;
+export const NRR_RISK_THRESHOLD = 0.9;
+
+export const MFA_COVERAGE_THRESHOLD = 0.95;
+
+export const LOW_ATTRITION_THRESHOLD = 0.08;
+
+// ─── Finding score impacts & materiality ─────────────────────────────────────
+
+export type RuleId =
+  | "concentration-high"
+  | "concentration-medium"
+  | "ip-gap"
+  | "board-approval"
+  | "runway-high"
+  | "runway-medium"
+  | "runway-positive"
+  | "recurring-revenue"
+  | "nrr"
+  | "critical-controls"
+  | "mfa"
+  | "low-attrition"
+  | "key-person";
+
+export interface FindingPolicy {
+  findingId: string;
+  title: string;
+  dimensionId: string;
+  direction: FindingDirection;
+  materiality: number;
+  scoreImpact: number;
+}
+
+/** Per-rule finding policy applied when an insight of that ruleId is present. */
+export const FINDING_POLICY: Record<RuleId, FindingPolicy> = {
+  "concentration-high": {
+    findingId: "finding-concentration",
+    title: "Revenue concentration above 50% threshold",
+    dimensionId: "dim-customer",
+    direction: "negative",
+    materiality: 9,
+    scoreImpact: -8,
+  },
+  "concentration-medium": {
+    findingId: "finding-concentration",
+    title: "Elevated customer concentration",
+    dimensionId: "dim-customer",
+    direction: "negative",
+    materiality: 6,
+    scoreImpact: -4,
+  },
+  "ip-gap": {
+    findingId: "finding-ip-gap",
+    title: "Missing intellectual-property assignments",
+    dimensionId: "dim-legal",
+    direction: "negative",
+    materiality: 7,
+    scoreImpact: -6,
+  },
+  "board-approval": {
+    findingId: "finding-board-approval",
+    title: "Missing board approvals",
+    dimensionId: "dim-governance",
+    direction: "negative",
+    materiality: 8,
+    scoreImpact: -14,
+  },
+  "runway-high": {
+    findingId: "finding-runway",
+    title: "Cash runway concern",
+    dimensionId: "dim-financial",
+    direction: "negative",
+    materiality: 9,
+    scoreImpact: -12,
+  },
+  "runway-medium": {
+    findingId: "finding-runway",
+    title: "Cash runway concern",
+    dimensionId: "dim-financial",
+    direction: "negative",
+    materiality: 6,
+    scoreImpact: -6,
+  },
+  "runway-positive": {
+    findingId: "finding-runway",
+    title: "Strong cash runway",
+    dimensionId: "dim-financial",
+    direction: "positive",
+    materiality: 5,
+    scoreImpact: 5,
+  },
+  "recurring-revenue": {
+    findingId: "finding-recurring-revenue",
+    title: "High recurring revenue quality",
+    dimensionId: "dim-revenue-quality",
+    direction: "positive",
+    materiality: 5,
+    scoreImpact: 4,
+  },
+  nrr: {
+    findingId: "finding-nrr",
+    title: "Net revenue retention below threshold",
+    dimensionId: "dim-revenue-quality",
+    direction: "negative",
+    materiality: 8,
+    scoreImpact: -8,
+  },
+  "critical-controls": {
+    findingId: "finding-security-readiness",
+    title: "Security readiness gaps",
+    dimensionId: "dim-security",
+    direction: "negative",
+    materiality: 7,
+    scoreImpact: -8,
+  },
+  mfa: {
+    findingId: "finding-security-readiness",
+    title: "Security readiness gaps",
+    dimensionId: "dim-security",
+    direction: "negative",
+    materiality: 7,
+    scoreImpact: -8,
+  },
+  "low-attrition": {
+    findingId: "finding-low-attrition",
+    title: "Low voluntary attrition",
+    dimensionId: "dim-people",
+    direction: "positive",
+    materiality: 4,
+    scoreImpact: 5,
+  },
+  "key-person": {
+    findingId: "finding-key-person",
+    title: "Key-person dependency",
+    dimensionId: "dim-people",
+    direction: "negative",
+    materiality: 7,
+    scoreImpact: -5,
+  },
 };
+
+/**
+ * When multiple ruleIds map to the same findingId (e.g. critical-controls + mfa),
+ * merge by taking the max materiality and summing score impacts (then clamp later).
+ */
+export const SECURITY_RULE_IDS: RuleId[] = ["critical-controls", "mfa"];
+
+// ─── Risk severity derivation ────────────────────────────────────────────────
+
+export const SEVERITY_HIGH_MATERIALITY_MIN = 8;
+export const SEVERITY_HIGH_SCORE_IMPACT_MAX = -10;
+export const SEVERITY_MEDIUM_MATERIALITY_MIN = 6;
+export const SEVERITY_MEDIUM_SCORE_IMPACT_MAX = -5;
+export const RISK_IMPACT_NORMALIZER = 15;
 
 export const SEVERITY_MULTIPLIER: Record<RiskSeverity, number> = {
   high: 1.5,
@@ -40,30 +204,42 @@ export const SEVERITY_MULTIPLIER: Record<RiskSeverity, number> = {
   low: 0.6,
 };
 
+// ─── Recommendation priority ─────────────────────────────────────────────────
+
 export const EFFORT_MULTIPLIER: Record<EffortLevel, number> = {
   low: 1.0,
   medium: 1.5,
   high: 2.5,
 };
 
-/** Customer concentration thresholds (top-3 ARR share as fraction 0–1 or percent). */
-export const CONCENTRATION_HIGH = 0.5;
-export const CONCENTRATION_MEDIUM = 0.35;
+export const PRIORITY_HIGH_MIN = 8;
+export const PRIORITY_MEDIUM_MIN = 4;
 
-/** Cash runway thresholds (months). */
-export const RUNWAY_HIGH_RISK = 6;
-export const RUNWAY_MEDIUM_RISK = 12;
-export const RUNWAY_POSITIVE = 18;
+export const CONCENTRATION_TARGET = 0.45;
 
-/** Revenue quality thresholds. */
-export const RECURRING_REVENUE_POSITIVE = 0.8;
-export const NRR_RISK_THRESHOLD = 0.9;
+// ─── Confidence model ────────────────────────────────────────────────────────
 
-/** Security thresholds. */
-export const MFA_COVERAGE_THRESHOLD = 0.95;
+export const CONFIDENCE_EMPTY = 40;
+export const CONFIDENCE_QUANTITY_SATURATION = 8;
+export const CONFIDENCE_UNKNOWN_FRESHNESS = 0.7;
+export const CONFIDENCE_FRESHNESS_DAYS = {
+  excellent: 7,
+  good: 30,
+  fair: 90,
+} as const;
+export const CONFIDENCE_FRESHNESS_FACTOR = {
+  excellent: 1,
+  good: 0.85,
+  fair: 0.65,
+  poor: 0.45,
+} as const;
+export const CONFIDENCE_WEIGHTS = {
+  reliability: 0.5,
+  quantity: 0.25,
+  freshness: 0.25,
+} as const;
 
-/** People health. */
-export const LOW_ATTRITION_THRESHOLD = 0.08;
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 export function asNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -98,11 +274,40 @@ export function clampScore(score: number): number {
 }
 
 export function deriveStatus(score: number): "healthy" | "watch" | "at-risk" {
-  if (score >= 85) return "healthy";
-  if (score >= 70) return "watch";
+  if (score >= STATUS_HEALTHY_MIN) return "healthy";
+  if (score >= STATUS_WATCH_MIN) return "watch";
   return "at-risk";
 }
 
 export function formatPercent(ratio: number): string {
   return `${Math.round(ratio * 1000) / 10}%`;
+}
+
+export function deriveRiskSeverity(
+  materiality: number,
+  scoreImpact: number,
+): RiskSeverity {
+  if (
+    materiality >= SEVERITY_HIGH_MATERIALITY_MIN ||
+    scoreImpact <= SEVERITY_HIGH_SCORE_IMPACT_MAX
+  ) {
+    return "high";
+  }
+  if (
+    materiality >= SEVERITY_MEDIUM_MATERIALITY_MIN ||
+    scoreImpact <= SEVERITY_MEDIUM_SCORE_IMPACT_MAX
+  ) {
+    return "medium";
+  }
+  return "low";
+}
+
+export function normalizeRiskImpact(scoreImpact: number): number {
+  return Math.min(1, Math.abs(scoreImpact) / RISK_IMPACT_NORMALIZER);
+}
+
+export function priorityFromScore(score: number): "high" | "medium" | "low" {
+  if (score >= PRIORITY_HIGH_MIN) return "high";
+  if (score >= PRIORITY_MEDIUM_MIN) return "medium";
+  return "low";
 }

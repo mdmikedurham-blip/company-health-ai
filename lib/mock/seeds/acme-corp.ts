@@ -1,10 +1,9 @@
 /**
  * Legacy seed re-exports — prefer `@/lib/data` for application reads.
- * Kept so older imports of acmePlatformInput continue to resolve.
  */
 import {
+  companyBriefSeed,
   companyDNA,
-  companyExecutiveBrief,
   companyProfile,
   companyReports,
   companyTimelineSeed,
@@ -13,15 +12,17 @@ import {
 } from "@/lib/data/company-profile";
 import { acmeConnectors } from "@/lib/connectors";
 import type { PlatformInput } from "@/lib/connectors";
+import { DEFAULT_AS_OF } from "@/lib/intelligence";
 
 export const acmePlatformInput: PlatformInput = {
+  company: companyProfile,
   connectors: acmeConnectors,
   lastFullScan: "Today, 5:00 AM",
-  company: companyProfile,
-  dimensions: dimensionProfiles,
+  dimensionProfiles,
   previousHealthScore,
   dna: companyDNA,
   reports: companyReports,
-  timeline: companyTimelineSeed,
-  executiveBrief: companyExecutiveBrief,
+  timelineSeed: companyTimelineSeed,
+  briefSeed: companyBriefSeed,
+  asOf: DEFAULT_AS_OF,
 };
