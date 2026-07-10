@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   claimDocumentJob,
   requeueDocumentJobs,
@@ -109,12 +109,20 @@ describe("claimDocumentJob", () => {
 });
 
 describe("requeueDocumentJobs", () => {
-  it("requeues FAILED jobs and ignores fresh PROCESSING", async () => {
+  it("requeues FAILED and QUEUED jobs; ignores fresh PROCESSING", async () => {
     const now = Date.now();
     const rows = [
       {
         id: "failed-1",
         status: "FAILED",
+        lease_expires_at: null,
+        locked_at: null,
+        processing_started_at: null,
+        updated_at: new Date(now).toISOString(),
+      },
+      {
+        id: "queued-1",
+        status: "QUEUED",
         lease_expires_at: null,
         locked_at: null,
         processing_started_at: null,
@@ -149,7 +157,7 @@ describe("requeueDocumentJobs", () => {
       client: mockClient({ from }),
       companyId: "co-1",
     });
-    expect(ids).toEqual(["failed-1"]);
+    expect(ids).toEqual(["failed-1", "queued-1"]);
   });
 
   it("requeues stale PROCESSING after lease expiry", async () => {
@@ -263,16 +271,31 @@ describe("dashboard progress states", () => {
 });
 
 describe("immediate kickoff contract", () => {
-  beforeEach(() => {
-    vi.resetModules();
-  });
-
-  it("complete response includes processingKickedOff without awaiting analysis", async () => {
-    // Contract: completeManualUpload only enqueues; kickoff is separate and non-blocking.
-    const { completeManualUpload } = await import("./service");
-    expect(typeof completeManualUpload).toBe("function");
-
-    const { kickoffDocumentProcessing } = await import("./kickoff");
-    expect(typeof kickoffDocumentProcessing).toBe("function");
+  it("complete awaits process kickoff with secret auth path", async () => {
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const kickoffSrc = await fs.readFile(
+      path.join(process.cwd(), "lib/uploads/kickoff.ts"),
+      "utf8",
+    );
+    const completeSrc = await fs.readFile(
+      path.join(
+        process.cwd(),
+        "app/api/documents/upload/complete/route.ts",
+      ),
+      "utf8",
+    );
+    const processSrc = await fs.readFile(
+      path.join(process.cwd(), "app/api/documents/process/route.ts"),
+      "utf8",
+    );
+    expect(kickoffSrc).toContain("/api/documents/process");
+    expect(kickoffSrc).toContain("Authorization");
+    expect(kickoffSrc).toContain("manual_upload_processing_kickoff");
+    expect(kickoffSrc).not.toMatch(/\bafter\s*\(/);
+    expect(completeSrc).toContain("await kickoffDocumentProcessing");
+    expect(completeSrc).not.toMatch(/\bafter\s*\(/);
+    expect(processSrc).toContain("isAuthorizedProcessSecret");
+    expect(processSrc).toContain("acceptDocumentForProcessing");
   });
 });

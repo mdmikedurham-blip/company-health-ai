@@ -32,6 +32,7 @@ export {
 } from "./service";
 export {
   processManualUploadDocument,
+  continueClaimedManualUpload,
   processQueuedManualUploads,
 } from "./process";
 export {
@@ -39,7 +40,14 @@ export {
   requeueDocumentJobs,
   isTerminalUploadStatus,
 } from "./claim";
-export { kickoffDocumentProcessing, kickoffDocumentProcessingBatch } from "./kickoff";
+export {
+  kickoffDocumentProcessing,
+  kickoffDocumentProcessingBatch,
+  PROCESSING_KICKOFF_TIMEOUT_MS,
+  SYNC_PROCESS_MAX_BYTES,
+} from "./kickoff";
+export { acceptDocumentForProcessing } from "./run-process";
+export { logUploadProcessingEvent } from "./logging";
 export {
   computeDashboardProcessingState,
   buildUploadProgressItem,

@@ -11,12 +11,16 @@ import {
 } from "@/lib/supabase";
 import { completeManualUpload } from "@/lib/uploads";
 import { kickoffDocumentProcessing } from "@/lib/uploads/kickoff";
+import { logUploadProcessingEvent } from "@/lib/uploads/logging";
+
+export const maxDuration = 60;
 
 /**
  * POST /api/documents/upload/complete
- * Body JSON: { documentId }
- * Verifies Storage object, sets QUEUED, kicks off processing without blocking
- * on analysis completion.
+ *
+ * After QUEUED, awaits POST /api/documents/process (server-only secret).
+ * Small files use mode=sync so hello.txt reaches PROCESSED in this request.
+ * Does not return until the worker accepts (or sync finishes / fails).
  */
 export async function POST(request: Request) {
   try {
@@ -48,17 +52,31 @@ export async function POST(request: Request) {
       documentId,
     });
 
-    kickoffDocumentProcessing({
+    logUploadProcessingEvent("manual_upload_processing_kickoff", {
+      documentId: document.id,
+      companyId,
+      stage: "enqueue",
+      outcome: "queued",
+      status: "QUEUED",
+    });
+
+    const kickoff = await kickoffDocumentProcessing({
       companyId,
       documentId: document.id,
+      byteSize: document.byteSize,
+      request,
       client,
     });
 
     return NextResponse.json({
-      document,
+      document: {
+        ...document,
+        status: kickoff.status ?? document.status,
+      },
       enqueued: true,
-      processingKickedOff: true,
-      status: document.status,
+      processingKickedOff: kickoff.accepted,
+      kickoff,
+      status: kickoff.status ?? document.status,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -17,7 +17,7 @@ export const maxDuration = 60;
 /**
  * POST /api/documents/retry
  * Body: { documentIds?: string[] }
- * Resets FAILED / stale jobs to QUEUED and immediately re-triggers processing.
+ * Resets FAILED / stale jobs to QUEUED and awaits HTTP processing kickoff.
  * company_id is derived from authenticated membership only.
  */
 export async function POST(request: Request) {
@@ -47,17 +47,20 @@ export async function POST(request: Request) {
       documentIds,
     });
 
-    if (requeued.length > 0) {
-      kickoffDocumentProcessingBatch({
-        companyId,
-        documentIds: requeued,
-        client,
-      });
-    }
+    const kickoffs =
+      requeued.length > 0
+        ? await kickoffDocumentProcessingBatch({
+            companyId,
+            documentIds: requeued,
+            request,
+            client,
+          })
+        : [];
 
     return NextResponse.json({
       requeued,
-      kickedOff: requeued.length,
+      kickedOff: kickoffs.filter((k) => k.accepted).length,
+      kickoffs,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

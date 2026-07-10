@@ -204,11 +204,11 @@ export async function requeueDocumentJobs(input: {
 
   const ids: string[] = [];
   for (const row of rows ?? []) {
+    // Retry: FAILED always; QUEUED always (re-kickoff); in-flight only when stale.
     const canRetry =
       row.status === "FAILED" ||
-      (["QUEUED", "PROCESSING", "EXTRACTED", "ANALYZING"].includes(
-        row.status,
-      ) &&
+      row.status === "QUEUED" ||
+      (["PROCESSING", "EXTRACTED", "ANALYZING"].includes(row.status) &&
         isStaleForRetry(row, now, staleBefore));
     if (canRetry) ids.push(row.id);
   }

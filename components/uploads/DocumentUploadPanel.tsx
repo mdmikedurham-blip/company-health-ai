@@ -94,6 +94,7 @@ export function DocumentUploadPanel({
   const [recent, setRecent] =
     useState<UploadedDocumentRecord[]>(initialDocuments);
   const [listError, setListError] = useState<string | null>(null);
+  const [retryPending, setRetryPending] = useState(false);
   const [, startTransition] = useTransition();
   const busy = items.some(
     (i) =>
@@ -121,6 +122,31 @@ export function DocumentUploadPanel({
       setListError("Could not load uploads.");
     }
   }, []);
+
+  const retryProcessing = useCallback(
+    async (documentIds?: string[]) => {
+      setRetryPending(true);
+      setListError(null);
+      try {
+        const res = await fetch("/api/documents/retry", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(documentIds?.length ? { documentIds } : {}),
+        });
+        const data = (await res.json()) as { error?: string };
+        if (!res.ok) {
+          setListError(data.error ?? "Retry failed.");
+          return;
+        }
+        await refreshList();
+      } catch {
+        setListError("Retry failed.");
+      } finally {
+        setRetryPending(false);
+      }
+    },
+    [refreshList],
+  );
 
   const processFile = useCallback(
     async (file: File, localId: string) => {
@@ -333,13 +359,27 @@ export function DocumentUploadPanel({
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-sm font-medium text-zinc-200">Recent uploads</h3>
-          <button
-            type="button"
-            onClick={() => void refreshList()}
-            className="text-xs text-zinc-500 transition hover:text-zinc-300"
-          >
-            Refresh
-          </button>
+          <div className="flex items-center gap-3">
+            {recent.some(
+              (d) => d.status === "QUEUED" || d.status === "FAILED",
+            ) ? (
+              <button
+                type="button"
+                disabled={retryPending}
+                onClick={() => void retryProcessing()}
+                className="text-xs font-medium text-amber-300 transition hover:text-amber-200 disabled:opacity-60"
+              >
+                {retryPending ? "Retrying…" : "Retry Processing"}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => void refreshList()}
+              className="text-xs text-zinc-500 transition hover:text-zinc-300"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
         {listError ? (
           <p className="text-sm text-red-400">{listError}</p>

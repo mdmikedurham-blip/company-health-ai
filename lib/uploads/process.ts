@@ -31,7 +31,9 @@ import {
   markDocumentFailed,
   markDocumentProcessed,
   updateDocumentStage,
+  type DocumentJobRow,
 } from "./claim";
+import { logUploadProcessingEvent } from "./logging";
 
 export type ProcessDocumentResult = {
   documentId: string;
@@ -58,6 +60,13 @@ export async function processManualUploadDocument(input: {
   });
 
   if (!claimed) {
+    logUploadProcessingEvent("manual_upload_processing_kickoff", {
+      documentId: input.documentId,
+      companyId: input.companyId,
+      stage: "claim",
+      outcome: "skipped",
+      status: "skipped",
+    });
     return {
       documentId: input.documentId,
       companyId: input.companyId,
@@ -66,17 +75,44 @@ export async function processManualUploadDocument(input: {
     };
   }
 
+  return continueClaimedManualUpload({
+    client: input.client,
+    companyId: input.companyId,
+    claimed,
+  });
+}
+
+/**
+ * Run extraction + Insight Engine for an already-claimed document.
+ * Used after an early 202 from the process route (waitUntil continuation).
+ */
+export async function continueClaimedManualUpload(input: {
+  client: AppSupabaseClient;
+  companyId: string;
+  claimed: DocumentJobRow;
+}): Promise<ProcessDocumentResult> {
+  const { claimed, companyId } = input;
+  const documentId = claimed.id;
+
   if (claimed.connector_id !== MANUAL_UPLOAD_CONNECTOR_ID) {
     await markDocumentFailed({
       client: input.client,
-      companyId: input.companyId,
-      documentId: input.documentId,
+      companyId,
+      documentId,
       errorMessage: "Document is not a manual upload",
       lastStage: "claim",
     });
+    logUploadProcessingEvent("manual_upload_processing_failed", {
+      documentId,
+      companyId,
+      stage: "claim",
+      outcome: "failed",
+      status: "FAILED",
+      errorMessage: "Document is not a manual upload",
+    });
     return {
-      documentId: input.documentId,
-      companyId: input.companyId,
+      documentId,
+      companyId,
       status: "failed",
       errorMessage: "Document is not a manual upload",
     };
@@ -90,6 +126,14 @@ export async function processManualUploadDocument(input: {
     if (!isExtractableMimeType(claimed.mime_type)) {
       throw new Error(`Unsupported mime type: ${claimed.mime_type}`);
     }
+
+    logUploadProcessingEvent("manual_upload_processing_started", {
+      documentId,
+      companyId,
+      stage: "extracting",
+      outcome: "started",
+      status: "PROCESSING",
+    });
 
     const { data: blob, error: downloadError } = await input.client.storage
       .from(COMPANY_DOCUMENTS_BUCKET)
@@ -119,8 +163,8 @@ export async function processManualUploadDocument(input: {
 
     await updateDocumentStage({
       client: input.client,
-      companyId: input.companyId,
-      documentId: input.documentId,
+      companyId,
+      documentId,
       status: "EXTRACTED",
       lastStage: "extracted",
     });
@@ -153,25 +197,33 @@ export async function processManualUploadDocument(input: {
     });
 
     const evidenceRepo = createEvidenceRepository({ client: input.client });
-    await evidenceRepo.upsert(input.companyId, [evidence]);
+    await evidenceRepo.upsert(companyId, [evidence]);
 
     await updateDocumentStage({
       client: input.client,
-      companyId: input.companyId,
-      documentId: input.documentId,
+      companyId,
+      documentId,
       status: "ANALYZING",
       lastStage: "analyzing",
     });
 
+    logUploadProcessingEvent("manual_upload_processing_started", {
+      documentId,
+      companyId,
+      stage: "analyzing",
+      outcome: "started",
+      status: "ANALYZING",
+    });
+
     const company =
-      input.companyId === companyProfile.id
+      companyId === companyProfile.id
         ? companyProfile
-        : { ...companyProfile, id: input.companyId, name: input.companyId };
+        : { ...companyProfile, id: companyId, name: companyId };
 
     const { count: processedCount } = await input.client
       .from("documents")
       .select("id", { count: "exact", head: true })
-      .eq("company_id", input.companyId)
+      .eq("company_id", companyId)
       .eq("connector_id", MANUAL_UPLOAD_CONNECTOR_ID)
       .eq("status", "PROCESSED");
 
@@ -197,22 +249,18 @@ export async function processManualUploadDocument(input: {
 
     await replaceCompanyRecommendations(
       input.client,
-      input.companyId,
+      companyId,
       snapshot.recommendations,
     );
-    await replaceCompanyTimeline(
-      input.client,
-      input.companyId,
-      snapshot.timeline,
-    );
+    await replaceCompanyTimeline(input.client, companyId, snapshot.timeline);
 
     await input.client.from("analysis_snapshots").insert({
-      company_id: input.companyId,
+      company_id: companyId,
       status: "completed",
       as_of: now,
       payload: {
         source: "manual-upload",
-        documentId: input.documentId,
+        documentId,
         evidenceId,
         healthScore: snapshot.healthScore.score,
         affected: snapshot.affected,
@@ -221,30 +269,45 @@ export async function processManualUploadDocument(input: {
 
     await markDocumentProcessed({
       client: input.client,
-      companyId: input.companyId,
-      documentId: input.documentId,
+      companyId,
+      documentId,
       rawSummary: extracted.text,
     });
 
+    logUploadProcessingEvent("manual_upload_processing_completed", {
+      documentId,
+      companyId,
+      stage: "processed",
+      outcome: "processed",
+      status: "PROCESSED",
+    });
+
     return {
-      documentId: input.documentId,
-      companyId: input.companyId,
+      documentId,
+      companyId,
       status: "processed",
       evidenceId,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    // Never log document contents — message only.
     await markDocumentFailed({
       client: input.client,
-      companyId: input.companyId,
-      documentId: input.documentId,
+      companyId,
+      documentId,
       errorMessage: message,
       lastStage: "failed",
     });
+    logUploadProcessingEvent("manual_upload_processing_failed", {
+      documentId,
+      companyId,
+      stage: "failed",
+      outcome: "failed",
+      status: "FAILED",
+      errorMessage: message.slice(0, 500),
+    });
     return {
-      documentId: input.documentId,
-      companyId: input.companyId,
+      documentId,
+      companyId,
       status: "failed",
       errorMessage: message,
     };

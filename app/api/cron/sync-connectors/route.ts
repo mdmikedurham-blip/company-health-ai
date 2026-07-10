@@ -35,8 +35,8 @@ export const maxDuration = 300;
  * worker as immediate kickoff. Also runs Google Drive incremental sync.
  *
  * Latency note: Vercel Hobby allows only once-daily crons. User-facing latency
- * depends on post-upload `after()` kickoff + authenticated Retry — not this
- * schedule. On Vercel Pro, set schedule to every five minutes
+ * depends on post-upload HTTP kickoff to /api/documents/process + authenticated
+ * Retry — not this schedule. On Vercel Pro, set schedule to every five minutes
  * (cron: star-slash-5 space star space star space star space star).
  */
 async function runScheduledSync(request: Request) {

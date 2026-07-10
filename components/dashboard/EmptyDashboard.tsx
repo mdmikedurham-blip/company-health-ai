@@ -109,7 +109,10 @@ export function EmptyDashboard({
         <p className="mt-4 text-sm text-red-300">{retryError}</p>
       ) : null}
 
-      {stalled || progressItems.some((i) => i.label === "Failed") ? (
+      {stalled ||
+      progressItems.some(
+        (i) => i.label === "Failed" || i.label === "Queued",
+      ) ? (
         <button
           type="button"
           onClick={onRetry}
