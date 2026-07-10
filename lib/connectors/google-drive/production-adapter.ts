@@ -1,7 +1,8 @@
 /**
  * Production Google Drive ConnectorAdapter.
  * Uses OAuth refresh tokens + Drive files.list (read-only).
- * Each supported file is downloaded/exported into an ExtractedDocument.
+ * Each supported file is downloaded/exported into an ExtractedDocument,
+ * then evidence-extracted into JSON (EvidenceExtractionResult).
  * Mock demo data remains in adapter.ts for the static Acme snapshot.
  */
 import type { Evidence } from "@/lib/domain";
@@ -12,6 +13,8 @@ import type {
   RawConnectorItem,
 } from "../connector";
 import type { ExtractedDocument } from "../extraction";
+import type { EvidenceExtractionResult } from "../evidence-extraction";
+import { evidenceFromRawExtractionItem } from "../evidence-extraction";
 import { evidenceFromRawItem } from "../normalize-evidence";
 import {
   getConnectorConnectionStatus,
@@ -35,11 +38,13 @@ export interface GoogleDriveAdapterOptions {
 
 export type GoogleDriveRawConnectorData = RawConnectorData & {
   extractedDocuments?: ExtractedDocument[];
+  evidenceResults?: EvidenceExtractionResult[];
 };
 
 function applyExtraction(
   item: RawConnectorItem,
   doc: ExtractedDocument,
+  evidence?: EvidenceExtractionResult,
 ): RawConnectorItem {
   const preview = doc.text.slice(0, 2000);
   return {
@@ -52,6 +57,14 @@ function applyExtraction(
       sectionCount: String(doc.sections.length),
       extractedTitle: doc.title,
       extractedTextPreview: preview,
+      ...(evidence
+        ? {
+            evidenceType: evidence.evidenceType,
+            evidenceDimension: evidence.dimension,
+            evidenceConfidence: String(evidence.confidence),
+            evidenceJson: JSON.stringify(evidence),
+          }
+        : {}),
     },
   };
 }
@@ -103,6 +116,7 @@ export function createGoogleDriveAdapter(
           documentsAnalyzed: 0,
           items: [],
           extractedDocuments: [],
+          evidenceResults: [],
         };
       }
 
@@ -113,22 +127,37 @@ export function createGoogleDriveAdapter(
 
       let items = inventory;
       let extractedDocuments: ExtractedDocument[] = [];
+      let evidenceResults: EvidenceExtractionResult[] = [];
 
       if (options.extractContent !== false && inventory.length > 0) {
-        const { documents, errors } = await extractDriveDocuments(
+        const result = await extractDriveDocuments(
           credentials.accessToken,
           inventory,
         );
-        extractedDocuments = documents;
+        extractedDocuments = result.documents;
+        evidenceResults = result.evidenceResults;
         const byFileId = new Map(
-          documents.map((d) => [String(d.metadata.fileId ?? ""), d]),
+          result.documents.map((d) => [String(d.metadata.fileId ?? ""), d]),
+        );
+        const evidenceByFileId = new Map(
+          result.evidenceResults.map((e, i) => {
+            const fileId = String(
+              result.documents[i]?.metadata.fileId ?? "",
+            );
+            return [fileId, e] as const;
+          }),
         );
         items = inventory.map((item) => {
           const doc = byFileId.get(item.externalId);
-          return doc ? applyExtraction(item, doc) : item;
+          if (!doc) return item;
+          return applyExtraction(
+            item,
+            doc,
+            evidenceByFileId.get(item.externalId),
+          );
         });
-        if (errors.length > 0) {
-          lastMessage = `Extracted ${documents.length}/${inventory.length}; ${errors.length} failed`;
+        if (result.errors.length > 0) {
+          lastMessage = `Extracted ${result.documents.length}/${inventory.length}; ${result.errors.length} failed`;
         } else {
           lastMessage = undefined;
         }
@@ -145,11 +174,23 @@ export function createGoogleDriveAdapter(
         documentsAnalyzed,
         items,
         extractedDocuments,
+        evidenceResults,
       };
     },
     async normalize(raw: RawConnectorData): Promise<Evidence[]> {
       if (raw.status !== "connected") return [];
-      return raw.items.map((item) => evidenceFromRawItem(item));
+      const evidence: Evidence[] = [];
+      for (const item of raw.items) {
+        const fromExtraction = evidenceFromRawExtractionItem(item);
+        if (fromExtraction) {
+          evidence.push(fromExtraction);
+          continue;
+        }
+        if (item.metadata?.evidenceId) {
+          evidence.push(evidenceFromRawItem(item));
+        }
+      }
+      return evidence;
     },
     async health(): Promise<ConnectorHealth> {
       if (isSupabaseConfigured()) {

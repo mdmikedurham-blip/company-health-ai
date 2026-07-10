@@ -23,13 +23,28 @@ export {
 export type { GoogleDriveSupportedMimeType } from "./constants";
 export { crawlGoogleDrive } from "./crawler";
 export type { GoogleDriveCrawlOptions } from "./crawler";
+export {
+  deltaHasWork,
+  diffDocuments,
+  evidenceIdForDriveFile,
+  isDocumentChanged,
+} from "./delta";
+export type { DocumentDelta, StoredDocumentRef } from "./delta";
 export { downloadDriveFileContent, GOOGLE_DRIVE_EXPORT_MIME } from "./download";
 export type { DriveFileContent } from "./download";
-export { extractDriveDocument, extractDriveDocuments } from "./extract";
+export {
+  extractDriveDocument,
+  extractDriveDocuments,
+  extractDriveEvidence,
+} from "./extract";
+export type { DriveExtractionBundle } from "./extract";
 export { createGoogleDriveAdapter } from "./production-adapter";
 export type {
   GoogleDriveAdapterOptions,
   GoogleDriveRawConnectorData,
 } from "./production-adapter";
 export { syncGoogleDriveForCompany } from "./sync";
-export type { GoogleDriveSyncResult } from "./sync";
+export type {
+  GoogleDriveSyncResult,
+  IncrementalSyncDeltaCounts,
+} from "./sync";

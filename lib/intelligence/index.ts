@@ -1,5 +1,12 @@
 export { runInsightEngine, DEFAULT_AS_OF, resolveAsOf } from "./insight-engine";
 export type { InsightEngineInput, InsightEngineOutput } from "./insight-engine";
+export {
+  computeAffectedScope,
+  mergeIncrementalIntelligence,
+  FINDING_TO_RISK,
+  RULE_FACT_KEYS,
+} from "./affected-scope";
+export type { AffectedScope } from "./affected-scope";
 export { analyzeEvidence } from "./evidence-analyzer";
 export { deriveFindings } from "./finding-engine";
 export { assessRisks } from "./risk-engine";

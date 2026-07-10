@@ -86,6 +86,10 @@ export function companyToInsert(company: Company): TablesInsert<"companies"> {
 // ─── Evidence ────────────────────────────────────────────────────────────────
 
 export function evidenceFromRow(row: EvidenceRow): Evidence {
+  const reliabilityRaw = Number(row.reliability);
+  // DB stores 0–1; domain / Insight Engine use 0–100.
+  const reliability =
+    reliabilityRaw <= 1 ? reliabilityRaw * 100 : reliabilityRaw;
   return {
     id: row.id,
     sourceSystem: row.source_system,
@@ -98,7 +102,7 @@ export function evidenceFromRow(row: EvidenceRow): Evidence {
     dimension: row.dimension,
     occurredAt: row.occurred_at,
     collectedAt: row.collected_at,
-    reliability: Number(row.reliability),
+    reliability,
     metadata: asMetadata(row.metadata),
     citation: asCitation(row.citation),
     findingIds: row.finding_ids,
@@ -111,6 +115,10 @@ export function evidenceToInsert(
   evidence: Evidence,
   documentId?: string | null,
 ): TablesInsert<"evidence"> {
+  const reliability =
+    evidence.reliability > 1
+      ? Math.min(1, evidence.reliability / 100)
+      : evidence.reliability;
   return {
     id: evidence.id,
     company_id: companyId,
@@ -125,7 +133,7 @@ export function evidenceToInsert(
     dimension: evidence.dimension,
     occurred_at: evidence.occurredAt,
     collected_at: evidence.collectedAt,
-    reliability: evidence.reliability,
+    reliability,
     metadata: asJson(evidence.metadata),
     citation: asJson(evidence.citation),
     finding_ids: evidence.findingIds,

@@ -18,6 +18,7 @@ import type {
   TimelineEvent,
 } from "@/lib/domain";
 import type { ConnectorAdapter } from "@/lib/connectors/connector";
+import { syncGoogleDriveForCompany } from "@/lib/connectors/google-drive/sync";
 import { runConnectorPipeline } from "@/lib/connectors/ingest";
 import {
   requireSyncAdapters,
@@ -32,6 +33,10 @@ import {
   type AppSupabaseClient,
 } from "@/lib/supabase";
 import { buildExecutiveBrief, type BriefSeed } from "./build-brief";
+import {
+  analyzeAndPersistIncremental,
+  shouldRescoreIncremental,
+} from "./incremental-analysis";
 
 export type { BriefSeed };
 
@@ -135,6 +140,8 @@ export function buildCompanyHealthSnapshotFromSyncAdapters(
 /**
  * Load persisted evidence for a company, run the Insight Engine, return snapshot.
  * Does not re-sync connectors — use after documents/evidence are already stored.
+ *
+ * Pipeline: Evidence (DB) → Insight Engine → CompanyHealthSnapshot
  */
 export async function analyzeCompanyFromStoredEvidence(input: {
   company: Company;
@@ -173,6 +180,37 @@ export async function analyzeCompanyFromStoredEvidence(input: {
 }
 
 /**
+ * Evidence Store → Insight Engine → persist.
+ * Reads evidence from the database, runs the engine, writes findings/risks/scores.
+ */
+export async function analyzeAndPersistFromStoredEvidence(
+  input: Parameters<typeof analyzeCompanyFromStoredEvidence>[0],
+): Promise<CompanyHealthSnapshot> {
+  const snapshot = await analyzeCompanyFromStoredEvidence(input);
+
+  if (isSupabaseConfigured()) {
+    const db = input.client ?? createServiceClient();
+    await persistEngineResult(db, {
+      companyId: input.company.id,
+      evidence: snapshot.evidence,
+      findings: snapshot.findings,
+      risks: snapshot.risks,
+      recommendations: snapshot.recommendations,
+      healthScore: snapshot.healthScore,
+      dimensions: snapshot.dimensions,
+      scoreChange: snapshot.scoreChange,
+      timelineEvents: snapshot.timeline,
+      asOf:
+        typeof input.asOf === "string"
+          ? input.asOf
+          : input.asOf?.toISOString(),
+    });
+  }
+
+  return snapshot;
+}
+
+/**
  * Full analyze path: connector sync → engine → persist intelligence tables.
  */
 export async function analyzeAndPersistCompany(
@@ -201,4 +239,69 @@ export async function analyzeAndPersistCompany(
   }
 
   return snapshot;
+}
+
+/**
+ * Production Evidence Store pipeline for Google Drive (incremental):
+ * Sync delta → store Evidence → rescore only affected findings/risks/dimensions.
+ */
+export async function syncStoreAndAnalyzeCompany(
+  input: PlatformInput & {
+    client?: AppSupabaseClient;
+    /** Override company id used for Drive sync (defaults to input.company.id). */
+    syncCompanyId?: string;
+    mode?: "full" | "incremental";
+  },
+): Promise<{
+  sync: Awaited<ReturnType<typeof syncGoogleDriveForCompany>>;
+  snapshot: CompanyHealthSnapshot | null;
+  affected?: {
+    findingIds: string[];
+    riskIds: string[];
+    dimensionIds: string[];
+  };
+}> {
+  const companyId = input.syncCompanyId ?? input.company.id;
+  const sync = await syncGoogleDriveForCompany(companyId, input.client, {
+    mode: input.mode ?? "incremental",
+  });
+
+  if (sync.status !== "succeeded" || !shouldRescoreIncremental(sync.delta)) {
+    return { sync, snapshot: null };
+  }
+
+  const evidenceCatalog: EvidenceCatalog = {
+    totalDocuments: sync.documentsAnalyzed,
+    systemsConnected: 1,
+    lastFullScan: new Date().toISOString(),
+    connectors: [
+      {
+        id: "google-drive",
+        name: "Google Drive",
+        system: "Google Drive",
+        documentsAnalyzed: sync.documentsAnalyzed,
+        lastSynced: new Date().toISOString(),
+      },
+    ],
+  };
+
+  const snapshot = await analyzeAndPersistIncremental({
+    company: input.company,
+    changedEvidenceIds: sync.changedEvidenceIds,
+    dimensionProfiles: input.dimensionProfiles,
+    previousHealthScore: input.previousHealthScore,
+    dna: input.dna,
+    reports: input.reports,
+    timelineSeed: input.timelineSeed,
+    briefSeed: input.briefSeed,
+    asOf: input.asOf,
+    evidenceCatalog,
+    client: input.client,
+  });
+
+  return {
+    sync,
+    snapshot,
+    affected: snapshot.affected,
+  };
 }

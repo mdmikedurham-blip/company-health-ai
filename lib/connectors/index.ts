@@ -51,3 +51,19 @@ export type {
   ExtractedDocument,
   ExtractableMimeType,
 } from "./extraction";
+export {
+  extractEvidence,
+  extractEvidenceJson,
+  evidenceFromExtraction,
+  evidenceFromRawExtractionItem,
+  EVIDENCE_TYPES,
+} from "./evidence-extraction";
+export type {
+  EvidenceExtractionResult,
+  EvidenceExtractionType,
+  ExtractedAmount,
+  ExtractedDate,
+  ExtractedPerson,
+  RecommendedFinding,
+  SourceQuote,
+} from "./evidence-extraction";

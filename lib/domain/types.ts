@@ -43,6 +43,7 @@ export type {
 export {
   DIMENSION_IDS,
   DIMENSION_NAMES,
+  dimensionIdFromName,
   dimensionName,
   type KnownDimensionId,
 } from "./dimensions";

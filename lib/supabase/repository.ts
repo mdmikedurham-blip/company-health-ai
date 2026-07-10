@@ -101,6 +101,13 @@ export async function getCompany(
 
 // ─── Documents ───────────────────────────────────────────────────────────────
 
+export type StoredDocumentRow = {
+  id: string;
+  externalId: string;
+  contentHash: string | null;
+  modifiedAt: string | null;
+};
+
 export async function upsertDocuments(
   client: AppSupabaseClient,
   rows: TablesInsert<"documents">[],
@@ -111,6 +118,45 @@ export async function upsertDocuments(
       .from("documents")
       .upsert(rows, { onConflict: "company_id,connector_id,external_id" }),
     "upsertDocuments",
+  );
+}
+
+export async function listDocuments(
+  client: AppSupabaseClient,
+  companyId: string,
+  connectorId?: string,
+): Promise<StoredDocumentRow[]> {
+  let query = client
+    .from("documents")
+    .select("id, external_id, content_hash, modified_at")
+    .eq("company_id", companyId);
+  if (connectorId) {
+    query = query.eq("connector_id", connectorId);
+  }
+  const data = await assertOk(await query, "listDocuments");
+  return data.map((row) => ({
+    id: row.id,
+    externalId: row.external_id,
+    contentHash: row.content_hash,
+    modifiedAt: row.modified_at,
+  }));
+}
+
+export async function deleteDocumentsByExternalIds(
+  client: AppSupabaseClient,
+  companyId: string,
+  connectorId: string,
+  externalIds: string[],
+): Promise<void> {
+  if (externalIds.length === 0) return;
+  await assertNoError(
+    await client
+      .from("documents")
+      .delete()
+      .eq("company_id", companyId)
+      .eq("connector_id", connectorId)
+      .in("external_id", externalIds),
+    "deleteDocumentsByExternalIds",
   );
 }
 
@@ -131,6 +177,38 @@ export async function replaceCompanyEvidence(
       .from("evidence")
       .insert(evidence.map((e) => evidenceToInsert(companyId, e))),
     "replaceCompanyEvidence.insert",
+  );
+}
+
+/** Incremental Evidence Store write — upsert by stable evidence id. */
+export async function upsertCompanyEvidence(
+  client: AppSupabaseClient,
+  companyId: string,
+  evidence: Evidence[],
+): Promise<void> {
+  if (evidence.length === 0) return;
+  await assertNoError(
+    await client.from("evidence").upsert(
+      evidence.map((e) => evidenceToInsert(companyId, e)),
+      { onConflict: "id" },
+    ),
+    "upsertCompanyEvidence",
+  );
+}
+
+export async function deleteEvidenceByIds(
+  client: AppSupabaseClient,
+  companyId: string,
+  evidenceIds: string[],
+): Promise<void> {
+  if (evidenceIds.length === 0) return;
+  await assertNoError(
+    await client
+      .from("evidence")
+      .delete()
+      .eq("company_id", companyId)
+      .in("id", evidenceIds),
+    "deleteEvidenceByIds",
   );
 }
 
@@ -178,6 +256,37 @@ export async function listFindings(
   return data.map(findingFromRow);
 }
 
+export async function upsertCompanyFindings(
+  client: AppSupabaseClient,
+  companyId: string,
+  findings: Finding[],
+): Promise<void> {
+  if (findings.length === 0) return;
+  await assertNoError(
+    await client.from("findings").upsert(
+      findings.map((f) => findingToInsert(companyId, f)),
+      { onConflict: "id" },
+    ),
+    "upsertCompanyFindings",
+  );
+}
+
+export async function deleteFindingsByIds(
+  client: AppSupabaseClient,
+  companyId: string,
+  findingIds: string[],
+): Promise<void> {
+  if (findingIds.length === 0) return;
+  await assertNoError(
+    await client
+      .from("findings")
+      .delete()
+      .eq("company_id", companyId)
+      .in("id", findingIds),
+    "deleteFindingsByIds",
+  );
+}
+
 export async function replaceCompanyRisks(
   client: AppSupabaseClient,
   companyId: string,
@@ -205,6 +314,72 @@ export async function listRisks(
     "listRisks",
   );
   return data.map(riskFromRow);
+}
+
+export async function upsertCompanyRisks(
+  client: AppSupabaseClient,
+  companyId: string,
+  risks: Risk[],
+): Promise<void> {
+  if (risks.length === 0) return;
+  await assertNoError(
+    await client.from("risks").upsert(
+      risks.map((r) => riskToInsert(companyId, r)),
+      { onConflict: "id" },
+    ),
+    "upsertCompanyRisks",
+  );
+}
+
+export async function deleteRisksByIds(
+  client: AppSupabaseClient,
+  companyId: string,
+  riskIds: string[],
+): Promise<void> {
+  if (riskIds.length === 0) return;
+  await assertNoError(
+    await client
+      .from("risks")
+      .delete()
+      .eq("company_id", companyId)
+      .in("id", riskIds),
+    "deleteRisksByIds",
+  );
+}
+
+/**
+ * Persist only affected findings/risks and append a health score when dimensions changed.
+ * Never wipe-and-replace the entire company intelligence set.
+ */
+export async function persistIncrementalEngineResult(
+  client: AppSupabaseClient,
+  input: {
+    companyId: string;
+    findingsUpsert: Finding[];
+    findingsDelete: string[];
+    risksUpsert: Risk[];
+    risksDelete: string[];
+    evidence: Evidence[];
+    healthScore: HealthScore;
+    dimensions: HealthDimension[];
+    scoreChange?: ScoreChangeExplanation | null;
+    asOf?: string;
+  },
+): Promise<void> {
+  await deleteFindingsByIds(client, input.companyId, input.findingsDelete);
+  await upsertCompanyFindings(client, input.companyId, input.findingsUpsert);
+  await deleteRisksByIds(client, input.companyId, input.risksDelete);
+  await upsertCompanyRisks(client, input.companyId, input.risksUpsert);
+  // Refresh reverse links on evidence that was touched
+  await upsertCompanyEvidence(client, input.companyId, input.evidence);
+  await insertHealthScore(
+    client,
+    input.companyId,
+    input.healthScore,
+    input.dimensions,
+    input.scoreChange,
+    input.asOf,
+  );
 }
 
 export async function replaceCompanyRecommendations(

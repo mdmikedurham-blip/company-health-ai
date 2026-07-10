@@ -22,6 +22,42 @@ Connector adapters
 
 There is **exactly one ingestion path**. Every external system (Google Drive, HubSpot, Carta, Box, QuickBooks, Slack, BambooHR, Salesforce, Jira, …) implements the same `ConnectorAdapter` interface and outputs the same `Evidence` shape. No connector may bypass the engine or write scores/risks directly into the UI.
 
+### Evidence Store pipeline
+
+```
+ExtractedDocument
+       ↓  extractEvidence() → JSON
+EvidenceExtractionResult
+       ↓  evidenceFromExtraction()
+Evidence (domain)
+       ↓  upsertCompanyEvidence()  (incremental)
+Database (evidence table)
+       ↓  analyzeAndPersistIncremental()
+Insight Engine → affected findings / risks / dimensions only
+```
+
+### Incremental Sync (never rescore the entire company)
+
+```
+changed documents
+       ↓
+affected findings
+       ↓
+affected risks
+       ↓
+affected dimensions
+```
+
+- **Delta detect:** `diffDocuments` compares `content_hash` (fallback `modified_at`).
+- **Extract only** added/changed files; delete removed files + their evidence.
+- **Rescope:** `computeAffectedScope` maps changed evidence → findings → risks → dimensions.
+- **Partial persist:** `persistIncrementalEngineResult` upserts/prunes only those slices; overall health is **recomposed** from carried-forward + rescored dimensions.
+- **Orchestrator:** `syncStoreAndAnalyzeCompany` / cron use this path by default (`mode: "incremental"`).
+
+- **Sync store:** `syncGoogleDriveForCompany` upserts `documents`, normalizes extraction JSON into `Evidence`, and writes the `evidence` table.
+- **Analyze:** Cron then calls `analyzeAndPersistIncremental` when the delta is non-empty.
+- UI mock snapshots in `lib/data` are unchanged.
+
 ## Layering rules
 
 | Layer | Responsibility | May import |
@@ -239,6 +275,31 @@ interface ExtractedDocument {
 ```
 
 Format extractors live in `lib/connectors/extraction/`. Drive wiring: `download.ts` + `extract.ts` → `createGoogleDriveAdapter.sync()` attaches `extractedDocuments` and text previews on raw items.
+
+### Evidence Extraction (JSON only)
+
+`extractEvidence(extractedDocument)` returns:
+
+```ts
+{
+  evidenceType: string;
+  dimension: string;
+  confidence: number;
+  facts: string[];
+  dates: Array<{ raw: string; iso: string | null; context: string }>;
+  amounts: Array<{ raw: string; value: number | null; currency: string | null; context: string }>;
+  people: Array<{ name: string; role: string | null; context: string }>;
+  sourceQuotes: Array<{ text: string; sectionId: string | null; sectionTitle: string | null }>;
+  recommendedFinding: {
+    title: string;
+    description: string;
+    direction: "positive" | "negative" | "neutral";
+    materiality: number;
+  };
+}
+```
+
+Use `extractEvidenceJson()` when a JSON string is required. Implementation: `lib/connectors/evidence-extraction/` (deterministic rules; LLM-swappable later).
 
 Env: see `.env.example` (`GOOGLE_CLIENT_*`, `GOOGLE_OAUTH_REDIRECT_URI`, `TOKEN_ENCRYPTION_KEY`, `CRON_SECRET`, `DEFAULT_COMPANY_ID`). Apply migration `002_connector_credentials.sql`. The mock `googleDriveConnector` remains for the static Acme demo; production uses `createGoogleDriveAdapter` / `syncGoogleDriveForCompany`.
 
