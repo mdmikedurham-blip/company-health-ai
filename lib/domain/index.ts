@@ -39,6 +39,13 @@ export {
   COMPANY_LIFECYCLE_STAGES,
 } from "./company-classification";
 export type {
+  EvidenceCoverageReport,
+  EvidenceCoverageCategoryStatus,
+  EvidenceCoverageItemStatus,
+  EvidenceCoverageCategoryId,
+  EvidenceCoverageItemId,
+} from "./evidence-coverage";
+export type {
   CompanyDNA,
   BoardMember,
   ConnectedSystem,
