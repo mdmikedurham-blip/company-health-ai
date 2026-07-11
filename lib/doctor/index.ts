@@ -34,3 +34,5 @@ export {
   getDoctorSuggestedPrompts,
   setDefaultLLMProvider,
 } from "./doctor-service";
+export { getDoctorExplainPromptFallback } from "./prompts";
+export { loadTenantDoctorSnapshot } from "./load-tenant-snapshot";

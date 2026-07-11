@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 import { askDoctor } from "@/lib/doctor";
+import { loadTenantDoctorSnapshot } from "@/lib/doctor/load-tenant-snapshot";
 import {
   authErrorResponse,
   requirePrimaryCompany,
 } from "@/lib/auth/session";
-import { isSupabaseConfigured } from "@/lib/supabase/client";
+import { isDemoCompanyId } from "@/lib/dashboard/demo-mode";
+import {
+  createServiceClient,
+  isServiceRoleConfigured,
+  isSupabaseConfigured,
+} from "@/lib/supabase";
 
 /**
  * POST /api/doctor
@@ -40,20 +46,40 @@ export async function POST(request: Request) {
 
   try {
     let companyId: string | undefined;
+    let snapshot = undefined;
+
     if (isSupabaseConfigured()) {
       const session = await requirePrimaryCompany();
       companyId = session.companyId;
+
+      if (
+        companyId &&
+        !isDemoCompanyId(companyId) &&
+        isServiceRoleConfigured()
+      ) {
+        const client = createServiceClient();
+        snapshot = await loadTenantDoctorSnapshot({
+          client,
+          companyId,
+        });
+      }
     }
 
-    const result = await askDoctor({
-      question,
-      companyId,
-      explainRiskId:
-        typeof explainRiskId === "string" ? explainRiskId : undefined,
-    });
+    const result = await askDoctor(
+      {
+        question,
+        companyId,
+        explainRiskId:
+          typeof explainRiskId === "string" ? explainRiskId : undefined,
+      },
+      snapshot ? { snapshot } : undefined,
+    );
     return NextResponse.json(result);
   } catch (err) {
     const { message, status } = authErrorResponse(err);
+    if (status !== 401 && status !== 403) {
+      console.error("[api/doctor]", message);
+    }
     return NextResponse.json({ error: message }, { status });
   }
 }
