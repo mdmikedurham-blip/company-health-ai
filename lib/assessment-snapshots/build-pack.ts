@@ -25,6 +25,7 @@ import {
   CURRENT_ANALYSIS_VERSION,
   CURRENT_EXTRACTION_VERSION,
 } from "@/lib/uploads/versions";
+import { PLAYBOOK_ENGINE_VERSION } from "@/lib/domain/playbook";
 
 export const ASSESSMENT_SNAPSHOT_PACK_VERSION = "assessment-snapshot-pack-v1" as const;
 
@@ -32,6 +33,7 @@ export function buildAssessmentSnapshotPack(input: {
   snapshotId: string;
   companyId: string;
   assessmentGoal?: AssessmentGoalId | string | null;
+  playbookVersion?: string | null;
   companyStage?: CompanyLifecycleStage | string | null;
   createdAt?: string;
   generatedBy?: string;
@@ -65,6 +67,7 @@ export function buildAssessmentSnapshotPack(input: {
     snapshotId: input.snapshotId,
     companyId: input.companyId,
     assessmentGoal: input.assessmentGoal ?? null,
+    playbookVersion: input.playbookVersion ?? PLAYBOOK_ENGINE_VERSION,
     companyStage: input.companyStage ?? null,
     createdAt,
     analysisVersion: input.analysisVersion ?? CURRENT_ANALYSIS_VERSION,

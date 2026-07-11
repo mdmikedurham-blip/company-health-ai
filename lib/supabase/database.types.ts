@@ -544,6 +544,7 @@ export type Database = {
           confidence: number | null;
           coverage_ratio: number | null;
           overall_health_available: boolean;
+          playbook_version: string | null;
         };
         Insert: {
           id?: string;
@@ -569,6 +570,7 @@ export type Database = {
           confidence?: number | null;
           coverage_ratio?: number | null;
           overall_health_available?: boolean;
+          playbook_version?: string | null;
         };
         Update: {
           id?: string;
@@ -594,6 +596,7 @@ export type Database = {
           confidence?: number | null;
           coverage_ratio?: number | null;
           overall_health_available?: boolean;
+          playbook_version?: string | null;
         };
         Relationships: [
           {

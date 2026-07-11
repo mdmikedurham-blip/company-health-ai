@@ -45,6 +45,8 @@ export type AssessmentSnapshotPack = {
   snapshotId: string;
   companyId: CompanyId;
   assessmentGoal: AssessmentGoalId | string | null;
+  /** Phase 7 — frozen playbook engine version (playbook id mirrors assessmentGoal). */
+  playbookVersion: string | null;
   companyStage: CompanyLifecycleStage | string | null;
   createdAt: string;
   analysisVersion: string;

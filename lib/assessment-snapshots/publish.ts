@@ -44,6 +44,7 @@ export type PublishAssessmentSnapshotInput = {
   client: AppSupabaseClient;
   companyId: string;
   assessmentGoal?: AssessmentGoalId | string | null;
+  playbookVersion?: string | null;
   companyStage?: CompanyLifecycleStage | string | null;
   generatedBy?: string;
   analysisVersion?: string;
@@ -161,6 +162,7 @@ export async function publishAssessmentSnapshot(
     snapshotId,
     companyId,
     assessmentGoal: input.assessmentGoal,
+    playbookVersion: input.playbookVersion,
     companyStage: input.companyStage,
     createdAt,
     generatedBy: input.generatedBy,
@@ -216,6 +218,7 @@ export async function publishAssessmentSnapshot(
     coverage_ratio: pack.coverageRatio,
     overall_health_available: pack.overallHealthAvailable,
     parent_snapshot_id: previousSnapshotId,
+    playbook_version: pack.playbookVersion,
     payload: pack as unknown as import("@/lib/supabase").Json,
   };
 

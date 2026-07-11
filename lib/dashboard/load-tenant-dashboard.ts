@@ -18,6 +18,9 @@ import {
   buildAssessmentGoalDashboardContext,
   loadAssessmentGoalDashboardContext,
 } from "@/lib/assessment-goals";
+import { interpretWithPlaybook, prioritizeRecommendationsForPlaybook } from "@/lib/playbooks";
+import { listCompanyQuestionAnswers } from "@/lib/diligence";
+import { computeQuestionCoverage } from "@/lib/diligence/coverage";
 import type { AppSupabaseClient } from "@/lib/supabase/client";
 import {
   getLatestHealthScore,
@@ -237,6 +240,7 @@ export function emptyTenantDashboard(input: {
     }),
     assessmentGoal:
       input.assessmentGoal ?? defaultAssessmentGoalContext(input.companyId),
+    playbook: null,
     evidenceCoverage: null,
     healthScore,
     scoreChangeExplanation: emptyScoreChange(0),
@@ -310,7 +314,7 @@ export async function loadTenantDashboard(input: {
     });
   }
 
-  const [findings, risks, recommendations, timelineEvents, evidence, classification] =
+  const [findings, risks, recommendationsRaw, timelineEvents, evidence, classification, questionAnswers] =
     await Promise.all([
       listFindings(client, companyId),
       listRisks(client, companyId),
@@ -318,7 +322,46 @@ export async function loadTenantDashboard(input: {
       listTimelineEvents(client, companyId),
       createEvidenceRepository({ client }).listByCompany(companyId),
       getCompanyClassification(client, companyId).catch(() => null),
+      listCompanyQuestionAnswers({ client, companyId }).catch(() => []),
     ]);
+
+  const presentEvidenceTypes = [
+    ...new Set(
+      evidence.flatMap((e) => {
+        const types: string[] = [e.sourceType];
+        const metaType = e.metadata?.evidenceType;
+        if (typeof metaType === "string") types.push(metaType);
+        return types;
+      }),
+    ),
+  ];
+
+  const questionCoverage =
+    questionAnswers.length > 0
+      ? computeQuestionCoverage({
+          companyId,
+          answers: questionAnswers,
+          snapshotId: snapshotRow?.id ?? null,
+        })
+      : null;
+
+  const recommendations = prioritizeRecommendationsForPlaybook(
+    assessmentGoal.goal,
+    recommendationsRaw,
+  );
+
+  const playbook = interpretWithPlaybook({
+    companyId,
+    assessmentGoal: assessmentGoal.goal,
+    snapshotId: snapshotRow?.id ?? null,
+    companyStage: classification?.stage ?? null,
+    answers: questionAnswers,
+    recommendations,
+    risks,
+    healthScore: null,
+    coverage: questionCoverage,
+    presentEvidenceTypes,
+  });
 
   const evidenceCoverage = computeEvidenceCoverage({
     evidence,
@@ -529,6 +572,7 @@ export async function loadTenantDashboard(input: {
       scoreAvailable: healthScore.scoreAvailable,
     }),
     assessmentGoal,
+    playbook,
     evidenceCoverage,
     healthScore,
     scoreChangeExplanation,

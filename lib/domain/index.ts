@@ -97,6 +97,25 @@ export type {
   DocumentVersionStamp,
 } from "./assessment-snapshot";
 export type {
+  PlaybookId,
+  PlaybookMeta,
+  PlaybookQuestionPriority,
+  PlaybookEvidenceSpec,
+  PlaybookUploadPriority,
+  PlaybookExecutiveSummary,
+  PlaybookReadiness,
+  PlaybookMissingEvidenceItem,
+  PlaybookInterpretationContext,
+  PlaybookDashboardContext,
+  PlaybookReportSection,
+  PlaybookProvenance,
+} from "./playbook";
+export {
+  PLAYBOOK_IDS,
+  DEFAULT_PLAYBOOK,
+  PLAYBOOK_ENGINE_VERSION,
+} from "./playbook";
+export type {
   CompanyDNA,
   BoardMember,
   ConnectedSystem,
