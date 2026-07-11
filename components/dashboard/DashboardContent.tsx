@@ -11,21 +11,23 @@ import { HealthDimensionRow } from "@/components/HealthDimensionRow";
 import { HealthScoreCard } from "@/components/HealthScoreCard";
 import { MetricCard } from "@/components/MetricCard";
 import { RiskCard } from "@/components/RiskCard";
-import {
-  dashboardMetrics,
-  evidenceCatalog,
-  executiveBrief,
-  healthDimensions,
-  healthScore,
-  insights,
-  nextBestActions,
-  recommendations,
-  topRisks,
-  scoreChangeExplanation,
-} from "@/lib/data";
+import type { TenantDashboardView } from "@/lib/dashboard";
 
-export function DashboardContent() {
+export function DashboardContent({ view }: { view: TenantDashboardView }) {
   const router = useRouter();
+  const {
+    metrics: dashboardMetrics,
+    healthScore,
+    scoreChangeExplanation,
+    executiveBrief,
+    nextBestActions,
+    topRisks,
+    healthDimensions,
+    insights,
+    recommendations,
+    evidenceCatalog,
+    provenance,
+  } = view;
 
   return (
     <div className="space-y-5">
@@ -122,18 +124,24 @@ export function DashboardContent() {
             </Link>
           </div>
           <div className="grid gap-3">
-            {topRisks.map((risk, index) => (
-              <RiskCard
-                key={risk.id}
-                rank={index + 1}
-                title={risk.title}
-                level={risk.level}
-                dimension={risk.dimension}
-                summary={risk.summary}
-                source={risk.source}
-                riskId={risk.id}
-              />
-            ))}
+            {topRisks.length === 0 ? (
+              <p className="rounded-lg border border-[var(--border)] bg-white/[0.02] px-4 py-6 text-sm text-zinc-500">
+                No risks in the current assessment.
+              </p>
+            ) : (
+              topRisks.map((risk, index) => (
+                <RiskCard
+                  key={risk.id}
+                  rank={index + 1}
+                  title={risk.title}
+                  level={risk.level}
+                  dimension={risk.dimension}
+                  summary={risk.summary}
+                  source={risk.source}
+                  riskId={risk.id}
+                />
+              ))
+            )}
           </div>
         </div>
 
@@ -151,17 +159,21 @@ export function DashboardContent() {
               </Link>
             </div>
             <div className="divide-y divide-white/[0.04]">
-              {healthDimensions.map((dimension) => (
-                <HealthDimensionRow
-                  key={dimension.id ?? dimension.name}
-                  name={dimension.name}
-                  score={dimension.score}
-                  status={dimension.status}
-                  trend={dimension.trend}
-                  trendValue={dimension.trendValue}
-                  dimensionId={dimension.id}
-                />
-              ))}
+              {healthDimensions.length === 0 ? (
+                <p className="py-4 text-sm text-zinc-500">No dimension scores yet.</p>
+              ) : (
+                healthDimensions.map((dimension) => (
+                  <HealthDimensionRow
+                    key={dimension.id ?? dimension.name}
+                    name={dimension.name}
+                    score={dimension.score}
+                    status={dimension.status}
+                    trend={dimension.trend}
+                    trendValue={dimension.trendValue}
+                    dimensionId={dimension.id}
+                  />
+                ))
+              )}
             </div>
           </div>
           <AIInsightsPanel insights={insights} />
@@ -179,15 +191,21 @@ export function DashboardContent() {
             </span>
           </div>
           <div className="space-y-2">
-            {recommendations.map((action) => (
-              <ActionCard
-                key={action.id}
-                title={action.title}
-                priority={action.priority}
-                dimension={action.dimension}
-                description={action.description}
-              />
-            ))}
+            {recommendations.length === 0 ? (
+              <p className="rounded-lg border border-[var(--border)] bg-white/[0.02] px-4 py-6 text-sm text-zinc-500">
+                No open actions in the current assessment.
+              </p>
+            ) : (
+              recommendations.map((action) => (
+                <ActionCard
+                  key={action.id}
+                  title={action.title}
+                  priority={action.priority}
+                  dimension={action.dimension}
+                  description={action.description}
+                />
+              ))
+            )}
           </div>
         </div>
 
@@ -206,6 +224,19 @@ export function DashboardContent() {
           </Link>
         </div>
       </div>
+
+      <p
+        className="text-[10px] text-zinc-600"
+        data-dashboard-source={provenance.source}
+        data-company-id={provenance.company_id}
+        data-snapshot-id={provenance.snapshot_id ?? ""}
+        data-document-count={provenance.document_count}
+      >
+        Source: {provenance.source}
+        {provenance.snapshot_id ? ` · snapshot ${provenance.snapshot_id.slice(0, 8)}` : ""}
+        {" · "}
+        {provenance.document_count} processed docs
+      </p>
     </div>
   );
 }
