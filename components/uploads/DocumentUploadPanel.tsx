@@ -155,7 +155,15 @@ export function DocumentUploadPanel({
     useState<UploadedDocumentRecord[]>(initialDocuments);
   const [listError, setListError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
-  const [actionPendingId, setActionPendingId] = useState<string | null>(null);
+  const [reprocessingDocumentId, setReprocessingDocumentId] = useState<
+    string | null
+  >(null);
+  const [removingDocumentId, setRemovingDocumentId] = useState<string | null>(
+    null,
+  );
+  const [cancellingDocumentId, setCancellingDocumentId] = useState<
+    string | null
+  >(null);
   const [retryPending, setRetryPending] = useState(false);
   const [, startTransition] = useTransition();
   const busy = items.some(
@@ -193,8 +201,9 @@ export function DocumentUploadPanel({
 
   const retryProcessing = useCallback(
     async (documentIds?: string[]) => {
-      if (documentIds?.length) {
-        setActionPendingId(documentIds[0] ?? null);
+      const singleId = documentIds?.length === 1 ? documentIds[0]! : null;
+      if (singleId) {
+        setReprocessingDocumentId(singleId);
       } else {
         setRetryPending(true);
       }
@@ -215,7 +224,7 @@ export function DocumentUploadPanel({
         setListError("Retry failed.");
       } finally {
         setRetryPending(false);
-        setActionPendingId(null);
+        setReprocessingDocumentId(null);
       }
     },
     [refreshList],
@@ -224,7 +233,7 @@ export function DocumentUploadPanel({
   const removeDocument = useCallback(
     async (doc: UploadedDocumentRecord) => {
       if (!window.confirm(removeConfirmMessage(doc.status))) return;
-      setActionPendingId(doc.id);
+      setRemovingDocumentId(doc.id);
       setListError(null);
       // Optimistic remove — row disappears without waiting for a full list refresh.
       setRecent((prev) => prev.filter((row) => row.id !== doc.id));
@@ -298,7 +307,7 @@ export function DocumentUploadPanel({
         setToast({ tone: "error", message: "Remove failed." });
         setListError("Remove failed.");
       } finally {
-        setActionPendingId(null);
+        setRemovingDocumentId(null);
       }
     },
     [],
@@ -306,7 +315,7 @@ export function DocumentUploadPanel({
 
   const cancelProcessing = useCallback(
     async (documentId: string) => {
-      setActionPendingId(documentId);
+      setCancellingDocumentId(documentId);
       setListError(null);
       try {
         const res = await fetch(`/api/documents/${documentId}/cancel`, {
@@ -321,7 +330,7 @@ export function DocumentUploadPanel({
       } catch {
         setListError("Cancel failed.");
       } finally {
-        setActionPendingId(null);
+        setCancellingDocumentId(null);
       }
     },
     [refreshList],
@@ -597,8 +606,13 @@ export function DocumentUploadPanel({
           <ul className="divide-y divide-[var(--border)] rounded-xl border border-[var(--border)]">
             {recent.map((doc) => {
               const actions = actionsForDocument(doc);
-              const pending = actionPendingId === doc.id;
+              const reprocessing = reprocessingDocumentId === doc.id;
+              const removing = removingDocumentId === doc.id;
+              const cancelling = cancellingDocumentId === doc.id;
               const blocked = isDocRemovalBlocked(doc);
+              // Safety: while one destructive/mutating action runs on this row,
+              // disable the sibling control without changing its label/style.
+              const rowBusy = reprocessing || removing || cancelling;
               return (
                 <li
                   key={doc.id}
@@ -621,31 +635,41 @@ export function DocumentUploadPanel({
                     {actions.includes("retry") ? (
                       <button
                         type="button"
-                        disabled={pending}
+                        disabled={reprocessing || removing || cancelling}
                         onClick={() => void retryProcessing([doc.id])}
-                        className="text-xs font-medium text-amber-300 transition hover:text-amber-200 disabled:opacity-60"
+                        className={`text-xs font-medium text-amber-300 transition hover:text-amber-200 disabled:cursor-not-allowed ${
+                          reprocessing ? "opacity-60" : "disabled:opacity-100"
+                        }`}
                       >
-                        {doc.status === "PROCESSED" ? "Reprocess" : "Retry"}
+                        {reprocessing
+                          ? "Reprocessing…"
+                          : doc.status === "PROCESSED"
+                            ? "Reprocess"
+                            : "Retry"}
                       </button>
                     ) : null}
                     {actions.includes("cancel") ? (
                       <button
                         type="button"
-                        disabled={pending}
+                        disabled={rowBusy}
                         onClick={() => void cancelProcessing(doc.id)}
-                        className="text-xs font-medium text-amber-300 transition hover:text-amber-200 disabled:opacity-60"
+                        className={`text-xs font-medium text-amber-300 transition hover:text-amber-200 disabled:cursor-not-allowed ${
+                          cancelling ? "opacity-60" : "disabled:opacity-100"
+                        }`}
                       >
-                        Cancel
+                        {cancelling ? "Cancelling…" : "Cancel"}
                       </button>
                     ) : null}
                     {actions.includes("remove") ? (
                       <button
                         type="button"
-                        disabled={pending}
+                        disabled={removing || reprocessing || cancelling}
                         onClick={() => void removeDocument(doc)}
-                        className="text-xs font-medium text-red-300 transition hover:text-red-200 disabled:opacity-60"
+                        className={`text-xs font-medium text-red-300 transition hover:text-red-200 disabled:cursor-not-allowed ${
+                          removing ? "opacity-60" : "disabled:opacity-100"
+                        }`}
                       >
-                        {pending ? "Deleting…" : "Remove"}
+                        {removing ? "Deleting…" : "Remove"}
                       </button>
                     ) : blocked ? (
                       <span

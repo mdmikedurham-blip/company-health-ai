@@ -147,6 +147,7 @@ export function deriveFindings(insights: Insight[], evidence: Evidence[]): Findi
     "low-attrition",
     "key-person",
     "financial-metrics",
+    "governance-metrics",
   ];
   for (const ruleId of remaining) {
     const group = byRule.get(ruleId);

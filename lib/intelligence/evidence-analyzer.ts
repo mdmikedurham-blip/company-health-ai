@@ -328,6 +328,54 @@ export function analyzeEvidence(evidence: Evidence[]): Insight[] {
         }),
       );
     }
+
+    // Structured board-minutes / consent facts → Governance finding.
+    // Requires enough typed governance facts; document presence alone is not enough.
+    const governanceSignals = [
+      asBoolean(facts.boardApprovalsDocumented) === true,
+      asBoolean(facts.directorElectionsDocumented) === true,
+      asBoolean(facts.financingApprovalsDocumented) === true,
+      asBoolean(facts.optionGrantsApproved) === true,
+      asBoolean(facts.corporateActionsDocumented) === true,
+      asBoolean(facts.writtenConsentDocumented) === true,
+      asBoolean(facts.governanceCadenceDocumented) === true,
+      typeof facts.boardMeetingDate === "string" &&
+        facts.boardMeetingDate.trim().length > 0,
+      asStringArray(facts.approvedItems).length > 0,
+      asNumber(facts.optionGrantsMissingBoardApproval) !== null,
+      asBoolean(facts.materialActionsMissingBoardApproval) !== null,
+    ].filter(Boolean);
+    if (governanceSignals.length >= 2) {
+      const parts: string[] = [];
+      if (asBoolean(facts.boardApprovalsDocumented)) parts.push("board approvals");
+      if (asBoolean(facts.directorElectionsDocumented)) {
+        parts.push("director elections");
+      }
+      if (asBoolean(facts.financingApprovalsDocumented)) {
+        parts.push("financing approvals");
+      }
+      if (asBoolean(facts.optionGrantsApproved)) parts.push("option grants");
+      if (asBoolean(facts.corporateActionsDocumented)) {
+        parts.push("corporate actions");
+      }
+      if (asBoolean(facts.writtenConsentDocumented)) parts.push("written consent");
+      if (asBoolean(facts.governanceCadenceDocumented)) parts.push("meeting cadence");
+      if (typeof facts.boardMeetingDate === "string") {
+        parts.push(`meeting ${facts.boardMeetingDate}`);
+      }
+      insights.push(
+        makeInsight({
+          id: `insight-governance-metrics-${item.id}`,
+          statement: `Governance actions extracted from board documents (${parts.join(", ") || "structured facts"}).`,
+          dimensionId: "dim-governance",
+          evidenceIds: ids,
+          confidence: conf,
+          generatedAt: now,
+          type: "neutral",
+          ruleId: "governance-metrics",
+        }),
+      );
+    }
   }
 
   return insights;

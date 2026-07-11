@@ -12,12 +12,15 @@ import type {
   ScoreImpactExplanation,
 } from "@/lib/domain";
 import { DIMENSION_NAMES } from "@/lib/domain/dimensions";
+import { looksLikeBinaryOrPdfJunk } from "@/lib/connectors/extraction/text-quality";
 import type {
   ProvenanceBundle,
   ProvenanceGraphEdge,
   ProvenanceGraphNode,
   ProvenanceRecord,
 } from "./types";
+
+export { looksLikeBinaryOrPdfJunk };
 
 const META_FACT_KEYS = new Set([
   "extractionFacts",
@@ -33,6 +36,10 @@ const META_FACT_KEYS = new Set([
   "financialFactsComplete",
   "missingFinancialFields",
   "financialExtractionSource",
+  "governanceFactKeys",
+  "governanceFactCount",
+  "governanceFactsComplete",
+  "governanceExtractionSource",
 ]);
 
 function isMetaKey(key: string): boolean {
@@ -44,20 +51,6 @@ function isMetaKey(key: string): boolean {
     key.endsWith("Currency") ||
     key.endsWith("SourceLabel")
   );
-}
-
-export function looksLikeBinaryOrPdfJunk(text: string): boolean {
-  if (!text) return false;
-  const sample = text.slice(0, 4000);
-  if (/%PDF-|endobj|startxref|\/Type\s*\/|stream\s*$/m.test(sample)) return true;
-  if (/[\x00-\x08\x0E-\x1F]/.test(sample)) return true;
-  // High ratio of non-printable / high-bit noise
-  let weird = 0;
-  for (let i = 0; i < Math.min(sample.length, 800); i++) {
-    const c = sample.charCodeAt(i);
-    if (c < 9 || (c > 13 && c < 32) || c === 127) weird++;
-  }
-  return weird / Math.min(sample.length, 800) > 0.08;
 }
 
 function normalizeDocType(evidence: Evidence): string {

@@ -432,7 +432,16 @@ async function extractAndPersistEvidence(input: {
       status: "EXTRACTED",
       lastStage: "extracted",
       patch: {
-        raw_summary: extracted.text.slice(0, 4000),
+        raw_summary: (() => {
+          const slice = extracted.text.slice(0, 4000);
+          if (
+            /%PDF-|endobj|\b\d+\s+\d+\s+obj\b/.test(slice) ||
+            /[\x00-\x08\x0E-\x1F]/.test(slice)
+          ) {
+            return "PDF text extraction suppressed object-stream / binary content.";
+          }
+          return slice;
+        })(),
         lease_expires_at: null,
         locked_at: null,
       },

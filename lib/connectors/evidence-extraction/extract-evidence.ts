@@ -1,5 +1,6 @@
 import { DIMENSION_NAMES, type KnownDimensionId } from "@/lib/domain";
 import type { ExtractedDocument } from "../extraction";
+import { looksLikeBinaryOrPdfJunk } from "../extraction/text-quality";
 import type {
   EvidenceExtractionResult,
   EvidenceExtractionType,
@@ -384,7 +385,7 @@ export function extractEvidence(doc: ExtractedDocument): EvidenceExtractionResul
   const people = extractPeople(text);
   const sourceQuotes = extractQuotes(doc);
   const facts = buildFacts(doc, dates, amounts, people);
-  const confidence = computeConfidence({
+  let confidence = computeConfidence({
     textLength: text.length,
     dates: dates.length,
     amounts: amounts.length,
@@ -392,6 +393,13 @@ export function extractEvidence(doc: ExtractedDocument): EvidenceExtractionResul
     quotes: sourceQuotes.length,
     classified: evidenceType !== "general",
   });
+
+  // Never assign high confidence to PDF object-stream / binary junk.
+  if (looksLikeBinaryOrPdfJunk(text) || doc.metadata.extractionQuality === "failed") {
+    confidence = Math.min(confidence, 20);
+  } else if (doc.metadata.extractionQuality === "low") {
+    confidence = Math.min(confidence, 35);
+  }
 
   return {
     evidenceType,
