@@ -107,6 +107,8 @@ export type {
   PlaybookMissingEvidenceItem,
   PlaybookInterpretationContext,
   PlaybookDashboardContext,
+  PlaybookReportSection,
+  PlaybookProvenance,
 } from "./playbook";
 export {
   PLAYBOOK_IDS,

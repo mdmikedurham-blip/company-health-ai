@@ -12,9 +12,11 @@ export {
 export { ensurePlaybookProvidersRegistered } from "./register";
 export {
   buildPlaybookInterpretationContext,
+  interpretSnapshotWithPlaybook,
   interpretWithPlaybook,
   prioritizeRecommendationsForPlaybook,
   resolvePlaybookId,
 } from "./interpret";
 export { definePlaybook } from "./base";
 export type { PlaybookDefinition } from "./base";
+

@@ -4,11 +4,17 @@ import {
   requirePrimaryCompany,
 } from "@/lib/auth/session";
 import { getCompanyAssessmentGoal } from "@/lib/assessment-goals";
+import { getCurrentAssessmentSnapshot } from "@/lib/assessment-snapshots";
 import {
   computeQuestionCoverage,
   listCompanyQuestionAnswers,
 } from "@/lib/diligence";
-import { interpretWithPlaybook, listPlaybookMetas } from "@/lib/playbooks";
+import {
+  interpretSnapshotWithPlaybook,
+  interpretWithPlaybook,
+  listPlaybookMetas,
+} from "@/lib/playbooks";
+import { getCompanyClassification } from "@/lib/classification/persist";
 import {
   createServiceClient,
   isServiceRoleConfigured,
@@ -25,8 +31,10 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/company/playbook
- * Returns playbook interpretation for the company's current assessment goal.
- * Evidence is unchanged — only priorities, readiness, and summaries differ.
+ *
+ * Returns current playbook interpretation for the company's assessment goal.
+ * Prefers a single Assessment Snapshot pack — never mixes snapshot objects.
+ * Changing the goal recomputes priorities/readiness only (no re-extraction).
  */
 export async function GET() {
   try {
@@ -42,22 +50,14 @@ export async function GET() {
     const goalRow = await getCompanyAssessmentGoal({ client, companyId });
     const playbookId = goalRow?.goal ?? "run-the-company";
 
-    const [answers, recommendations, risks, latest, evidence] =
-      await Promise.all([
-        listCompanyQuestionAnswers({ client, companyId }).catch(() => []),
-        listRecommendations(client, companyId),
-        listRisks(client, companyId),
-        getLatestHealthScore(client, companyId),
-        createEvidenceRepository({ client }).listByCompany(companyId),
-      ]);
+    const current = await getCurrentAssessmentSnapshot({
+      client,
+      companyId,
+    }).catch(() => null);
 
-    const coverage =
-      answers.length > 0
-        ? computeQuestionCoverage({
-            companyId,
-            answers,
-          })
-        : null;
+    const evidence = await createEvidenceRepository({ client })
+      .listByCompany(companyId)
+      .catch(() => []);
 
     const presentEvidenceTypes = [
       ...new Set(
@@ -70,9 +70,53 @@ export async function GET() {
       ),
     ];
 
+    // Prefer immutable snapshot pack (single source of truth).
+    if (current?.pack) {
+      const playbook = interpretSnapshotWithPlaybook({
+        companyId,
+        pack: current.pack,
+        assessmentGoal: playbookId,
+        presentEvidenceTypes,
+      });
+
+      return NextResponse.json({
+        playbook,
+        availablePlaybooks: listPlaybookMetas(),
+        readiness: playbook.readiness,
+        criticalBlockers: playbook.criticalBlockers,
+        uploadPriorities: playbook.uploadPriorities,
+        prioritizedQuestions: playbook.prioritizedQuestionIds,
+        prioritizedRecommendations: playbook.prioritizedRecommendationIds,
+        reportSections: playbook.reportSections,
+        provenance: playbook.provenance,
+      });
+    }
+
+    // No published pack yet — interpret live projection scoped to this company only.
+    // Still no demo/mock fallback.
+    const [answers, recommendations, risks, latest, classification] =
+      await Promise.all([
+        listCompanyQuestionAnswers({ client, companyId }).catch(() => []),
+        listRecommendations(client, companyId),
+        listRisks(client, companyId),
+        getLatestHealthScore(client, companyId),
+        getCompanyClassification(client, companyId).catch(() => null),
+      ]);
+
+    const coverage =
+      answers.length > 0
+        ? computeQuestionCoverage({
+            companyId,
+            answers,
+            snapshotId: current?.snapshotId ?? null,
+          })
+        : null;
+
     const playbook = interpretWithPlaybook({
       companyId,
       assessmentGoal: playbookId,
+      snapshotId: current?.snapshotId ?? null,
+      companyStage: classification?.stage ?? null,
       answers,
       recommendations,
       risks,
@@ -84,6 +128,13 @@ export async function GET() {
     return NextResponse.json({
       playbook,
       availablePlaybooks: listPlaybookMetas(),
+      readiness: playbook.readiness,
+      criticalBlockers: playbook.criticalBlockers,
+      uploadPriorities: playbook.uploadPriorities,
+      prioritizedQuestions: playbook.prioritizedQuestionIds,
+      prioritizedRecommendations: playbook.prioritizedRecommendationIds,
+      reportSections: playbook.reportSections,
+      provenance: playbook.provenance,
     });
   } catch (err) {
     const mapped = authErrorResponse(err);

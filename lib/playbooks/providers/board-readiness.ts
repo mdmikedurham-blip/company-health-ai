@@ -1,22 +1,38 @@
+import { COMPANY_LIFECYCLE_STAGES } from "@/lib/domain/company-classification";
 import { definePlaybook } from "../base";
 
 export const boardReadinessPlaybook = definePlaybook({
   id: "board-readiness",
-  label: "Board Readiness",
+  name: "Board Readiness",
   objective:
-    "Focus on governance cadence, approvals, board-pack completeness, and decision hygiene.",
+    "Focus on board cadence, minutes, approvals, financial reporting, and management accountability.",
   successCriteria: [
     "Board meeting cadence is evidenced",
-    "Material approvals are documented",
-    "Cap table and equity actions are current",
-    "Board pack inputs are complete enough to decide",
+    "Material approvals and written consents are documented",
+    "Financial reporting pack is board-ready",
+    "Unresolved risks and decisions are visible",
   ],
   focusAreas: [
-    "Governance cadence",
-    "Approvals",
-    "Board pack",
-    "Cap table",
-    "Decision evidence",
+    "Board cadence",
+    "Minutes",
+    "Written consents",
+    "Approval history",
+    "Financial reporting",
+    "Strategic decisions",
+    "Unresolved risks",
+    "Management accountability",
+  ],
+  applicableLifecycleStages: [
+    "Early Revenue",
+    "Product-Market Fit",
+    "Growth",
+    "Scale",
+    "Exit Ready",
+  ],
+  minCoveragePercent: 25,
+  executiveSummaryGuidance: [
+    "Board operating system first: cadence, minutes, consents, approvals.",
+    "Surface unresolved risks and decisions lacking evidence.",
   ],
   dimensionPriorities: [
     { dimensionId: "dim-governance", weight: 1, rationale: "Board operating system." },
@@ -31,7 +47,7 @@ export const boardReadinessPlaybook = definePlaybook({
     { questionId: "q-gov-equity-issuances", weight: 1.3, rationale: "Equity actions." },
     { questionId: "q-ops-kpi-monitoring", weight: 1.2, rationale: "Board KPIs." },
     { questionId: "q-fin-fund-operations", weight: 1.15, rationale: "Cash for board." },
-    { questionId: "q-people-org-clarity", weight: 1.1, rationale: "Leadership clarity." },
+    { questionId: "q-people-org-clarity", weight: 1.1, rationale: "Accountability." },
   ],
   requiredEvidence: [
     {
@@ -39,6 +55,7 @@ export const boardReadinessPlaybook = definePlaybook({
       label: "Board minutes / packs",
       why: "Cadence and approvals evidence.",
       level: "required",
+      category: "governance",
     },
   ],
   recommendedEvidence: [
@@ -47,12 +64,14 @@ export const boardReadinessPlaybook = definePlaybook({
       label: "Cap table",
       why: "Equity clarity for the board.",
       level: "recommended",
+      category: "governance",
     },
     {
       evidenceType: "financial_statements",
       label: "Board financials",
       why: "Numbers for decisions.",
       level: "recommended",
+      category: "financial",
     },
   ],
   reportSections: [
@@ -60,7 +79,7 @@ export const boardReadinessPlaybook = definePlaybook({
     "Cadence & approvals",
     "Cap table & equity",
     "Board pack gaps",
-    "Decisions lacking evidence",
+    "Unresolved risks",
     "Next uploads",
   ],
   recommendationOrdering: [
@@ -78,34 +97,54 @@ export const boardReadinessPlaybook = definePlaybook({
     {
       id: "upload-board-minutes",
       label: "Board minutes",
-      why: "Prove cadence and approvals.",
+      evidenceCategory: "governance",
+      why: "Prove cadence, minutes, and approvals.",
       level: "required",
+      priority: 100,
       evidenceTypes: ["board_minutes"],
+      questionsItCouldAnswer: ["q-gov-cadence", "q-gov-board-approvals"],
+      expectedCoverageImpact: 0.15,
+      applicableStages: [
+        "Early Revenue",
+        "Product-Market Fit",
+        "Growth",
+        "Scale",
+        "Exit Ready",
+      ],
     },
     {
       id: "upload-board-pack",
       label: "Latest board pack",
+      evidenceCategory: "governance",
       why: "Completeness for the next meeting.",
       level: "required",
+      priority: 95,
       evidenceTypes: ["board_minutes", "financial_statements"],
+      questionsItCouldAnswer: [
+        "q-gov-cadence",
+        "q-fin-fund-operations",
+        "q-ops-kpi-monitoring",
+      ],
+      expectedCoverageImpact: 0.12,
+      applicableStages: [
+        "Early Revenue",
+        "Product-Market Fit",
+        "Growth",
+        "Scale",
+        "Exit Ready",
+      ],
     },
     {
       id: "upload-cap-table-board",
       label: "Cap table",
+      evidenceCategory: "governance",
       why: "Equity clarity for directors.",
       level: "recommended",
+      priority: 80,
       evidenceTypes: ["cap_table"],
+      questionsItCouldAnswer: ["q-gov-cap-table", "q-gov-equity-issuances"],
+      expectedCoverageImpact: 0.1,
+      applicableStages: [...COMPANY_LIFECYCLE_STAGES],
     },
   ],
-  reportingTemplate: {
-    id: "board-readiness",
-    title: "Board readiness brief",
-    sections: [
-      "Board readiness",
-      "Cadence & approvals",
-      "Cap table & equity",
-      "Board pack gaps",
-      "Decisions lacking evidence",
-    ],
-  },
 });

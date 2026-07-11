@@ -2,9 +2,9 @@ import { definePlaybook } from "../base";
 
 export const ipoReadinessPlaybook = definePlaybook({
   id: "ipo-readiness",
-  label: "IPO Readiness",
+  name: "IPO Readiness",
   objective:
-    "Track public-company readiness: controls, governance, audit, compliance, and financial reporting.",
+    "Track public-company readiness: controls, governance, audit, compliance, and disclosure.",
   successCriteria: [
     "Financial reporting and controls are IPO-grade",
     "Governance cadence and board practices are mature",
@@ -14,9 +14,21 @@ export const ipoReadinessPlaybook = definePlaybook({
   focusAreas: [
     "Controls",
     "Governance",
-    "Audit",
+    "Audit quality",
     "Compliance",
     "Financial reporting",
+    "Disclosure readiness",
+    "Security",
+    "Board independence",
+    "Operating maturity",
+  ],
+  // Idea-stage companies should not be failed against IPO bars under other playbooks;
+  // this playbook itself only fully applies from Growth onward.
+  applicableLifecycleStages: ["Growth", "Scale", "Exit Ready"],
+  minCoveragePercent: 35,
+  executiveSummaryGuidance: [
+    "IPO readiness requires sustained controls, governance, and disclosure maturity.",
+    "Do not treat early-stage gaps as IPO failures when the company is not in scope.",
   ],
   dimensionPriorities: [
     { dimensionId: "dim-governance", weight: 1, rationale: "Public-company board practices." },
@@ -41,12 +53,14 @@ export const ipoReadinessPlaybook = definePlaybook({
       label: "Financial controls",
       why: "Public-company control baseline.",
       level: "required",
+      category: "operations",
     },
     {
       evidenceType: "board_minutes",
       label: "Board governance pack",
       why: "Governance maturity evidence.",
       level: "required",
+      category: "governance",
     },
   ],
   recommendedEvidence: [
@@ -55,18 +69,21 @@ export const ipoReadinessPlaybook = definePlaybook({
       label: "Financial reporting package",
       why: "IPO financial narrative.",
       level: "recommended",
+      category: "financial",
     },
     {
       evidenceType: "security_policies",
       label: "Compliance / security policies",
       why: "Sustained compliance posture.",
       level: "recommended",
+      category: "security",
     },
     {
       evidenceType: "soc2",
       label: "SOC 2 / assurance reports",
       why: "External control assurance.",
       level: "recommended",
+      category: "security",
     },
   ],
   reportSections: [
@@ -75,8 +92,8 @@ export const ipoReadinessPlaybook = definePlaybook({
     "Governance",
     "Audit & compliance",
     "Financial reporting",
+    "Disclosure readiness",
     "Open gaps",
-    "Next uploads",
   ],
   recommendationOrdering: [
     { theme: "control", weight: 1.4, rationale: "IPO controls." },
@@ -95,35 +112,38 @@ export const ipoReadinessPlaybook = definePlaybook({
     {
       id: "upload-ipo-controls",
       label: "Financial controls documentation",
+      evidenceCategory: "operations",
       why: "Core IPO control readiness.",
       level: "required",
+      priority: 100,
       evidenceTypes: ["financial_controls"],
+      questionsItCouldAnswer: ["q-ops-financial-controls"],
+      expectedCoverageImpact: 0.15,
+      applicableStages: ["Growth", "Scale", "Exit Ready"],
     },
     {
       id: "upload-ipo-governance",
       label: "Board governance pack",
+      evidenceCategory: "governance",
       why: "Public-company board practices.",
       level: "required",
+      priority: 98,
       evidenceTypes: ["board_minutes"],
+      questionsItCouldAnswer: ["q-gov-cadence", "q-gov-board-approvals"],
+      expectedCoverageImpact: 0.12,
+      applicableStages: ["Growth", "Scale", "Exit Ready"],
     },
     {
       id: "upload-ipo-assurance",
       label: "SOC 2 / assurance reports",
+      evidenceCategory: "security",
       why: "External compliance evidence.",
       level: "recommended",
+      priority: 80,
       evidenceTypes: ["soc2"],
+      questionsItCouldAnswer: ["q-sec-policies", "q-sec-critical-controls"],
+      expectedCoverageImpact: 0.1,
+      applicableStages: ["Growth", "Scale", "Exit Ready"],
     },
   ],
-  reportingTemplate: {
-    id: "ipo-readiness",
-    title: "IPO readiness brief",
-    sections: [
-      "IPO readiness",
-      "Controls",
-      "Governance",
-      "Audit & compliance",
-      "Financial reporting",
-      "Open gaps",
-    ],
-  },
 });

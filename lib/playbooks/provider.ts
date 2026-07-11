@@ -6,8 +6,8 @@
 import type {
   DimensionPriority,
   RecommendationPriority,
-  ReportingTemplateSpec,
 } from "@/lib/domain/assessment-goal";
+import type { CompanyLifecycleStage } from "@/lib/domain/company-classification";
 import type {
   PlaybookEvidenceSpec,
   PlaybookExecutiveSummary,
@@ -17,6 +17,7 @@ import type {
   PlaybookMissingEvidenceItem,
   PlaybookQuestionPriority,
   PlaybookReadiness,
+  PlaybookReportSection,
   PlaybookUploadPriority,
 } from "@/lib/domain/playbook";
 import type { DiligenceQuestionAnswer } from "@/lib/domain/diligence-question";
@@ -27,18 +28,25 @@ export type PlaybookProvider = PlaybookMeta & {
   playbookVersion: string;
   successCriteria: string[];
   focusAreas: string[];
+  applicableLifecycleStages: CompanyLifecycleStage[];
+  /** Minimum evidenceCoveragePercent before readinessAvailable is true. */
+  minCoveragePercent: number;
+  executiveSummaryGuidance: string[];
 
   getDimensionPriorities(): DimensionPriority[];
   getQuestionPriorities(): PlaybookQuestionPriority[];
   getRequiredEvidence(): PlaybookEvidenceSpec[];
   getRecommendedEvidence(): PlaybookEvidenceSpec[];
-  getReportSections(): string[];
   getRecommendationOrdering(): RecommendationPriority[];
   getUploadCatalog(): PlaybookUploadPriority[];
-  getReportingTemplate(): ReportingTemplateSpec;
+  getReadinessRules(): {
+    minCoveragePercent: number;
+    blockerWeightThreshold: number;
+  };
 
   prioritizeQuestions(
     answers: DiligenceQuestionAnswer[],
+    stage?: CompanyLifecycleStage | null,
   ): string[];
   prioritizeRecommendations(
     recommendations: Recommendation[],
@@ -46,20 +54,36 @@ export type PlaybookProvider = PlaybookMeta & {
   prioritizeUploads(
     context: PlaybookInterpretationContext,
   ): PlaybookUploadPriority[];
-  generateExecutiveSummary(
-    context: PlaybookInterpretationContext,
-  ): PlaybookExecutiveSummary;
-  generateReadiness(
+  calculateReadiness(
     context: PlaybookInterpretationContext,
   ): PlaybookReadiness;
+  identifyCriticalBlockers(
+    context: PlaybookInterpretationContext,
+  ): string[];
   generateMissingEvidence(
     context: PlaybookInterpretationContext,
   ): PlaybookMissingEvidenceItem[];
+  buildExecutiveSummaryContext(
+    context: PlaybookInterpretationContext,
+  ): PlaybookExecutiveSummary;
+  buildReportSections(
+    context?: PlaybookInterpretationContext,
+  ): PlaybookReportSection[];
+
+  /** Aliases kept for earlier Phase 7 callers. */
+  generateReadiness(
+    context: PlaybookInterpretationContext,
+  ): PlaybookReadiness;
+  generateExecutiveSummary(
+    context: PlaybookInterpretationContext,
+  ): PlaybookExecutiveSummary;
+  getReportSections(): string[];
 };
 
 export function toPlaybookMeta(provider: PlaybookProvider): PlaybookMeta {
   return {
     id: provider.id,
+    name: provider.name,
     label: provider.label,
     objective: provider.objective,
   };

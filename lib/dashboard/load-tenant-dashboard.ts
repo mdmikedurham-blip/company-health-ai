@@ -353,6 +353,8 @@ export async function loadTenantDashboard(input: {
   const playbook = interpretWithPlaybook({
     companyId,
     assessmentGoal: assessmentGoal.goal,
+    snapshotId: snapshotRow?.id ?? null,
+    companyStage: classification?.stage ?? null,
     answers: questionAnswers,
     recommendations,
     risks,

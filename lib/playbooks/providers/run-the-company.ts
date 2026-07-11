@@ -1,9 +1,10 @@
+import { COMPANY_LIFECYCLE_STAGES } from "@/lib/domain/company-classification";
 import { definePlaybook } from "../base";
 
 /** Run the Company — Protect / Grow / Operate / Prepare / Decide. */
 export const runTheCompanyPlaybook = definePlaybook({
   id: "run-the-company",
-  label: "Run the Company",
+  name: "Run the Company",
   objective:
     "Protect continuity, remove growth constraints, and prioritize highest operational impact.",
   successCriteria: [
@@ -13,6 +14,12 @@ export const runTheCompanyPlaybook = definePlaybook({
     "Material decisions have an evidence trail",
   ],
   focusAreas: ["Protect", "Grow", "Operate", "Prepare", "Decide"],
+  applicableLifecycleStages: [...COMPANY_LIFECYCLE_STAGES],
+  minCoveragePercent: 20,
+  executiveSummaryGuidance: [
+    "Lead with material downside (Protect), then growth constraints.",
+    "Prefer highest expected operating impact over transaction readiness.",
+  ],
   dimensionPriorities: [
     { dimensionId: "dim-financial", weight: 1, rationale: "Cash protects continuity." },
     { dimensionId: "dim-customer", weight: 0.9, rationale: "Retention bounds growth risk." },
@@ -37,12 +44,14 @@ export const runTheCompanyPlaybook = definePlaybook({
       label: "Cash runway workbook",
       why: "Operating decisions need a hard floor.",
       level: "required",
+      category: "financial",
     },
     {
       evidenceType: "financial_statements",
       label: "Financial statements",
       why: "Ground Protect and Operate lenses.",
       level: "required",
+      category: "financial",
     },
   ],
   recommendedEvidence: [
@@ -51,18 +60,21 @@ export const runTheCompanyPlaybook = definePlaybook({
       label: "Customer / ARR snapshot",
       why: "Supports Grow and concentration checks.",
       level: "recommended",
+      category: "customer",
     },
     {
       evidenceType: "revenue_growth",
       label: "Financial forecast",
       why: "Forward operating plan.",
       level: "recommended",
+      category: "financial",
     },
     {
       evidenceType: "org_chart",
       label: "Product roadmap / org clarity",
       why: "Clarifies ownership and next milestone prep.",
       level: "recommended",
+      category: "operations",
     },
   ],
   reportSections: [
@@ -91,36 +103,53 @@ export const runTheCompanyPlaybook = definePlaybook({
     {
       id: "upload-customer-metrics",
       label: "Customer metrics",
+      evidenceCategory: "customer",
       why: "Grounds Grow and concentration risk.",
       level: "required",
+      priority: 100,
       evidenceTypes: ["arr_snapshot", "revenue_growth"],
+      questionsItCouldAnswer: ["q-cust-concentration", "q-cust-churn", "q-cust-nrr"],
+      expectedCoverageImpact: 0.12,
+      applicableStages: [
+        "Early Revenue",
+        "Product-Market Fit",
+        "Growth",
+        "Scale",
+        "Exit Ready",
+      ],
     },
     {
       id: "upload-financial-forecast",
       label: "Financial forecast",
+      evidenceCategory: "financial",
       why: "Supports Protect and Operate planning.",
       level: "required",
+      priority: 95,
       evidenceTypes: ["cash_runway", "financial_statements"],
+      questionsItCouldAnswer: [
+        "q-fin-runway-sufficient",
+        "q-fin-fund-operations",
+      ],
+      expectedCoverageImpact: 0.15,
+      applicableStages: [...COMPANY_LIFECYCLE_STAGES],
     },
     {
       id: "upload-product-roadmap",
       label: "Product roadmap",
+      evidenceCategory: "operations",
       why: "Clarifies Prepare / Decide priorities.",
       level: "recommended",
+      priority: 70,
       evidenceTypes: ["org_chart"],
+      questionsItCouldAnswer: ["q-ops-process-ownership", "q-people-org-clarity"],
+      expectedCoverageImpact: 0.08,
+      applicableStages: [
+        "Pre-product / MVP",
+        "Early Revenue",
+        "Product-Market Fit",
+        "Growth",
+        "Scale",
+      ],
     },
   ],
-  reportingTemplate: {
-    id: "run-the-company-ops",
-    title: "Operating health brief",
-    sections: [
-      "Protect",
-      "Grow",
-      "Operate",
-      "Prepare",
-      "Decide",
-      "Evidence coverage",
-      "Next actions",
-    ],
-  },
 });
