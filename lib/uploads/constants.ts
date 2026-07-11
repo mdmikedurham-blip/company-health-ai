@@ -12,8 +12,31 @@ export const PROCESSING_LEASE_SECONDS = 5 * 60;
 /** In-flight PROCESSING jobs are retryable after this long. */
 export const PROCESSING_STALE_MS = 5 * 60 * 1000;
 
-/** QUEUED jobs are retryable after this long (Retry Processing). */
+/** Queued jobs are retryable after this long (Retry Processing). */
 export const QUEUED_RETRY_AFTER_MS = 60 * 1000;
+
+/**
+ * Wall-clock budget for download + extract + evidence upsert.
+ * Override with MANUAL_UPLOAD_EXTRACTION_TIMEOUT_MS (ms).
+ * Must stay below PROCESSING_LEASE_SECONDS so timeouts clear state before lease reclaim.
+ */
+export const EXTRACTION_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.MANUAL_UPLOAD_EXTRACTION_TIMEOUT_MS ?? "");
+  if (Number.isFinite(raw) && raw >= 30_000 && raw <= 10 * 60_000) return raw;
+  return 3 * 60 * 1000; // 3 minutes
+})();
+
+/** Storage download alone may not exceed this share of the extraction budget. */
+export const DOWNLOAD_TIMEOUT_MS = Math.min(
+  EXTRACTION_TIMEOUT_MS,
+  2 * 60 * 1000,
+);
+
+/**
+ * EXTRACTED docs older than this without progressing to ANALYZING/PROCESSED
+ * are considered abandoned and re-enter company analysis.
+ */
+export const STALE_EXTRACTED_MS = 2 * 60 * 1000;
 
 export const UPLOAD_DOCUMENT_STATUSES = [
   "UPLOADED",
