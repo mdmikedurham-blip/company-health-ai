@@ -11,6 +11,7 @@ import type {
 } from "@/lib/domain/assessment-goal";
 import { DEFAULT_ASSESSMENT_GOAL } from "@/lib/domain/assessment-goal";
 import "@/lib/assessment-goals/register";
+import { getPlaybookProvider } from "@/lib/playbooks";
 import { getGoalProvider, listGoalMetas } from "./registry";
 import { isAssessmentGoalId } from "./provider";
 
@@ -40,6 +41,18 @@ export function buildAssessmentGoalDashboardContext(
   goal: CompanyAssessmentGoal,
 ): AssessmentGoalDashboardContext {
   const provider = getGoalProvider(goal.goal);
+  // Phase 7: upload priorities come from the playbook (same id as goal).
+  const playbookUploads = getPlaybookProvider(goal.goal)
+    .getUploadCatalog()
+    .map((u) => ({
+      label: u.label,
+      why: u.why,
+      level: u.level,
+    }));
+  const uploadPriorities =
+    playbookUploads.length > 0
+      ? playbookUploads
+      : provider.getUploadPriorities();
   return {
     goal: goal.goal,
     label: provider.label,
@@ -47,7 +60,7 @@ export function buildAssessmentGoalDashboardContext(
     selectedBy: goal.selectedBy,
     selectedAt: goal.selectedAt,
     lastUpdated: goal.lastUpdated,
-    uploadPriorities: provider.getUploadPriorities(),
+    uploadPriorities,
     dashboardWidgets: provider.getDashboardWidgets(),
     operatingLenses: provider.getOperatingLenses?.() ?? [],
     availableGoals: listGoalMetas(),

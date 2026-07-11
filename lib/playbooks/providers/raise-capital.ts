@@ -1,0 +1,138 @@
+import { definePlaybook } from "../base";
+
+export const raiseCapitalPlaybook = definePlaybook({
+  id: "raise-capital",
+  label: "Raise Capital",
+  objective:
+    "Prepare investor-ready diligence with emphasis on financial quality, growth, and board materials.",
+  successCriteria: [
+    "Financial model and runway story are consistent",
+    "Growth and customer metrics are evidence-backed",
+    "Cap table and equity issuances are current",
+    "Board materials support the raise narrative",
+  ],
+  focusAreas: [
+    "Financial quality",
+    "Growth",
+    "Market",
+    "Governance",
+    "Customer metrics",
+    "Forecast",
+    "Board materials",
+  ],
+  dimensionPriorities: [
+    { dimensionId: "dim-financial", weight: 1, rationale: "Investors start with numbers." },
+    { dimensionId: "dim-customer", weight: 0.95, rationale: "Growth proof." },
+    { dimensionId: "dim-governance", weight: 0.9, rationale: "Cap table and board hygiene." },
+    { dimensionId: "dim-legal", weight: 0.75, rationale: "Clean equity trail." },
+    { dimensionId: "dim-operations", weight: 0.7, rationale: "Operating leverage." },
+  ],
+  questionPriorities: [
+    { questionId: "q-fin-runway-sufficient", weight: 1.5, rationale: "Raise timing." },
+    { questionId: "q-fin-fund-operations", weight: 1.4, rationale: "Funding gap." },
+    { questionId: "q-gov-cap-table", weight: 1.4, rationale: "Ownership clarity." },
+    { questionId: "q-cust-nrr", weight: 1.3, rationale: "Retention quality." },
+    { questionId: "q-fin-revenue-growing", weight: 1.3, rationale: "Growth story." },
+    { questionId: "q-gov-equity-issuances", weight: 1.25, rationale: "Dilution trail." },
+    { questionId: "q-fin-concentration-financial", weight: 1.2, rationale: "Revenue quality." },
+    { questionId: "q-gov-cadence", weight: 1.15, rationale: "Board readiness." },
+    { questionId: "q-cust-concentration", weight: 1.15, rationale: "Customer risk." },
+  ],
+  requiredEvidence: [
+    {
+      evidenceType: "cash_runway",
+      label: "Financial model / runway",
+      why: "Core raise diligence.",
+      level: "required",
+    },
+    {
+      evidenceType: "cap_table",
+      label: "Cap table",
+      why: "Ownership and dilution must be clean.",
+      level: "required",
+    },
+  ],
+  recommendedEvidence: [
+    {
+      evidenceType: "arr_snapshot",
+      label: "Customer metrics pack",
+      why: "Supports growth and retention diligence.",
+      level: "recommended",
+    },
+    {
+      evidenceType: "board_minutes",
+      label: "Board deck / minutes",
+      why: "Board materials for the raise.",
+      level: "recommended",
+    },
+    {
+      evidenceType: "investor_deck",
+      label: "Investor deck",
+      why: "Narrative aligned to evidence.",
+      level: "recommended",
+    },
+  ],
+  reportSections: [
+    "Raise thesis",
+    "Financial quality",
+    "Growth & customers",
+    "Governance & cap table",
+    "Forecast",
+    "Open diligence items",
+    "Next uploads",
+  ],
+  recommendationOrdering: [
+    { theme: "runway", weight: 1.4, rationale: "Raise urgency." },
+    { theme: "cap table", weight: 1.35, rationale: "Investor hygiene." },
+    { theme: "growth", weight: 1.25, rationale: "Story quality." },
+    { theme: "board", weight: 1.2, rationale: "Governance pack." },
+    { theme: "forecast", weight: 1.15, rationale: "Model integrity." },
+  ],
+  recommendationDimensionWeights: {
+    "dim-financial": 1.3,
+    "dim-customer": 1.2,
+    "dim-governance": 1.25,
+  },
+  uploadCatalog: [
+    {
+      id: "upload-cap-table",
+      label: "Cap table",
+      why: "Required for investor diligence.",
+      level: "required",
+      evidenceTypes: ["cap_table"],
+    },
+    {
+      id: "upload-investor-deck",
+      label: "Investor deck",
+      why: "Aligns narrative to evidence.",
+      level: "required",
+      evidenceTypes: ["investor_deck"],
+    },
+    {
+      id: "upload-financial-model",
+      label: "Financial model",
+      why: "Runway and forecast quality.",
+      level: "required",
+      evidenceTypes: ["cash_runway", "financial_statements"],
+    },
+    {
+      id: "upload-board-deck",
+      label: "Board deck",
+      why: "Governance and raise narrative.",
+      level: "recommended",
+      evidenceTypes: ["board_minutes"],
+    },
+  ],
+  reportingTemplate: {
+    id: "raise-capital-pack",
+    title: "Fundraising diligence brief",
+    sections: [
+      "Raise thesis",
+      "Financial quality",
+      "Growth & customers",
+      "Governance & cap table",
+      "Forecast",
+      "Open diligence items",
+    ],
+  },
+});

@@ -227,6 +227,9 @@ async function persistCompanyIntelligence(input: {
       client,
       companyId,
       assessmentGoal: goalRow?.goal ?? "run-the-company",
+      playbookVersion: (
+        await import("@/lib/domain/playbook")
+      ).PLAYBOOK_ENGINE_VERSION,
       companyStage: snapshot.classificationStage,
       generatedBy: "manual-upload",
       documentVersions: documentIds.map((id) => ({

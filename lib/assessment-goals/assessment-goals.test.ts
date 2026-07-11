@@ -163,7 +163,11 @@ describe("assessment goals framework", () => {
     expect(raisedCtx.goal).toBe("raise-capital");
     expect(raisedCtx.label).toBe("Raise Capital");
     expect(raisedCtx.purpose).not.toBe(runCtx.purpose);
-    expect(raisedCtx.uploadPriorities).toEqual([]);
+    // Phase 7: playbook supplies upload priorities for every goal.
+    expect(raisedCtx.uploadPriorities.length).toBeGreaterThan(0);
+    expect(raisedCtx.uploadPriorities.some((u) => /cap table/i.test(u.label))).toBe(
+      true,
+    );
     expect(raisedCtx.operatingLenses).toEqual([]);
   });
 

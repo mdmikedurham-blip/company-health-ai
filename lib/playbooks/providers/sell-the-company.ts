@@ -1,0 +1,130 @@
+import { definePlaybook } from "../base";
+
+export const sellTheCompanyPlaybook = definePlaybook({
+  id: "sell-the-company",
+  label: "Sell the Company",
+  objective:
+    "Organize sell-side readiness: legal, IP, contracts, approvals, and financial quality.",
+  successCriteria: [
+    "IP assignment and employment agreements are complete",
+    "Customer contracts are inventory-ready",
+    "Board approvals path is clear",
+    "Material risks are reduced or disclosed",
+  ],
+  focusAreas: [
+    "Legal",
+    "IP",
+    "Customer contracts",
+    "Board approvals",
+    "Financial quality",
+    "Risk reduction",
+  ],
+  dimensionPriorities: [
+    { dimensionId: "dim-legal", weight: 1, rationale: "Buyer diligence starts here." },
+    { dimensionId: "dim-governance", weight: 0.95, rationale: "Approvals and authority." },
+    { dimensionId: "dim-financial", weight: 0.9, rationale: "Quality of earnings." },
+    { dimensionId: "dim-customer", weight: 0.85, rationale: "Contract and concentration risk." },
+    { dimensionId: "dim-security", weight: 0.75, rationale: "Buyer security questionnaires." },
+  ],
+  questionPriorities: [
+    { questionId: "q-legal-ip-assignments", weight: 1.5, rationale: "IP chain of title." },
+    { questionId: "q-legal-customer-contracts", weight: 1.45, rationale: "Contract inventory." },
+    { questionId: "q-legal-employment-agreements", weight: 1.35, rationale: "People/IP risk." },
+    { questionId: "q-gov-board-approvals", weight: 1.35, rationale: "Sale authority." },
+    { questionId: "q-fin-recurring-healthy", weight: 1.2, rationale: "Revenue quality." },
+    { questionId: "q-cust-concentration", weight: 1.2, rationale: "Buyer risk." },
+    { questionId: "q-ops-financial-controls", weight: 1.15, rationale: "QoE readiness." },
+    { questionId: "q-sec-policies", weight: 1.1, rationale: "Buyer security." },
+  ],
+  requiredEvidence: [
+    {
+      evidenceType: "ip_assignments",
+      label: "IP assignments",
+      why: "Chain of title for the sale.",
+      level: "required",
+    },
+    {
+      evidenceType: "customer_contracts",
+      label: "Customer contracts",
+      why: "Revenue durability under diligence.",
+      level: "required",
+    },
+  ],
+  recommendedEvidence: [
+    {
+      evidenceType: "board_minutes",
+      label: "Board approvals / minutes",
+      why: "Authority to sell.",
+      level: "recommended",
+    },
+    {
+      evidenceType: "employment_agreements",
+      label: "Employment / contractor agreements",
+      why: "People and IP risk reduction.",
+      level: "recommended",
+    },
+    {
+      evidenceType: "financial_statements",
+      label: "Financial quality pack",
+      why: "Buyer QoE.",
+      level: "recommended",
+    },
+  ],
+  reportSections: [
+    "Sale readiness",
+    "Legal & IP",
+    "Customer contracts",
+    "Board approvals",
+    "Financial quality",
+    "Risk reduction",
+    "Open items",
+  ],
+  recommendationOrdering: [
+    { theme: "ip", weight: 1.4, rationale: "Title risk." },
+    { theme: "contract", weight: 1.35, rationale: "Revenue transferability." },
+    { theme: "board", weight: 1.3, rationale: "Approvals path." },
+    { theme: "legal", weight: 1.25, rationale: "Sell-side hygiene." },
+    { theme: "risk", weight: 1.2, rationale: "Disclosure prep." },
+  ],
+  recommendationDimensionWeights: {
+    "dim-legal": 1.35,
+    "dim-governance": 1.25,
+    "dim-financial": 1.15,
+    "dim-customer": 1.15,
+  },
+  uploadCatalog: [
+    {
+      id: "upload-ip-assignments",
+      label: "IP assignment agreements",
+      why: "Required for buyer legal diligence.",
+      level: "required",
+      evidenceTypes: ["ip_assignments"],
+    },
+    {
+      id: "upload-customer-contracts",
+      label: "Customer contracts",
+      why: "Contract inventory for the data room.",
+      level: "required",
+      evidenceTypes: ["customer_contracts"],
+    },
+    {
+      id: "upload-board-approvals",
+      label: "Board approvals",
+      why: "Authority and process for a sale.",
+      level: "required",
+      evidenceTypes: ["board_minutes"],
+    },
+  ],
+  reportingTemplate: {
+    id: "sell-side-readiness",
+    title: "Sell-side diligence brief",
+    sections: [
+      "Sale readiness",
+      "Legal & IP",
+      "Customer contracts",
+      "Board approvals",
+      "Financial quality",
+      "Risk reduction",
+    ],
+  },
+});
