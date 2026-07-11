@@ -42,7 +42,7 @@ describe("acceptDocumentForProcessing hello.txt sync path", () => {
       documentId: "doc-hello",
       companyId: "co-1",
       status: "processed",
-      evidenceId: "upload-doc-hello",
+      evidenceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     });
 
     const started = Date.now();

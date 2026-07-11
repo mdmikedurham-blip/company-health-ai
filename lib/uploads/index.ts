@@ -59,8 +59,10 @@ export {
   canCancelDocument,
   canRemoveDocument,
   canRetryQueuedDocument,
+  evidenceIdForManualUpload,
   isActivelyProcessing,
   isLeaseExpired,
+  manualUploadExternalKey,
   visibleManualUploadActions,
   type ManualUploadRowAction,
 } from "./removal-policy";

@@ -114,14 +114,14 @@ describe("processManualUploadDocument", () => {
 
   it("invokes Insight Engine after extraction and persists snapshot", async () => {
     claimDocumentJob.mockResolvedValue({
-      id: "doc-1",
+      id: "11111111-1111-4111-8111-111111111111",
       company_id: "co-1",
       connector_id: "manual-upload",
-      external_id: "doc-1",
+      external_id: "11111111-1111-4111-8111-111111111111",
       title: "notes.txt",
       filename: "notes.txt",
       mime_type: "text/plain",
-      storage_path: "co-1/doc-1/notes.txt",
+      storage_path: "co-1/11111111-1111-4111-8111-111111111111/notes.txt",
       path: "notes.txt",
       uri: "storage://x",
       modified_at: null,
@@ -136,7 +136,7 @@ describe("processManualUploadDocument", () => {
     });
     rawDocumentFromConnectorItem.mockReturnValue({});
     runEvidenceExtractionPipeline.mockReturnValue({
-      evidence: { id: "upload-doc-1" },
+      evidence: { id: "11111111-1111-4111-8111-111111111111" },
     });
     upsert.mockResolvedValue(undefined);
     updateDocumentStage.mockResolvedValue(undefined);
@@ -199,12 +199,25 @@ describe("processManualUploadDocument", () => {
     });
 
     expect(result.status).toBe("processed");
-    expect(result.evidenceId).toBe("upload-doc-1");
+    expect(result.evidenceId).toBe("11111111-1111-4111-8111-111111111111");
     expect(analyzeAndPersistIncremental).toHaveBeenCalledWith(
       expect.objectContaining({
-        changedEvidenceIds: ["upload-doc-1"],
+        changedEvidenceIds: ["11111111-1111-4111-8111-111111111111"],
         company: expect.objectContaining({ id: "co-1" }),
       }),
+    );
+    expect(upsert).toHaveBeenCalledWith(
+      "co-1",
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "11111111-1111-4111-8111-111111111111",
+          metadata: expect.objectContaining({
+            documentId: "11111111-1111-4111-8111-111111111111",
+            externalKey: "upload:11111111-1111-4111-8111-111111111111",
+            source: "manual-upload",
+          }),
+        }),
+      ]),
     );
     expect(insert).toHaveBeenCalled();
     expect(markDocumentProcessed).toHaveBeenCalled();

@@ -3,7 +3,10 @@ import { createServiceClient } from "@/lib/supabase";
 import { getDocumentProcessSecret } from "@/lib/api/process-auth";
 import { POST as processDocumentPost } from "@/app/api/documents/process/route";
 import { markDocumentFailed } from "./claim";
-import { logUploadProcessingEvent } from "./logging";
+import {
+  logUploadProcessingEvent,
+  logUploadProcessingException,
+} from "./logging";
 
 /** Small-file sync should finish well under this (hello.txt target). */
 export const SYNC_PROCESS_TIMEOUT_MS = 30_000;
@@ -162,6 +165,12 @@ export async function kickoffDocumentProcessing(input: {
       httpStatus,
     };
   } catch (err) {
+    logUploadProcessingException("manual_upload_processing_exception", {
+      documentId,
+      companyId,
+      stage: "kickoff",
+      err,
+    });
     const errorMessage = err instanceof Error ? err.message : String(err);
     return failKickoff({
       client: input.client ?? createServiceClient(),
