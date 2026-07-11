@@ -36,3 +36,9 @@ export {
 } from "./doctor-service";
 export { getDoctorExplainPromptFallback } from "./prompts";
 export { loadTenantDoctorSnapshot } from "./load-tenant-snapshot";
+export { loadDoctorHome, runDoctorCycleInMemory } from "./conversation/engine";
+export {
+  DOCTOR_INVESTIGATION_CATALOG,
+  getInvestigationTemplate,
+} from "./investigations/catalog";
+
