@@ -18,6 +18,7 @@ import {
   pickParentForOverall,
   pickParentForRisk,
   stableEventId,
+  timelineEventKey,
 } from "./causal-linker";
 import { diffAnalysis } from "./event-diff";
 import type {
@@ -32,6 +33,14 @@ function resolveAsOf(asOf?: Date | string): Date {
   if (asOf instanceof Date) return asOf;
   if (typeof asOf === "string") return new Date(asOf);
   return new Date(DEFAULT_AS_OF);
+}
+
+function withEventKey(
+  type: string,
+  entityId: string,
+  extra: Record<string, string | number | boolean | null> = {},
+): Record<string, string | number | boolean | null> {
+  return { eventKey: timelineEventKey(type, entityId), ...extra };
 }
 
 export interface BuildCausalTimelineInput {
@@ -133,10 +142,10 @@ export function buildCausalTimeline(
         riskIds: [],
         confidence: 100,
         ...causal,
-        metadata: {
+        metadata: withEventKey("document-added", doc.id, {
           externalId: doc.externalId ?? null,
           contentHash: doc.contentHash ?? null,
-        },
+        }),
       }),
     );
     links.documentEventById.set(doc.id, id);
@@ -161,10 +170,10 @@ export function buildCausalTimeline(
         riskIds: [],
         confidence: 100,
         ...causal,
-        metadata: {
+        metadata: withEventKey("document-updated", doc.id, {
           externalId: doc.externalId ?? null,
           contentHash: doc.contentHash ?? null,
-        },
+        }),
       }),
     );
     links.documentEventById.set(doc.id, id);
@@ -207,7 +216,11 @@ export function buildCausalTimeline(
         dimension: item.dimension,
         confidence: item.reliability,
         ...causal,
-        metadata: incomplete ? { incompleteProvenance: true } : {},
+        metadata: withEventKey(
+          "evidence-created",
+          evidenceId,
+          incomplete ? { incompleteProvenance: true } : {},
+        ),
       }),
     );
     links.evidenceEventById.set(evidenceId, id);
@@ -371,7 +384,7 @@ export function buildCausalTimeline(
         scoreAfter: dim.currentScore,
         confidence: input.healthScore.confidence,
         ...causal,
-        metadata: {},
+        metadata: withEventKey("dimension-score-changed", dim.dimensionId),
       }),
     );
     links.dimensionEventById.set(dim.dimensionId, id);
@@ -443,7 +456,7 @@ export function buildCausalTimeline(
             .join("; "),
           confidence: input.healthScore.confidence,
           ...causal,
-          metadata: {},
+          metadata: withEventKey("overall-score-changed", "health"),
         }),
       );
     }
@@ -482,7 +495,9 @@ export function buildCausalTimeline(
         dimension: rec.dimension,
         confidence: rec.confidence,
         ...causal,
-        metadata: { priority: rec.priority },
+        metadata: withEventKey("recommendation-created", recId, {
+          priority: rec.priority,
+        }),
       }),
     );
   }
@@ -545,7 +560,11 @@ function pushFindingEvent(params: {
           : finding.scoreImpact,
       confidence: finding.confidence,
       ...causal,
-      metadata: incomplete ? { incompleteProvenance: true } : {},
+      metadata: withEventKey(
+        type,
+        finding.id,
+        incomplete ? { incompleteProvenance: true } : {},
+      ),
     }),
   );
   params.links.findingEventById.set(finding.id, id);
@@ -610,12 +629,12 @@ function pushRiskEvent(params: {
       confidence: risk.confidence,
       whyHealthChanged: risk.whyItMatters,
       ...causal,
-      metadata: {
+      metadata: withEventKey(type, risk.id, {
         severity: risk.severity,
         priorSeverity: params.prior?.severity ?? null,
         status: risk.status,
         ...(incomplete ? { incompleteProvenance: true } : {}),
-      },
+      }),
     }),
   );
   params.links.riskEventById.set(risk.id, id);

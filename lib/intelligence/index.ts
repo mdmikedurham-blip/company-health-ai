@@ -40,6 +40,7 @@ export {
   buildCausalTimeline,
   diffAnalysis,
   stableEventId,
+  timelineEventKey,
 } from "./timeline";
 export type {
   BuildCausalTimelineInput,

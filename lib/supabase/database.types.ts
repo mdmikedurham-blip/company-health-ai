@@ -464,6 +464,7 @@ export type Database = {
           score_impact: number;
           source_system: string;
           extracted_at: string;
+          stable_key: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -483,6 +484,7 @@ export type Database = {
           score_impact?: number;
           source_system?: string;
           extracted_at?: string;
+          stable_key?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -502,6 +504,7 @@ export type Database = {
           score_impact?: number;
           source_system?: string;
           extracted_at?: string;
+          stable_key?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -536,6 +539,7 @@ export type Database = {
           recommendation: string;
           primary_evidence_label: string;
           explain_prompt: string;
+          stable_key: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -559,6 +563,7 @@ export type Database = {
           recommendation?: string;
           primary_evidence_label?: string;
           explain_prompt?: string;
+          stable_key?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -582,6 +587,7 @@ export type Database = {
           recommendation?: string;
           primary_evidence_label?: string;
           explain_prompt?: string;
+          stable_key?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -613,6 +619,7 @@ export type Database = {
           rationale: string;
           next_steps: string[];
           priority_score: number;
+          stable_key: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -633,6 +640,7 @@ export type Database = {
           rationale?: string;
           next_steps?: string[];
           priority_score?: number;
+          stable_key?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -653,6 +661,7 @@ export type Database = {
           rationale?: string;
           next_steps?: string[];
           priority_score?: number;
+          stable_key?: string | null;
           created_at?: string;
           updated_at?: string;
         };
@@ -747,6 +756,7 @@ export type Database = {
           causal_chain_id: string | null;
           confidence: number;
           metadata: Json;
+          event_key: string | null;
           created_at: string;
         };
         Insert: {
@@ -776,6 +786,7 @@ export type Database = {
           causal_chain_id?: string | null;
           confidence?: number;
           metadata?: Json;
+          event_key?: string | null;
           created_at?: string;
         };
         Update: {
@@ -805,6 +816,7 @@ export type Database = {
           causal_chain_id?: string | null;
           confidence?: number;
           metadata?: Json;
+          event_key?: string | null;
           created_at?: string;
         };
         Relationships: [
