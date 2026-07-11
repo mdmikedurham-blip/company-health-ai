@@ -234,18 +234,31 @@ export async function kickoffDocumentProcessingBatch(input: {
   request?: Request;
   client?: AppSupabaseClient;
   mode?: "sync" | "accept";
+  concurrency?: number;
 }): Promise<KickoffResult[]> {
-  const results: KickoffResult[] = [];
-  for (const documentId of input.documentIds) {
-    results.push(
-      await kickoffDocumentProcessing({
+  const concurrency = Math.max(1, input.concurrency ?? 1);
+  const results: KickoffResult[] = new Array(input.documentIds.length);
+  let cursor = 0;
+
+  async function worker() {
+    for (;;) {
+      const i = cursor++;
+      if (i >= input.documentIds.length) return;
+      const documentId = input.documentIds[i]!;
+      results[i] = await kickoffDocumentProcessing({
         companyId: input.companyId,
         documentId,
         request: input.request,
         client: input.client,
-        mode: input.mode ?? "sync",
-      }),
-    );
+        mode: input.mode ?? "accept",
+      });
+    }
   }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, input.documentIds.length) }, () =>
+      worker(),
+    ),
+  );
   return results;
 }

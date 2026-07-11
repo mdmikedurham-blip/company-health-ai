@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ActionCard } from "@/components/ActionCard";
 import { AIInsightsPanel } from "@/components/AIInsightsPanel";
+import { EvidenceCoveragePanel } from "@/components/dashboard/EvidenceCoveragePanel";
 import { NextBestActionsCard } from "@/components/dashboard/NextBestActionsCard";
 import { ScoreChangeCard } from "@/components/dashboard/ScoreChangeCard";
 import { EvidenceCard } from "@/components/EvidenceCard";
@@ -17,6 +18,7 @@ export function DashboardContent({ view }: { view: TenantDashboardView }) {
   const router = useRouter();
   const {
     metrics: dashboardMetrics,
+    evidenceCoverage,
     healthScore,
     scoreChangeExplanation,
     executiveBrief,
@@ -31,6 +33,10 @@ export function DashboardContent({ view }: { view: TenantDashboardView }) {
 
   return (
     <div className="space-y-5">
+      {evidenceCoverage ? (
+        <EvidenceCoveragePanel coverage={evidenceCoverage} />
+      ) : null}
+
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {dashboardMetrics.map((metric) => (
           <MetricCard

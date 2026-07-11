@@ -399,7 +399,7 @@ export type Database = {
           /** Private Storage object key when uploaded manually. */
           storage_path: string | null;
           uploaded_by: string | null;
-          /** UPLOADED | QUEUED | PROCESSING | EXTRACTED | ANALYZING | PROCESSED | FAILED */
+          /** UPLOADED | QUEUED | PROCESSING | EXTRACTED | ANALYZING | PROCESSED | FAILED | DELETING | STALE | OCR_REQUIRED */
           status: string;
           processing_started_at: string | null;
           processing_completed_at: string | null;
@@ -408,6 +408,12 @@ export type Database = {
           last_stage: string | null;
           locked_at: string | null;
           lease_expires_at: string | null;
+          extraction_version: string | null;
+          analysis_version: string | null;
+          last_successful_extraction_version: string | null;
+          last_successful_analysis_version: string | null;
+          reprocess_error_message: string | null;
+          next_reprocess_at: string | null;
           uri: string | null;
           raw_summary: string | null;
           metadata: Json;
@@ -438,6 +444,12 @@ export type Database = {
           last_stage?: string | null;
           locked_at?: string | null;
           lease_expires_at?: string | null;
+          extraction_version?: string | null;
+          analysis_version?: string | null;
+          last_successful_extraction_version?: string | null;
+          last_successful_analysis_version?: string | null;
+          reprocess_error_message?: string | null;
+          next_reprocess_at?: string | null;
           uri?: string | null;
           raw_summary?: string | null;
           metadata?: Json;
@@ -468,6 +480,12 @@ export type Database = {
           last_stage?: string | null;
           locked_at?: string | null;
           lease_expires_at?: string | null;
+          extraction_version?: string | null;
+          analysis_version?: string | null;
+          last_successful_extraction_version?: string | null;
+          last_successful_analysis_version?: string | null;
+          reprocess_error_message?: string | null;
+          next_reprocess_at?: string | null;
           uri?: string | null;
           raw_summary?: string | null;
           metadata?: Json;

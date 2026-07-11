@@ -150,8 +150,13 @@ export function visibleManualUploadActions(
     actions.push("retry");
   }
 
-  // Allow re-extraction of completed docs (needed after extractor upgrades).
-  if (row.status === "PROCESSED" && !actions.includes("retry")) {
+  // Allow re-extraction of completed / OCR / stale docs (extractor upgrades).
+  if (
+    (row.status === "PROCESSED" ||
+      row.status === "STALE" ||
+      row.status === "OCR_REQUIRED") &&
+    !actions.includes("retry")
+  ) {
     actions.push("retry");
   }
 

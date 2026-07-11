@@ -8,6 +8,7 @@ import {
   TERMINAL_UPLOAD_STATUSES,
   type UploadDocumentStatus,
 } from "./constants";
+import { CURRENT_EXTRACTION_VERSION } from "./versions";
 
 export type DocumentJobRow = Tables<"documents">;
 
@@ -235,15 +236,31 @@ export async function markDocumentProcessed(input: {
   companyId: string;
   documentId: string;
   rawSummary?: string;
+  extractionVersion?: string;
+  analysisVersion?: string;
 }): Promise<void> {
   const rich = {
     status: "PROCESSED" as const,
     last_stage: "processed",
     error_message: null,
+    reprocess_error_message: null,
+    next_reprocess_at: null,
     processing_completed_at: new Date().toISOString(),
     synced_at: new Date().toISOString(),
     lease_expires_at: null,
     locked_at: null,
+    ...(input.extractionVersion
+      ? {
+          extraction_version: input.extractionVersion,
+          last_successful_extraction_version: input.extractionVersion,
+        }
+      : {}),
+    ...(input.analysisVersion
+      ? {
+          analysis_version: input.analysisVersion,
+          last_successful_analysis_version: input.analysisVersion,
+        }
+      : {}),
     ...(input.rawSummary != null
       ? { raw_summary: input.rawSummary.slice(0, 2000) }
       : {}),
@@ -281,25 +298,101 @@ export async function markDocumentProcessed(input: {
   }
 }
 
+/**
+ * Reprocess failed but prior successful evidence remains usable.
+ * Keeps status PROCESSED (or prior usability) and records reprocess_error_message.
+ */
+export async function markReprocessFailedPreserving(input: {
+  client: AppSupabaseClient;
+  companyId: string;
+  documentId: string;
+  errorMessage: string;
+  attempt: number;
+  nextReprocessAt: string;
+}): Promise<void> {
+  const message = input.errorMessage.slice(0, 1000);
+  const { error } = await input.client
+    .from("documents")
+    .update({
+      status: "PROCESSED",
+      last_stage: "reprocess_failed",
+      reprocess_error_message: message,
+      error_message: message,
+      processing_completed_at: new Date().toISOString(),
+      lease_expires_at: null,
+      locked_at: null,
+      next_reprocess_at: input.nextReprocessAt,
+      metadata: {
+        source: "manual-upload",
+        last_stage: "reprocess_failed",
+        reprocess_error: message,
+        reprocess_attempt: input.attempt,
+        previous_analysis_retained: true,
+      },
+    })
+    .eq("id", input.documentId)
+    .eq("company_id", input.companyId);
+
+  if (error) {
+    throw new Error(`markReprocessFailedPreserving: ${error.message}`);
+  }
+}
+
+export async function markDocumentOcrRequired(input: {
+  client: AppSupabaseClient;
+  companyId: string;
+  documentId: string;
+  errorMessage: string;
+}): Promise<void> {
+  const message = input.errorMessage.slice(0, 1000);
+  const { error } = await input.client
+    .from("documents")
+    .update({
+      status: "OCR_REQUIRED",
+      last_stage: "ocr_required",
+      error_message: message,
+      reprocess_error_message: message,
+      processing_completed_at: new Date().toISOString(),
+      lease_expires_at: null,
+      locked_at: null,
+      extraction_version: CURRENT_EXTRACTION_VERSION,
+      metadata: {
+        source: "manual-upload",
+        last_stage: "ocr_required",
+        error: message,
+      },
+    })
+    .eq("id", input.documentId)
+    .eq("company_id", input.companyId);
+
+  if (error) {
+    throw new Error(`markDocumentOcrRequired: ${error.message}`);
+  }
+}
+
 /** Reset FAILED or QUEUED / stale in-flight jobs to QUEUED for retry.
- * Explicit documentIds may also include PROCESSED rows so extractor upgrades
- * (e.g. financial XLSX facts) can re-run on already-complete files.
+ * Explicit documentIds may also include PROCESSED / STALE / OCR_REQUIRED rows
+ * so extractor upgrades can re-run on already-complete files.
  */
 export async function requeueDocumentJobs(input: {
   client: AppSupabaseClient;
   companyId: string;
   documentIds?: string[];
+  /** Extra statuses allowed when documentIds are provided (or alone). */
+  allowStatuses?: string[];
+  lastStage?: string;
 }): Promise<string[]> {
   const now = new Date();
   const staleBefore = new Date(
     now.getTime() - PROCESSING_STALE_MS,
   ).toISOString();
   const explicitIds = Boolean(input.documentIds?.length);
+  const allow = new Set(input.allowStatuses ?? []);
 
   let query = input.client
     .from("documents")
     .select(
-      "id, status, lease_expires_at, locked_at, processing_started_at, updated_at",
+      "id, status, lease_expires_at, locked_at, processing_started_at, updated_at, next_reprocess_at, processing_attempts",
     )
     .eq("company_id", input.companyId)
     .eq("connector_id", MANUAL_UPLOAD_CONNECTOR_ID);
@@ -313,9 +406,21 @@ export async function requeueDocumentJobs(input: {
 
   const ids: string[] = [];
   for (const row of rows ?? []) {
+    if (
+      row.next_reprocess_at &&
+      new Date(row.next_reprocess_at).getTime() > now.getTime() &&
+      !explicitIds
+    ) {
+      continue;
+    }
     const canRetry =
       row.status === "FAILED" ||
-      (explicitIds && row.status === "PROCESSED") ||
+      row.status === "STALE" ||
+      allow.has(row.status) ||
+      (explicitIds &&
+        (row.status === "PROCESSED" ||
+          row.status === "OCR_REQUIRED" ||
+          row.status === "STALE")) ||
       (row.status === "QUEUED" &&
         now.getTime() - new Date(row.updated_at).getTime() >=
           QUEUED_RETRY_AFTER_MS) ||
@@ -326,18 +431,21 @@ export async function requeueDocumentJobs(input: {
 
   if (ids.length === 0) return [];
 
+  const lastStage = input.lastStage ?? "requeued";
   const { error: updateError } = await input.client
     .from("documents")
     .update({
       status: "QUEUED",
-      last_stage: "requeued",
+      last_stage: lastStage,
       error_message: null,
       locked_at: null,
       lease_expires_at: null,
       processing_completed_at: null,
+      next_reprocess_at: null,
       metadata: {
         source: "manual-upload",
         requeued_at: now.toISOString(),
+        last_stage: lastStage,
       },
     })
     .eq("company_id", input.companyId)
@@ -351,7 +459,7 @@ export async function requeueDocumentJobs(input: {
         metadata: {
           source: "manual-upload",
           requeued_at: now.toISOString(),
-          last_stage: "requeued",
+          last_stage: lastStage,
         },
       })
       .eq("company_id", input.companyId)

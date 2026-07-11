@@ -199,9 +199,9 @@ describe("financial spreadsheet fact extraction", () => {
 });
 
 describe("XLSX upload → structured financial evidence → Financial scored", () => {
-  it("scores Financial from a representative financial workbook", () => {
+  it("scores Financial from a representative financial workbook", async () => {
     const bytes = buildFinancialXlsx();
-    const extracted = extractDocument({
+    const extracted = await extractDocument({
       title: "company-financials.xlsx",
       mimeType:
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

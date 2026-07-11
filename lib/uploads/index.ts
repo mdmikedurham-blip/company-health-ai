@@ -57,6 +57,18 @@ export {
   type StaleRecoveryResult,
 } from "./stale-recovery";
 export {
+  markAndEnqueueStaleDocuments,
+  autoEnqueueVersionStaleDocuments,
+  type VersionUpgradeResult,
+} from "./version-upgrade";
+export {
+  CURRENT_EXTRACTION_VERSION,
+  CURRENT_ANALYSIS_VERSION,
+  STALE_REPROCESS_BATCH_LIMIT,
+  STALE_REPROCESS_CONCURRENCY,
+  documentNeedsVersionUpgrade,
+} from "./versions";
+export {
   withTimeout,
   TimeoutError,
   isTimeoutError,

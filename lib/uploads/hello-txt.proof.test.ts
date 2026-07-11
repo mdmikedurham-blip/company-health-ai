@@ -179,8 +179,8 @@ describe("hello.txt process-route handoff proof", () => {
     delete process.env.DOCUMENT_PROCESS_SECRET;
   });
 
-  it("extracts hello.txt", () => {
-    const doc = extractDocument({
+  it("extracts hello.txt", async () => {
+    const doc = await extractDocument({
       title: "hello.txt",
       mimeType: "text/plain",
       bytes: new TextEncoder().encode(HELLO),

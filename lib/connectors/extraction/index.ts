@@ -14,15 +14,19 @@ import { extractPptx } from "./formats/pptx";
 import { extractTxt } from "./formats/txt";
 import { extractXlsx } from "./formats/xlsx";
 
-const EXTRACTORS: Record<
-  ExtractableMimeType,
-  (
-    title: string,
-    content: string | Uint8Array,
-    meta: Record<string, string | number | boolean | null>,
-  ) => ExtractedDocument
-> = {
-  "application/pdf": extractPdf,
+type SyncExtractor = (
+  title: string,
+  content: string | Uint8Array,
+  meta: Record<string, string | number | boolean | null>,
+) => ExtractedDocument;
+
+type AsyncExtractor = (
+  title: string,
+  content: string | Uint8Array,
+  meta: Record<string, string | number | boolean | null>,
+) => Promise<ExtractedDocument>;
+
+const SYNC_EXTRACTORS: Partial<Record<ExtractableMimeType, SyncExtractor>> = {
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
     extractDocx,
   "application/vnd.openxmlformats-officedocument.presentationml.presentation":
@@ -37,17 +41,24 @@ const EXTRACTORS: Record<
   "text/csv": extractCsv,
 };
 
+const ASYNC_EXTRACTORS: Partial<Record<ExtractableMimeType, AsyncExtractor>> = {
+  "application/pdf": extractPdf,
+};
+
 export function isExtractableMimeType(
   mimeType: string,
 ): mimeType is ExtractableMimeType {
-  return mimeType in EXTRACTORS;
+  return mimeType in SYNC_EXTRACTORS || mimeType in ASYNC_EXTRACTORS;
 }
 
 /**
  * Route a file payload to the format extractor.
  * Each supported type produces the same ExtractedDocument shape.
+ * PDF extraction is async (unpdf / pdf.js).
  */
-export function extractDocument(input: ExtractDocumentInput): ExtractedDocument {
+export async function extractDocument(
+  input: ExtractDocumentInput,
+): Promise<ExtractedDocument> {
   const { title, mimeType, sourceMetadata = {} } = input;
   if (!isExtractableMimeType(mimeType)) {
     throw new Error(`Unsupported mime type for extraction: ${mimeType}`);
@@ -60,7 +71,16 @@ export function extractDocument(input: ExtractDocumentInput): ExtractedDocument 
         ? input.bytes
         : "";
 
-  return EXTRACTORS[mimeType](title, content, sourceMetadata);
+  const asyncExtractor = ASYNC_EXTRACTORS[mimeType];
+  if (asyncExtractor) {
+    return asyncExtractor(title, content, sourceMetadata);
+  }
+
+  const syncExtractor = SYNC_EXTRACTORS[mimeType];
+  if (!syncExtractor) {
+    throw new Error(`Unsupported mime type for extraction: ${mimeType}`);
+  }
+  return syncExtractor(title, content, sourceMetadata);
 }
 
 export type {
@@ -107,3 +127,9 @@ export {
   looksLikeBinaryOrPdfJunk,
   pdfSyntaxLineRatio,
 } from "./text-quality";
+export {
+  PdfExtractionError,
+  isOcrRequiredError,
+  isPdfExtractionError,
+} from "./pdf-errors";
+export type { PdfFailureCode } from "./pdf-errors";

@@ -46,25 +46,27 @@ function buildSimplePdfWithFlateText(plain: string): Uint8Array {
 }
 
 describe("PDF extraction quality", () => {
-  it("rejects object-stream printable junk instead of treating it as evidence", () => {
+  it("rejects object-stream printable junk instead of treating it as evidence", async () => {
     const junk =
       "%PDF-1.7\n1 0 obj<< /Type /Catalog >>endobj\n2 0 obj<< /Length 10 >>stream\n\x00\x01endstream\nendobj\n";
     expect(looksLikeBinaryOrPdfJunk(junk)).toBe(true);
-    expect(() => extractPdf("board.pdf", junk)).toThrow(/object streams|no extractable/i);
+    await expect(extractPdf("board.pdf", junk)).rejects.toThrow(
+      /object streams|no extractable|INVALID|Malformed|OCR/i,
+    );
   });
 
-  it("extracts readable text from FlateDecode content streams", () => {
+  it("extracts readable text from FlateDecode content streams", async () => {
     const bytes = buildSimplePdfWithFlateText(
       "Board minutes approved financing and director election",
     );
-    const doc = extractPdf("minutes.pdf", bytes);
+    const doc = await extractPdf("minutes.pdf", bytes);
     expect(doc.metadata.extractionQuality).toBe("ok");
     expect(doc.text.toLowerCase()).toMatch(/board|approv|director|financ/);
     expect(looksLikeBinaryOrPdfJunk(doc.text)).toBe(false);
   });
 
-  it("accepts clean plain-text board minutes", () => {
-    const doc = extractPdf("minutes.pdf", BOARD_MINUTES_TEXT);
+  it("accepts clean plain-text board minutes", async () => {
+    const doc = await extractPdf("minutes.pdf", BOARD_MINUTES_TEXT);
     expect(doc.text).toContain("Series A");
     expect(doc.metadata.extractionMethod).toBe("plain-text");
   });
@@ -101,8 +103,8 @@ describe("governance facts from board minutes", () => {
 });
 
 describe("board minutes PDF → governance finding → Governance scored", () => {
-  it("scores Governance from clean board minutes with real facts only", () => {
-    const extracted = extractDocument({
+  it("scores Governance from clean board minutes with real facts only", async () => {
+    const extracted = await extractDocument({
       title: "board-minutes-july.pdf",
       mimeType: "application/pdf",
       text: BOARD_MINUTES_TEXT,
@@ -148,16 +150,16 @@ describe("board minutes PDF → governance finding → Governance scored", () =>
     ).toBe(true);
 
     // Presence-only junk must not score Governance.
-    expect(() =>
+    await expect(
       extractPdf(
         "junk.pdf",
         "%PDF-1.4\n52 0 obj\n<< /Type /Font >>\nendobj\n53 0 obj\nendobj\n",
       ),
-    ).toThrow(/object streams/i);
+    ).rejects.toThrow(/object streams|INVALID|Malformed|no extractable/i);
   });
 
-  it("reprocess-equivalent upsert replaces evidence id without inventing healthy score from empty facts", () => {
-    const emptyish = extractDocument({
+  it("reprocess-equivalent upsert replaces evidence id without inventing healthy score from empty facts", async () => {
+    const emptyish = await extractDocument({
       title: "hello.txt",
       mimeType: "text/plain",
       text: "Hello world. This is not a board packet.",

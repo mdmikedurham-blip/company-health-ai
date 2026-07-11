@@ -30,6 +30,11 @@ type UploadedDocumentRecord = {
   processingStartedAt?: string | null;
   lastStage?: string | null;
   errorMessage?: string | null;
+  reprocessErrorMessage?: string | null;
+  extractionVersion?: string | null;
+  analysisVersion?: string | null;
+  lastSuccessfulExtractionVersion?: string | null;
+  lastSuccessfulAnalysisVersion?: string | null;
 };
 
 type UploadItem = {
@@ -53,9 +58,16 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function statusTone(status: string | undefined): string {
+function statusTone(status: string | undefined, doc?: UploadedDocumentRecord): string {
+  if (
+    status === "PROCESSED" &&
+    (doc?.reprocessErrorMessage || doc?.lastStage === "reprocess_failed")
+  ) {
+    return "text-amber-300";
+  }
   switch (status) {
     case "QUEUED":
+    case "STALE":
       return "text-amber-300";
     case "PROCESSING":
     case "EXTRACTED":
@@ -64,6 +76,8 @@ function statusTone(status: string | undefined): string {
       return "text-amber-300";
     case "PROCESSED":
       return "text-emerald-300";
+    case "OCR_REQUIRED":
+      return "text-amber-300";
     case "FAILED":
       return "text-red-300";
     case "UPLOADED":
@@ -73,19 +87,34 @@ function statusTone(status: string | undefined): string {
   }
 }
 
-function analysisLabel(status: string | undefined): string {
+function analysisLabel(doc: UploadedDocumentRecord | { status?: string; lastStage?: string | null; reprocessErrorMessage?: string | null }): string {
+  const status = doc.status;
+  if (
+    status === "PROCESSED" &&
+    (doc.reprocessErrorMessage || doc.lastStage === "reprocess_failed")
+  ) {
+    return "Reprocess failed — previous analysis retained";
+  }
+  const reprocessing =
+    doc.lastStage === "requeued_stale" ||
+    doc.lastStage === "version_stale" ||
+    doc.lastStage === "requeued";
   switch (status) {
     case "QUEUED":
-      return "Queued";
+      return reprocessing ? "Reprocessing" : "Queued";
     case "PROCESSING":
-      return "Extracting";
+      return reprocessing ? "Reprocessing" : "Extracting";
     case "EXTRACTED":
     case "ANALYZING":
-      return "Analyzing";
+      return reprocessing ? "Reprocessing" : "Analyzing";
     case "DELETING":
       return "Deleting";
+    case "STALE":
+      return "Update available";
     case "PROCESSED":
-      return "Complete";
+      return "Current";
+    case "OCR_REQUIRED":
+      return "OCR required";
     case "FAILED":
       return "Failed";
     case "UPLOADED":
@@ -164,6 +193,7 @@ export function DocumentUploadPanel({
   const [cancellingDocumentId, setCancellingDocumentId] = useState<
     string | null
   >(null);
+  const [upgradePending, setUpgradePending] = useState(false);
   const [retryPending, setRetryPending] = useState(false);
   const [, startTransition] = useTransition();
   const busy = items.some(
@@ -229,6 +259,40 @@ export function DocumentUploadPanel({
     },
     [refreshList],
   );
+
+  const upgradeOutdatedDocuments = useCallback(async () => {
+    setUpgradePending(true);
+    setListError(null);
+    try {
+      const res = await fetch("/api/documents/upgrade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        enqueued?: string[];
+        markedStale?: string[];
+      };
+      if (!res.ok) {
+        setListError(data.error ?? "Upgrade failed.");
+        return;
+      }
+      const count = data.enqueued?.length ?? 0;
+      setToast({
+        tone: "success",
+        message:
+          count > 0
+            ? `Reprocessing ${count} outdated document${count === 1 ? "" : "s"}.`
+            : "No outdated documents to reprocess.",
+      });
+      await refreshList();
+    } catch {
+      setListError("Upgrade failed.");
+    } finally {
+      setUpgradePending(false);
+    }
+  }, [refreshList]);
 
   const removeDocument = useCallback(
     async (doc: UploadedDocumentRecord) => {
@@ -521,7 +585,7 @@ export function DocumentUploadPanel({
                           : item.phase === "enqueueing"
                             ? " · finishing upload"
                             : item.phase === "done"
-                              ? ` · upload complete · analysis: ${analysisLabel(item.status)}`
+                              ? ` · upload complete · analysis: ${analysisLabel({ status: item.status })}`
                               : item.phase === "error"
                                 ? ""
                                 : " · waiting"}
@@ -538,7 +602,7 @@ export function DocumentUploadPanel({
                       <div
                         className={`mt-1 text-[11px] font-medium uppercase tracking-wide ${statusTone(item.status)}`}
                       >
-                        {analysisLabel(item.status)}
+                        {analysisLabel({ status: item.status })}
                       </div>
                     ) : null}
                   </div>
@@ -563,8 +627,22 @@ export function DocumentUploadPanel({
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-sm font-medium text-zinc-200">Recent uploads</h3>
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              disabled={upgradePending || retryPending}
+              onClick={() => void upgradeOutdatedDocuments()}
+              className="text-xs font-medium text-sky-300 transition hover:text-sky-200 disabled:opacity-60"
+            >
+              {upgradePending
+                ? "Enqueueing…"
+                : "Reprocess outdated documents"}
+            </button>
             {recent.some(
-              (d) => d.status === "QUEUED" || d.status === "FAILED",
+              (d) =>
+                d.status === "QUEUED" ||
+                d.status === "FAILED" ||
+                d.status === "STALE" ||
+                d.status === "OCR_REQUIRED",
             ) ? (
               <button
                 type="button"
@@ -626,10 +704,15 @@ export function DocumentUploadPanel({
                       {doc.byteSize != null ? formatBytes(doc.byteSize) : "—"}
                       {doc.mimeType ? ` · ${doc.mimeType}` : ""}
                       {" · analysis: "}
-                      <span className={statusTone(doc.status)}>
-                        {analysisLabel(doc.status)}
+                      <span className={statusTone(doc.status, doc)}>
+                        {analysisLabel(doc)}
                       </span>
                     </p>
+                    {(doc.errorMessage || doc.reprocessErrorMessage) && (
+                      <p className="mt-1 max-w-xl text-[11px] leading-snug text-red-300/90">
+                        {doc.reprocessErrorMessage ?? doc.errorMessage}
+                      </p>
+                    )}
                   </div>
                   <div className="flex shrink-0 items-center gap-3">
                     {actions.includes("retry") ? (
@@ -680,9 +763,9 @@ export function DocumentUploadPanel({
                       </span>
                     ) : null}
                     <span
-                      className={`text-[11px] font-medium uppercase tracking-wide ${statusTone(doc.status)}`}
+                      className={`text-[11px] font-medium uppercase tracking-wide ${statusTone(doc.status, doc)}`}
                     >
-                      {analysisLabel(doc.status)}
+                      {analysisLabel(doc)}
                     </span>
                   </div>
                 </li>

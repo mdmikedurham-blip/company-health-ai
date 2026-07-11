@@ -25,6 +25,7 @@ describe("dashboard tenant isolation", () => {
     expect(view.scoreChangeExplanation.hasPriorSnapshot).toBe(false);
     expect(view.topRisks).toEqual([]);
     expect(view.recommendations).toEqual([]);
+    expect(view.evidenceCoverage).toBeNull();
   });
 
   it("dashboard panels reconcile to one snapshot id in provenance", () => {

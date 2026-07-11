@@ -21,6 +21,8 @@ import {
   listTimelineEvents,
 } from "@/lib/supabase/repository";
 import { createEvidenceRepository } from "@/lib/repositories";
+import { getCompanyClassification } from "@/lib/classification/persist";
+import { computeEvidenceCoverage } from "@/lib/coverage";
 import { MANUAL_UPLOAD_CONNECTOR_ID } from "@/lib/uploads/constants";
 import {
   buildDimensionCoverage,
@@ -213,6 +215,7 @@ export function emptyTenantDashboard(input: {
       confidence: 0,
       scoreAvailable: false,
     }),
+    evidenceCoverage: null,
     healthScore,
     scoreChangeExplanation: emptyScoreChange(0),
     executiveBrief: emptyBrief(healthScore),
@@ -275,14 +278,22 @@ export async function loadTenantDashboard(input: {
     return emptyTenantDashboard({ companyId, companyName, documentCount });
   }
 
-  const [findings, risks, recommendations, timelineEvents, evidence] =
+  const [findings, risks, recommendations, timelineEvents, evidence, classification] =
     await Promise.all([
       listFindings(client, companyId),
       listRisks(client, companyId),
       listRecommendations(client, companyId),
       listTimelineEvents(client, companyId),
       createEvidenceRepository({ client }).listByCompany(companyId),
+      getCompanyClassification(client, companyId).catch(() => null),
     ]);
+
+  const evidenceCoverage = computeEvidenceCoverage({
+    evidence,
+    stage: classification?.stage ?? null,
+    generatedAt:
+      snapshotRow?.created_at ?? new Date().toISOString(),
+  });
 
   const rawHealth = latest?.healthScore ?? {
     ...EMPTY_HEALTH,
@@ -426,6 +437,7 @@ export async function loadTenantDashboard(input: {
       confidence: healthScore.confidence,
       scoreAvailable: healthScore.scoreAvailable,
     }),
+    evidenceCoverage,
     healthScore,
     scoreChangeExplanation,
     executiveBrief,

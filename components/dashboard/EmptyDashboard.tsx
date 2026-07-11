@@ -93,7 +93,7 @@ export function EmptyDashboard({
                 className={
                   item.label === "Failed"
                     ? "shrink-0 text-red-300"
-                    : item.label === "Complete"
+                    : item.label === "Current"
                       ? "shrink-0 text-emerald-300"
                       : "shrink-0 text-amber-300"
                 }

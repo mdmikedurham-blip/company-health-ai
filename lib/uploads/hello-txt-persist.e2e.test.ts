@@ -42,8 +42,8 @@ function assertUuid(value: string | null | undefined, label: string) {
 }
 
 describe("hello.txt manual-upload → timeline persistence UUID regression", () => {
-  it("reaches PROCESSED artifacts: evidence, findings, risks, recs, health, timeline, snapshot shape", () => {
-    const extracted = extractDocument({
+  it("reaches PROCESSED artifacts: evidence, findings, risks, recs, health, timeline, snapshot shape", async () => {
+    const extracted = await extractDocument({
       title: "hello.txt",
       mimeType: "text/plain",
       bytes: new TextEncoder().encode(HELLO_BODY),

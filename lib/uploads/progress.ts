@@ -99,7 +99,7 @@ export function computeDashboardProcessingState(input: {
   } else if (items.some((i) => i.status === "UPLOADED")) {
     overallLabel = "Uploading";
   } else if (items.some((i) => i.status === "PROCESSED")) {
-    overallLabel = "Complete";
+    overallLabel = "Current";
   }
 
   return {

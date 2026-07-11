@@ -16,6 +16,8 @@ import {
 import {
   claimDocumentJob,
   markDocumentFailed,
+  markDocumentOcrRequired,
+  markReprocessFailedPreserving,
   updateDocumentStage,
   type DocumentJobRow,
 } from "./claim";
@@ -31,6 +33,18 @@ import {
 } from "./removal-policy";
 import { recoverAbandonedManualUploadJobs } from "./stale-recovery";
 import { isTimeoutError, TimeoutError, withTimeout } from "./timeout";
+import {
+  CURRENT_ANALYSIS_VERSION,
+  CURRENT_EXTRACTION_VERSION,
+  MAX_REPROCESS_ATTEMPTS,
+  nextReprocessAtIso,
+} from "./versions";
+import { autoEnqueueVersionStaleDocuments } from "./version-upgrade";
+import {
+  isOcrRequiredError,
+  isPdfExtractionError,
+} from "@/lib/connectors/extraction/pdf-errors";
+import type { Evidence } from "@/lib/domain";
 
 /** Max concurrent extractors inside a single drain/batch worker. */
 export const EXTRACTION_CONCURRENCY = 4;
@@ -206,50 +220,131 @@ export async function continueClaimedManualUpload(input: {
       };
     }
 
-    const timedOut = isTimeoutError(err);
-    const lastStage = timedOut ? "extraction_timeout" : "failed";
-    await markDocumentFailed({
+    return finalizeProcessingFailure({
       client: input.client,
       companyId,
-      documentId,
-      errorMessage: message,
-      lastStage,
+      claimed,
+      err,
+      message,
     });
-    // Timeouts are already logged in extractAndPersistEvidence with stage detail.
-    if (!timedOut) {
-      logUploadProcessingEvent("manual_upload_processing_failed", {
-        documentId,
-        companyId,
-        stage: lastStage,
-        outcome: "failed",
-        status: "FAILED",
-        errorMessage: message.slice(0, 500),
-        reason: "extraction_error",
-        leaseCleared: true,
-        errorStack:
-          err instanceof Error
-            ? (err.stack ?? message).slice(0, 4000)
-            : String(err),
-      });
-    } else {
-      logUploadProcessingEvent("manual_upload_extraction_timeout", {
-        documentId,
-        companyId,
-        stage: "lease_cleared",
-        outcome: "failed",
-        status: "FAILED",
-        errorMessage: message.slice(0, 500),
-        reason: "extraction_timeout",
-        leaseCleared: true,
-      });
-    }
+  }
+}
+
+async function finalizeProcessingFailure(input: {
+  client: AppSupabaseClient;
+  companyId: string;
+  claimed: DocumentJobRow;
+  err: unknown;
+  message: string;
+}): Promise<ProcessDocumentResult> {
+  const { claimed, companyId, client, err, message } = input;
+  const documentId = claimed.id;
+  const timedOut = isTimeoutError(err);
+  const userMessage = isPdfExtractionError(err)
+    ? err.userMessage
+    : message;
+  const evidenceRepo = createEvidenceRepository({ client });
+  let existingEvidence: Evidence | null = null;
+  if (typeof evidenceRepo.getById === "function") {
+    existingEvidence = await evidenceRepo.getById(companyId, documentId);
+  }
+  const hadPriorSuccess = Boolean(
+    claimed.last_successful_extraction_version ||
+      claimed.last_successful_analysis_version ||
+      existingEvidence,
+  );
+  const attempt = claimed.processing_attempts ?? 1;
+
+  if (isOcrRequiredError(err)) {
+    await markDocumentOcrRequired({
+      client,
+      companyId,
+      documentId,
+      errorMessage: userMessage,
+    });
+    logUploadProcessingEvent("manual_upload_processing_failed", {
+      documentId,
+      companyId,
+      stage: "ocr_required",
+      outcome: "failed",
+      status: "OCR_REQUIRED",
+      errorMessage: userMessage.slice(0, 500),
+      reason: "ocr_required",
+      leaseCleared: true,
+    });
     return {
       documentId,
       companyId,
       status: "failed",
-      errorMessage: message,
+      errorMessage: userMessage,
+      reason: "ocr_required",
     };
   }
+
+  if (hadPriorSuccess) {
+    const nextAt = nextReprocessAtIso(attempt);
+    await markReprocessFailedPreserving({
+      client,
+      companyId,
+      documentId,
+      errorMessage: userMessage,
+      attempt,
+      nextReprocessAt:
+        attempt >= MAX_REPROCESS_ATTEMPTS
+          ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString()
+          : nextAt,
+    });
+    logUploadProcessingEvent("manual_upload_processing_failed", {
+      documentId,
+      companyId,
+      stage: "reprocess_failed",
+      outcome: "failed",
+      status: "PROCESSED",
+      errorMessage: userMessage.slice(0, 500),
+      reason: "reprocess_failed_previous_retained",
+      leaseCleared: true,
+    });
+    return {
+      documentId,
+      companyId,
+      status: "failed",
+      errorMessage: userMessage,
+      reason: "reprocess_failed_previous_retained",
+    };
+  }
+
+  const lastStage = timedOut
+    ? "extraction_timeout"
+    : isPdfExtractionError(err)
+      ? err.code.toLowerCase()
+      : "failed";
+  await markDocumentFailed({
+    client,
+    companyId,
+    documentId,
+    errorMessage: userMessage,
+    lastStage,
+  });
+  logUploadProcessingEvent("manual_upload_processing_failed", {
+    documentId,
+    companyId,
+    stage: lastStage,
+    outcome: "failed",
+    status: "FAILED",
+    errorMessage: userMessage.slice(0, 500),
+    reason: timedOut ? "extraction_timeout" : "extraction_error",
+    leaseCleared: true,
+    errorStack:
+      err instanceof Error
+        ? (err.stack ?? message).slice(0, 4000)
+        : String(err),
+  });
+  return {
+    documentId,
+    companyId,
+    status: "failed",
+    errorMessage: userMessage,
+  };
 }
 
 async function extractAndPersistEvidence(input: {
@@ -268,6 +363,16 @@ async function extractAndPersistEvidence(input: {
   if (!isExtractableMimeType(claimed.mime_type)) {
     throw new Error(`Unsupported mime type: ${claimed.mime_type}`);
   }
+
+  const evidenceRepo = createEvidenceRepository({ client });
+  const evidenceId = evidenceIdForManualUpload(claimed.id);
+
+  // Snapshot prior evidence so a failed reprocess can restore it.
+  let priorEvidence: Evidence | null = null;
+  if (typeof evidenceRepo.getById === "function") {
+    priorEvidence = await evidenceRepo.getById(companyId, evidenceId);
+  }
+  let wroteNewEvidence = false;
 
   if (
     await wasProcessingCancelled({
@@ -299,6 +404,19 @@ async function extractAndPersistEvidence(input: {
     const remainingBudget = () =>
       Math.max(1_000, EXTRACTION_TIMEOUT_MS - (Date.now() - extractionStartedAt));
 
+    await updateDocumentStage({
+      client,
+      companyId,
+      documentId,
+      status: "PROCESSING",
+      lastStage: "extracting",
+      patch: {
+        extraction_version: CURRENT_EXTRACTION_VERSION,
+        analysis_version: CURRENT_ANALYSIS_VERSION,
+        reprocess_error_message: null,
+      },
+    });
+
     const { data: blob, error: downloadError } = await withTimeout(
       client.storage.from(COMPANY_DOCUMENTS_BUCKET).download(claimed.storage_path),
       Math.min(DOWNLOAD_TIMEOUT_MS, remainingBudget()),
@@ -316,8 +434,8 @@ async function extractAndPersistEvidence(input: {
 
     const title = claimed.filename ?? claimed.title;
 
-    // Sync parsers cannot be aborted mid-CPU; wall-clock checked immediately after.
-    const extracted = extractDocument({
+    // Staging: parse fully before touching persisted evidence.
+    const extracted = await extractDocument({
       title,
       mimeType: claimed.mime_type,
       bytes,
@@ -373,7 +491,6 @@ async function extractAndPersistEvidence(input: {
       MANUAL_UPLOAD_CONNECTOR_ID,
       "Manual Upload",
     );
-    const evidenceId = evidenceIdForManualUpload(claimed.id);
     if (evidenceId !== claimed.id) {
       throw new Error(
         `manual upload evidence id mismatch: evidence=${evidenceId} document=${claimed.id}`,
@@ -391,6 +508,7 @@ async function extractAndPersistEvidence(input: {
         document_id: claimed.id,
         externalKey: manualUploadExternalKey(claimed.id),
         source: "manual-upload",
+        extractionVersion: CURRENT_EXTRACTION_VERSION,
       },
     };
 
@@ -402,12 +520,12 @@ async function extractAndPersistEvidence(input: {
       evidenceId: evidence.id,
     });
 
-    const evidenceRepo = createEvidenceRepository({ client });
     await withTimeout(
       evidenceRepo.upsert(companyId, [evidence]),
       remainingBudget(),
       "evidence_upsert",
     );
+    wroteNewEvidence = true;
 
     if (
       await wasProcessingCancelled({
@@ -416,6 +534,9 @@ async function extractAndPersistEvidence(input: {
         documentId,
       })
     ) {
+      if (priorEvidence) {
+        await evidenceRepo.upsert(companyId, [priorEvidence]);
+      }
       return {
         documentId,
         companyId,
@@ -432,6 +553,7 @@ async function extractAndPersistEvidence(input: {
       status: "EXTRACTED",
       lastStage: "extracted",
       patch: {
+        extraction_version: CURRENT_EXTRACTION_VERSION,
         raw_summary: (() => {
           const slice = extracted.text.slice(0, 4000);
           if (
@@ -463,6 +585,22 @@ async function extractAndPersistEvidence(input: {
       evidenceId,
     };
   } catch (error) {
+    // Restore prior evidence if we already wrote a replacement that must be rolled back.
+    if (wroteNewEvidence && priorEvidence) {
+      try {
+        await evidenceRepo.upsert(companyId, [priorEvidence]);
+      } catch (restoreErr) {
+        logUploadProcessingException("manual_upload_evidence_restore_failed", {
+          documentId,
+          companyId,
+          filename: claimed.filename ?? claimed.title,
+          mimeType: claimed.mime_type,
+          stage: "evidence_restore",
+          err: restoreErr,
+        });
+      }
+    }
+
     const timedOut = isTimeoutError(error);
     if (timedOut) {
       logUploadProcessingEvent("manual_upload_extraction_timeout", {
@@ -513,6 +651,13 @@ export async function processQueuedManualUploads(input: {
     limit,
   });
 
+  // Auto-enqueue version-stale PROCESSED docs (bounded batch).
+  const versionUpgrade = await autoEnqueueVersionStaleDocuments({
+    client: input.client,
+    companyId: input.companyId,
+    limit,
+  });
+
   const { data: queued, error: queuedError } = await input.client
     .from("documents")
     .select("id")
@@ -542,10 +687,11 @@ export async function processQueuedManualUploads(input: {
     );
   }
 
-  // Prefer recovered + any QUEUED (recovery already requeued abandoned PROCESSING).
+  // Prefer recovered + version-upgrade enqueued + any QUEUED.
   const claimIds = [
     ...new Set([
       ...recovery.requeuedProcessingIds,
+      ...versionUpgrade.enqueued,
       ...(queued ?? []).map((r) => r.id),
     ]),
   ].slice(0, limit);

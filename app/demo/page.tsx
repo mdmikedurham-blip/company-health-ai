@@ -15,11 +15,18 @@ import {
   dimensions,
 } from "@/lib/data";
 import { loadDemoDashboardView } from "@/lib/dashboard";
+import { computeEvidenceCoverage } from "@/lib/coverage";
 
 export default function DemoDashboard() {
+  const evidenceCoverage = computeEvidenceCoverage({
+    evidence: [],
+    stage: "Growth",
+  });
+
   const view = loadDemoDashboardView({
     companyName: "Acme Corp",
     metrics: dashboardMetrics,
+    evidenceCoverage,
     healthScore,
     scoreChangeExplanation,
     executiveBrief,

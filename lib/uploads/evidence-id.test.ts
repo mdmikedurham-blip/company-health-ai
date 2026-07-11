@@ -93,8 +93,8 @@ describe("manual-upload evidence UUID regression", () => {
     expect((upserted[0] as { id: string }).id).not.toContain("upload-");
   });
 
-  it("pipeline + manual-upload document UUID produces UUID evidence for hello.txt", () => {
-    const extracted = extractDocument({
+  it("pipeline + manual-upload document UUID produces UUID evidence for hello.txt", async () => {
+    const extracted = await extractDocument({
       title: "hello.txt",
       mimeType: "text/plain",
       bytes: new TextEncoder().encode("hello\n"),

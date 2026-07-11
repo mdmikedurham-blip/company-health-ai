@@ -41,6 +41,10 @@ import {
   updateDocumentStage,
 } from "./claim";
 import { MANUAL_UPLOAD_CONNECTOR_ID } from "./constants";
+import {
+  CURRENT_ANALYSIS_VERSION,
+  CURRENT_EXTRACTION_VERSION,
+} from "./versions";
 import { logUploadProcessingEvent } from "./logging";
 import { sleep, withRetry } from "./retry";
 import { evidenceIdForManualUpload } from "./removal-policy";
@@ -398,6 +402,8 @@ export async function runCompanyAnalysisPass(input: {
           client,
           companyId,
           documentId,
+          extractionVersion: CURRENT_EXTRACTION_VERSION,
+          analysisVersion: CURRENT_ANALYSIS_VERSION,
         });
         analyzedDocumentIds.push(documentId);
         logUploadProcessingEvent("manual_upload_processing_completed", {
