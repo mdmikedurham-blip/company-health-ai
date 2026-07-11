@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import type { EvidenceExplorerRecord } from "@/lib/application/evidence-explorer-model";
+import type { ProvenanceRecord } from "@/lib/application/provenance";
 
 interface EvidenceRecordCardProps {
-  record: EvidenceExplorerRecord;
+  record: ProvenanceRecord;
   selected?: boolean;
   onSelect?: () => void;
 }
@@ -23,7 +23,7 @@ export function EvidenceRecordCard({
   selected,
   onSelect,
 }: EvidenceRecordCardProps) {
-  const [rawOpen, setRawOpen] = useState(false);
+  const [techOpen, setTechOpen] = useState(false);
   const color = systemColors[record.sourceSystem] ?? "#3b82f6";
 
   return (
@@ -33,12 +33,9 @@ export function EvidenceRecordCard({
           ? "border-blue-500/40 bg-blue-500/10"
           : "border-[var(--border)] bg-white/[0.02] hover:border-white/15 hover:bg-white/[0.04]"
       }`}
+      data-testid="evidence-record-card"
     >
-      <button
-        type="button"
-        onClick={onSelect}
-        className="w-full p-4 text-left"
-      >
+      <button type="button" onClick={onSelect} className="w-full p-4 text-left">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2.5">
             <div
@@ -52,7 +49,8 @@ export function EvidenceRecordCard({
                 {record.documentName}
               </p>
               <p className="text-[11px] text-zinc-500">
-                {record.documentType} · {record.sourceSystem}
+                {record.documentType} · {record.sourceSystem} ·{" "}
+                {record.documentStatus}
               </p>
             </div>
           </div>
@@ -67,6 +65,12 @@ export function EvidenceRecordCard({
         <p className="mt-3 text-xs leading-relaxed text-zinc-300">
           {record.aiSummary}
         </p>
+
+        {!record.provenanceAvailable ? (
+          <p className="mt-2 text-[10px] text-amber-300/90">
+            Provenance unavailable
+          </p>
+        ) : null}
 
         <div className="mt-3 flex flex-wrap gap-1.5">
           {record.dimensions.map((dim) => (
@@ -101,7 +105,8 @@ export function EvidenceRecordCard({
         </dl>
 
         {(record.findingsCreated.length > 0 ||
-          record.risksCreated.length > 0) && (
+          record.risksCreated.length > 0 ||
+          record.recommendationsCreated.length > 0) && (
           <div className="mt-2 space-y-1">
             {record.findingsCreated.slice(0, 2).map((title) => (
               <p key={title} className="truncate text-[10px] text-yellow-400/90">
@@ -113,27 +118,51 @@ export function EvidenceRecordCard({
                 Risk · {title}
               </p>
             ))}
+            {record.recommendationsCreated.slice(0, 2).map((title) => (
+              <p key={title} className="truncate text-[10px] text-orange-400/90">
+                Action · {title}
+              </p>
+            ))}
           </div>
         )}
 
-        <p className="mt-3 text-[10px] text-zinc-600">
-          Processed {record.processingDate}
-        </p>
+        <div className="mt-3 flex items-center justify-between gap-2 text-[10px] text-zinc-600">
+          <span>
+            Processed{" "}
+            {Number.isNaN(Date.parse(record.processingDate))
+              ? record.processingDate
+              : new Date(record.processingDate).toLocaleDateString()}
+          </span>
+          {record.scoreContribution != null ? (
+            <span className="text-purple-300">
+              Score {record.scoreContribution > 0 ? "+" : ""}
+              {record.scoreContribution}
+            </span>
+          ) : null}
+        </div>
       </button>
 
       <div className="border-t border-white/[0.04] px-4 py-2">
         <button
           type="button"
-          onClick={() => setRawOpen((v) => !v)}
+          onClick={() => setTechOpen((v) => !v)}
           className="text-[10px] font-medium text-zinc-500 transition hover:text-zinc-300"
+          data-testid="technical-details-toggle"
         >
-          {rawOpen ? "Hide raw extract" : "Raw extract (developer)"}
+          {techOpen ? "Hide technical details" : "Technical details"}
         </button>
-        {rawOpen ? (
-          <pre className="mt-2 max-h-40 overflow-auto rounded-md bg-black/40 p-2 text-[10px] leading-relaxed whitespace-pre-wrap text-zinc-500">
+        {techOpen ? (
+          <pre
+            className="mt-2 max-h-40 overflow-auto rounded-md bg-black/40 p-2 text-[10px] leading-relaxed whitespace-pre-wrap text-zinc-500"
+            data-testid="technical-details-body"
+          >
             {record.rawExtract}
           </pre>
-        ) : null}
+        ) : (
+          <span className="sr-only" data-testid="raw-extract-hidden">
+            Raw extract hidden by default
+          </span>
+        )}
       </div>
     </div>
   );

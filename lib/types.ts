@@ -40,6 +40,7 @@ export type {
 
 /** Evidence explorer list view projection */
 export type { EvidenceExplorerRecord as EvidenceRecordView } from "@/lib/application/evidence-explorer-model";
+export type { ProvenanceRecord } from "@/lib/application/provenance";
 
 export type {
   ExplorerGraphNode,

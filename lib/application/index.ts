@@ -39,3 +39,17 @@ export type {
   ExplorerGraphEdge,
 } from "./evidence-explorer-model";
 export { layoutEvidenceExplorerGraph } from "./evidence-graph-layout";
+export {
+  buildProvenanceBundle,
+  buildProvenanceGraph,
+  buildProvenanceRecords,
+  collectProvenancePath,
+  layoutProvenanceGraph,
+  looksLikeBinaryOrPdfJunk,
+} from "./provenance";
+export type {
+  ProvenanceBundle,
+  ProvenanceGraphEdge,
+  ProvenanceGraphNode,
+  ProvenanceRecord,
+} from "./provenance";
