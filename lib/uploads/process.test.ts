@@ -261,7 +261,7 @@ describe("dashboard progress states", () => {
     expect(progressLabelForStatus("PROCESSING")).toBe("Extracting");
     expect(progressLabelForStatus("EXTRACTED")).toBe("Analyzing");
     expect(progressLabelForStatus("ANALYZING")).toBe("Analyzing");
-    expect(progressLabelForStatus("PROCESSED")).toBe("Complete");
+    expect(progressLabelForStatus("PROCESSED")).toBe("Current");
     expect(progressLabelForStatus("FAILED")).toBe("Failed");
   });
 

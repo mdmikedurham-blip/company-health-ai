@@ -24,6 +24,11 @@ export type UploadedDocumentRecord = {
   processingStartedAt: string | null;
   lastStage: string | null;
   errorMessage: string | null;
+  reprocessErrorMessage: string | null;
+  extractionVersion: string | null;
+  analysisVersion: string | null;
+  lastSuccessfulExtractionVersion: string | null;
+  lastSuccessfulAnalysisVersion: string | null;
 };
 
 export type SignedUploadSession = {
@@ -38,7 +43,7 @@ export type SignedUploadSession = {
 };
 
 const DOCUMENT_LIST_SELECT =
-  "id, company_id, filename, title, mime_type, byte_size, storage_path, status, uploaded_by, created_at, updated_at, lease_expires_at, locked_at, processing_started_at, last_stage, error_message";
+  "id, company_id, filename, title, mime_type, byte_size, storage_path, status, uploaded_by, created_at, updated_at, lease_expires_at, locked_at, processing_started_at, last_stage, error_message, reprocess_error_message, extraction_version, analysis_version, last_successful_extraction_version, last_successful_analysis_version";
 
 function rowToRecord(row: {
   id: string;
@@ -57,6 +62,11 @@ function rowToRecord(row: {
   processing_started_at?: string | null;
   last_stage?: string | null;
   error_message?: string | null;
+  reprocess_error_message?: string | null;
+  extraction_version?: string | null;
+  analysis_version?: string | null;
+  last_successful_extraction_version?: string | null;
+  last_successful_analysis_version?: string | null;
 }): UploadedDocumentRecord {
   return {
     id: row.id,
@@ -74,6 +84,12 @@ function rowToRecord(row: {
     processingStartedAt: row.processing_started_at ?? null,
     lastStage: row.last_stage ?? null,
     errorMessage: row.error_message ?? null,
+    reprocessErrorMessage: row.reprocess_error_message ?? null,
+    extractionVersion: row.extraction_version ?? null,
+    analysisVersion: row.analysis_version ?? null,
+    lastSuccessfulExtractionVersion:
+      row.last_successful_extraction_version ?? null,
+    lastSuccessfulAnalysisVersion: row.last_successful_analysis_version ?? null,
   };
 }
 

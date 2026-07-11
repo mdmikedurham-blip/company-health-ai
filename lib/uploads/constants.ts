@@ -47,6 +47,8 @@ export const UPLOAD_DOCUMENT_STATUSES = [
   "PROCESSED",
   "FAILED",
   "DELETING",
+  "STALE",
+  "OCR_REQUIRED",
 ] as const;
 
 export type UploadDocumentStatus = (typeof UPLOAD_DOCUMENT_STATUSES)[number];
@@ -54,6 +56,7 @@ export type UploadDocumentStatus = (typeof UPLOAD_DOCUMENT_STATUSES)[number];
 export const TERMINAL_UPLOAD_STATUSES: UploadDocumentStatus[] = [
   "PROCESSED",
   "FAILED",
+  "OCR_REQUIRED",
 ];
 
 export const IN_FLIGHT_UPLOAD_STATUSES: UploadDocumentStatus[] = [
@@ -63,6 +66,7 @@ export const IN_FLIGHT_UPLOAD_STATUSES: UploadDocumentStatus[] = [
   "EXTRACTED",
   "ANALYZING",
   "DELETING",
+  "STALE",
 ];
 
 /** Statuses where removal is blocked while a lease is active. */
@@ -79,6 +83,8 @@ export const REMOVABLE_DOCUMENT_STATUSES: UploadDocumentStatus[] = [
   "FAILED",
   "PROCESSED",
   "DELETING",
+  "STALE",
+  "OCR_REQUIRED",
 ];
 
 /**
@@ -140,26 +146,47 @@ export type UploadProgressLabel =
   | "Extracting"
   | "Analyzing"
   | "Deleting"
-  | "Complete"
+  | "Current"
+  | "Reprocessing"
+  | "Update available"
+  | "Reprocess failed — previous analysis retained"
+  | "OCR required"
   | "Failed";
 
 export function progressLabelForStatus(
   status: string,
+  opts?: {
+    reprocessErrorMessage?: string | null;
+    lastStage?: string | null;
+  },
 ): UploadProgressLabel {
+  if (
+    status === "PROCESSED" &&
+    (opts?.reprocessErrorMessage ||
+      opts?.lastStage === "reprocess_failed")
+  ) {
+    return "Reprocess failed — previous analysis retained";
+  }
   switch (status) {
     case "UPLOADED":
       return "Uploading";
     case "QUEUED":
-      return "Queued";
+      return opts?.lastStage === "version_stale" ||
+        opts?.lastStage === "requeued_stale"
+        ? "Reprocessing"
+        : "Queued";
     case "PROCESSING":
-      return "Extracting";
     case "EXTRACTED":
     case "ANALYZING":
-      return "Analyzing";
+      return status === "PROCESSING" ? "Extracting" : "Analyzing";
+    case "STALE":
+      return "Update available";
     case "PROCESSED":
-      return "Complete";
+      return "Current";
     case "DELETING":
       return "Deleting";
+    case "OCR_REQUIRED":
+      return "OCR required";
     case "FAILED":
       return "Failed";
     default:

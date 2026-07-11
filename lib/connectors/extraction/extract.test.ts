@@ -44,8 +44,8 @@ describe("ExtractedDocument extractors", () => {
     expect(doc.sections[0]?.title).toBe("Acme");
   });
 
-  it("PDF uses printable text sections", () => {
-    const doc = extractPdf("board.pdf", "Page one.\n\nPage two.");
+  it("PDF uses printable text sections", async () => {
+    const doc = await extractPdf("board.pdf", "Page one.\n\nPage two.");
     expect(doc.metadata.format).toBe("PDF");
     expect(doc.sections.length).toBe(2);
     expect(doc.title).toBe("board.pdf");
@@ -74,8 +74,8 @@ describe("ExtractedDocument extractors", () => {
     expect(slides.sections.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("extractDocument routes by mime type", () => {
-    const doc = extractDocument({
+  it("extractDocument routes by mime type", async () => {
+    const doc = await extractDocument({
       title: "a.md",
       mimeType: "text/markdown",
       text: "# Hi\nThere",
@@ -87,13 +87,13 @@ describe("ExtractedDocument extractors", () => {
     expect(doc.sections[0]?.title).toBe("Hi");
   });
 
-  it("rejects unsupported mime types", () => {
-    expect(() =>
+  it("rejects unsupported mime types", async () => {
+    await expect(
       extractDocument({
         title: "x",
         mimeType: "image/png",
         text: "",
       }),
-    ).toThrow(/Unsupported mime type/);
+    ).rejects.toThrow(/Unsupported mime type/);
   });
 });

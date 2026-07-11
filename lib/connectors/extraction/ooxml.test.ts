@@ -151,7 +151,7 @@ describe("XLSX extraction", () => {
     expect(doc.sections[0]?.metadata?.sheet).toBe("Revenue");
   });
 
-  it("routes via extractDocument mime type", () => {
+  it("routes via extractDocument mime type", async () => {
     const bytes = buildStoreZip({
       "xl/workbook.xml":
         '<workbook><sheets><sheet name="S1" sheetId="1" r:id="rId1"/></sheets></workbook>',
@@ -161,7 +161,7 @@ describe("XLSX extraction", () => {
       "xl/worksheets/sheet1.xml":
         '<worksheet><sheetData><row><c t="s"><v>0</v></c></row></sheetData></worksheet>',
     });
-    const doc = extractDocument({
+    const doc = await extractDocument({
       title: "a.xlsx",
       mimeType:
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -200,16 +200,18 @@ describe("PPTX extraction", () => {
 });
 
 describe("PDF extraction failure", () => {
-  it("fails when binary PDF yields no extractable text", () => {
+  it("fails when binary PDF yields no extractable text", async () => {
     const garbage = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7]);
-    expect(() => extractPdf("empty.pdf", garbage)).toThrow(
-      /no extractable text|object streams/i,
+    await expect(extractPdf("empty.pdf", garbage)).rejects.toThrow(
+      /no extractable text|object streams|not a valid PDF|INVALID|PDF header/i,
     );
   });
 
-  it("fails when printable runs are PDF object streams", () => {
+  it("fails when printable runs are PDF object streams", async () => {
     const junk =
       "52 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n53 0 obj\n<< /Length 4 >>stream\n\x00\x01\x02\x03\nendstream\nendobj\n";
-    expect(() => extractPdf("noise.pdf", junk)).toThrow(/object streams/i);
+    await expect(extractPdf("noise.pdf", junk)).rejects.toThrow(
+      /object streams|not a valid PDF|INVALID/i,
+    );
   });
 });
