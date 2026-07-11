@@ -125,6 +125,8 @@ function assembleSnapshot(
     reports: input.reports,
     scoreChange: engine.scoreChange,
     executiveBrief,
+    questionAnswers: engine.questionAnswers,
+    questionCoverage: engine.questionCoverage,
   };
 }
 
@@ -225,6 +227,7 @@ export async function analyzeAndPersistFromStoredEvidence(
         typeof input.asOf === "string"
           ? input.asOf
           : input.asOf?.toISOString(),
+      questionAnswers: snapshot.questionAnswers,
     });
   }
 
@@ -256,6 +259,7 @@ export async function analyzeAndPersistCompany(
         typeof input.asOf === "string"
           ? input.asOf
           : input.asOf?.toISOString(),
+      questionAnswers: snapshot.questionAnswers,
     });
   }
 

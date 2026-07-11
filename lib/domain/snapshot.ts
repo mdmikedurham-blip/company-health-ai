@@ -1,5 +1,9 @@
 import type { Company } from "./company";
 import type { CompanyDNA } from "./company-dna";
+import type {
+  DiligenceQuestionAnswer,
+  QuestionCoverageReport,
+} from "./diligence-question";
 import type { Evidence, EvidenceCatalog } from "./evidence";
 import type { ExecutiveBrief } from "./executive-brief";
 import type { Finding } from "./finding";
@@ -14,11 +18,8 @@ import type { TimelineEvent } from "./timeline";
 /**
  * Root aggregate for a single company's health state at a point in time.
  *
- * All pages and services read from this snapshot. Future connectors
- * (Drive, HubSpot, Carta, etc.) populate the same entities without UI changes.
- *
- * Intelligence pipeline (Phase 2):
- *   Evidence → Findings → Insights / Risks → HealthScore changes → Recommendations
+ * Intelligence pipeline (Phase 4):
+ *   Evidence → Question Answers → Findings → Risks → Health → Recommendations
  */
 export interface CompanyHealthSnapshot {
   company: Company;
@@ -35,4 +36,7 @@ export interface CompanyHealthSnapshot {
   reports: Report[];
   scoreChange: ScoreChangeExplanation;
   executiveBrief: ExecutiveBrief;
+  /** Phase 4 — optional until all assemblers populate it. */
+  questionAnswers?: DiligenceQuestionAnswer[];
+  questionCoverage?: QuestionCoverageReport;
 }

@@ -267,6 +267,23 @@ async function persistCompanyIntelligence(input: {
         error instanceof Error ? error.message : "classification_refresh_failed",
     });
   }
+
+  try {
+    const { replaceCompanyQuestionAnswers } = await import("@/lib/diligence");
+    if (snapshot.questionAnswers?.length) {
+      await replaceCompanyQuestionAnswers({
+        client,
+        companyId,
+        answers: snapshot.questionAnswers.map((a) => ({
+          ...a,
+          snapshotId: snapshotId ?? a.snapshotId,
+        })),
+        snapshotId,
+      });
+    }
+  } catch {
+    // Migration 016 may not be applied yet.
+  }
 }
 
 /**

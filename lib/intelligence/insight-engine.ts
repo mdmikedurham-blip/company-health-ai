@@ -25,13 +25,21 @@ import type {
   CompanyLifecycleStage,
   ConfirmedClassificationOverrides,
 } from "@/lib/domain/company-classification";
+import type { AssessmentGoalId } from "@/lib/domain/assessment-goal";
+import type {
+  DiligenceQuestionAnswer,
+  QuestionCoverageReport,
+} from "@/lib/domain/diligence-question";
 import { classifyCompanyFromEvidence } from "@/lib/classification";
-import { analyzeEvidence } from "./evidence-analyzer";
-import { deriveFindings } from "./finding-engine";
 import {
-  attachRecommendationsToDimensions,
-  generateRecommendations,
-} from "./recommendation-engine";
+  answerDiligenceQuestions,
+  deriveFindingsFromAnswers,
+  generateRecommendationsFromAnswers,
+  computeQuestionCoverage,
+  prioritizeQuestionIds,
+} from "@/lib/diligence";
+import { analyzeEvidence } from "./evidence-analyzer";
+import { attachRecommendationsToDimensions } from "./recommendation-engine";
 import { assessRisks } from "./risk-engine";
 import { computeHealthFromFindings } from "./scoring-engine";
 import {
@@ -64,6 +72,10 @@ export interface InsightEngineInput {
   confirmedOverrides?: ConfirmedClassificationOverrides;
   /** Force stage when already persisted; otherwise inferred from evidence. */
   classificationStage?: CompanyLifecycleStage | null;
+  /** Assessment goal — reorders/weights questions; never changes answers. */
+  assessmentGoal?: AssessmentGoalId | null;
+  /** Analysis snapshot id for answer provenance. */
+  snapshotId?: string | null;
 }
 
 export interface InsightEngineOutput {
@@ -79,6 +91,10 @@ export interface InsightEngineOutput {
   evidence: Evidence[];
   /** Stage used for scoring / N/A gating. */
   classificationStage: CompanyLifecycleStage | null;
+  /** Phase 4 — diligence question answers (canonical reasoning layer). */
+  questionAnswers: DiligenceQuestionAnswer[];
+  questionCoverage: QuestionCoverageReport;
+  prioritizedQuestionIds: string[];
 }
 
 export function resolveAsOf(asOf?: Date | string): Date {
@@ -105,25 +121,20 @@ function linkEvidence(
 
 /**
  * Primary entry point for the Company Health Insight Engine.
+ *
+ * Pipeline (Phase 4):
+ * Evidence → Question Answers → Findings → Risks → Health → Recommendations
  */
 export function runInsightEngine(input: InsightEngineInput): InsightEngineOutput {
   const asOf = resolveAsOf(input.asOf);
+  const asOfIso = asOf.toISOString();
   const rawEvidence = input.evidence.map((e) => ({
     ...e,
     findingIds: e.findingIds ?? [],
     linkedRiskIds: e.linkedRiskIds ?? [],
   }));
 
-  // Stage 1: Evidence → Insights
-  const insights = analyzeEvidence(rawEvidence);
-
-  // Stage 2: Insights → Findings
-  const findings = deriveFindings(insights, rawEvidence);
-
-  // Stage 3: Findings → Risks
-  const risks = assessRisks(findings, rawEvidence);
-
-  // Stage 4: Findings → Health scores (stage-aware; overall gated on classification)
+  // Stage 0: classification (stage-aware applicability)
   const classified = classifyCompanyFromEvidence({
     evidence: rawEvidence,
     confirmed: input.confirmedOverrides,
@@ -133,6 +144,36 @@ export function runInsightEngine(input: InsightEngineInput): InsightEngineOutput
     (rawEvidence.length > 0 ? classified.stage : null);
   const classificationReady = rawEvidence.length > 0 && stage != null;
 
+  // Stage 1: Evidence → Insights (retained for timeline / doctor context)
+  const insights = analyzeEvidence(rawEvidence);
+
+  // Stage 2: Evidence → Diligence Question Answers (canonical)
+  const { answers: questionAnswers, evaluations } = answerDiligenceQuestions({
+    companyId: input.companyId,
+    evidence: rawEvidence,
+    stage,
+    assessmentGoal: input.assessmentGoal,
+    snapshotId: input.snapshotId,
+    asOf: asOfIso,
+  });
+  const questionCoverage = computeQuestionCoverage({
+    companyId: input.companyId,
+    answers: questionAnswers,
+    snapshotId: input.snapshotId,
+    generatedAt: asOfIso,
+  });
+  const prioritizedQuestionIds = prioritizeQuestionIds(
+    questionAnswers,
+    input.assessmentGoal,
+  );
+
+  // Stage 3: Question Answers → Findings (not documents → findings)
+  const findings = deriveFindingsFromAnswers(evaluations, rawEvidence);
+
+  // Stage 4: Findings → Risks
+  const risks = assessRisks(findings, rawEvidence);
+
+  // Stage 5: Findings → Health (question outcomes via findings)
   const { dimensions, healthScore, scoreChange } = computeHealthFromFindings(
     findings,
     rawEvidence,
@@ -142,14 +183,25 @@ export function runInsightEngine(input: InsightEngineInput): InsightEngineOutput
     { stage, classificationReady },
   );
 
-  // Stage 5: Risks → Prioritized recommendations
-  const recommendations = generateRecommendations(risks, findings);
+  // Overlay question confidence only when we have evidence-backed answers.
+  const evidenceBacked =
+    questionCoverage.supported + questionCoverage.contradicted;
+  if (evidenceBacked > 0) {
+    healthScore.confidence = Math.round(
+      healthScore.confidence * 0.5 + questionCoverage.meanConfidence * 0.5,
+    );
+  }
+
+  // Stage 6: Recommendations only from contradicted / insufficient questions
+  const recommendations = generateRecommendationsFromAnswers(questionAnswers, {
+    evidenceCount: rawEvidence.length,
+  });
   attachRecommendationsToDimensions(dimensions, recommendations);
 
-  // Stage 6: Link evidence ↔ findings ↔ risks
+  // Stage 7: Link evidence ↔ findings ↔ risks
   const evidence = linkEvidence(rawEvidence, findings, risks);
 
-  // Stage 7: Causal timeline (document → evidence → finding → risk → score)
+  // Stage 8: Causal timeline
   const previous: TimelinePreviousSlice | undefined = input.previous
     ? input.previous
     : input.previousHealthScore
@@ -189,5 +241,8 @@ export function runInsightEngine(input: InsightEngineInput): InsightEngineOutput
     scoreChange,
     evidence,
     classificationStage: stage,
+    questionAnswers,
+    questionCoverage,
+    prioritizedQuestionIds,
   };
 }

@@ -294,6 +294,8 @@ export async function analyzeAndPersistIncremental(
       dimensionIds: scope.dimensionIds,
     },
     classificationStage: engine.classificationStage,
+    questionAnswers: engine.questionAnswers,
+    questionCoverage: engine.questionCoverage,
   };
 }
 
