@@ -111,6 +111,35 @@ vi.mock("@/lib/supabase/repository", () => ({
   replaceCompanyTimeline: vi.fn(async () => undefined),
 }));
 
+vi.mock("./company-analysis", async () => {
+  const actual = await vi.importActual<typeof import("./company-analysis")>(
+    "./company-analysis",
+  );
+  return {
+    ...actual,
+    runCompanyAnalysisPass: vi.fn(async (input: {
+      client: {
+        _store?: { doc: { status: string } };
+        _statusLog?: string[];
+      };
+      triggerDocumentId: string;
+    }) => {
+      const log = input.client._statusLog;
+      if (input.client._store?.doc) {
+        input.client._store.doc.status = "ANALYZING";
+        log?.push("ANALYZING");
+        input.client._store.doc.status = "PROCESSED";
+        log?.push("PROCESSED");
+      }
+      return {
+        analyzedDocumentIds: [input.triggerDocumentId],
+        deferred: false,
+        processed: true,
+      };
+    }),
+  };
+});
+
 vi.mock("@/lib/repositories/create-evidence-repository", () => ({
   createEvidenceRepository: () => ({
     upsert: vi.fn(async () => undefined),

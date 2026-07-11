@@ -110,8 +110,8 @@ export function progressLabelForStatus(
     case "QUEUED":
       return "Queued";
     case "PROCESSING":
-    case "EXTRACTED":
       return "Extracting";
+    case "EXTRACTED":
     case "ANALYZING":
       return "Analyzing";
     case "PROCESSED":

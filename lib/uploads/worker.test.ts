@@ -65,7 +65,21 @@ vi.mock("@/lib/connectors/ingest", () => ({
   buildSingleConnectorCatalog: vi.fn(() => ({ connectors: [] })),
 }));
 
+vi.mock("./company-analysis", () => ({
+  runCompanyAnalysisPass: vi.fn(async () => ({
+    analyzedDocumentIds: ["11111111-1111-4111-8111-111111111111"],
+    deferred: false,
+    processed: true,
+  })),
+  mapWithConcurrency: async <T, R>(
+    items: T[],
+    _concurrency: number,
+    worker: (item: T, index: number) => Promise<R>,
+  ) => Promise.all(items.map((item, index) => worker(item, index))),
+}));
+
 import { processManualUploadDocument } from "./process";
+import { runCompanyAnalysisPass } from "./company-analysis";
 
 describe("processManualUploadDocument", () => {
   beforeEach(() => {
@@ -140,17 +154,7 @@ describe("processManualUploadDocument", () => {
     });
     upsert.mockResolvedValue(undefined);
     updateDocumentStage.mockResolvedValue(undefined);
-    analyzeAndPersistIncremental.mockResolvedValue({
-      recommendations: [],
-      timeline: [],
-      healthScore: { score: 70 },
-      affected: { findingIds: [], riskIds: [], dimensionIds: [] },
-    });
-    replaceCompanyRecommendations.mockResolvedValue(undefined);
-    replaceCompanyTimeline.mockResolvedValue(undefined);
-    markDocumentProcessed.mockResolvedValue(undefined);
 
-    const insert = vi.fn().mockResolvedValue({ error: null });
     const client = {
       storage: {
         from: () => ({
@@ -163,32 +167,16 @@ describe("processManualUploadDocument", () => {
           }),
         }),
       },
-      from: vi.fn((table: string) => {
-        if (table === "documents") {
-          const chain = {
-            eq: vi.fn().mockReturnThis(),
-            maybeSingle: vi.fn().mockResolvedValue({
-              data: {
-                status: "PROCESSING",
-                last_stage: "extracting",
-                error_message: null,
-              },
-              error: null,
-            }),
-            then: (
-              resolve: (v: { count: number; error: null }) => void,
-              reject?: (e: unknown) => void,
-            ) =>
-              Promise.resolve({ count: 0, error: null }).then(resolve, reject),
-          };
-          return {
-            select: vi.fn().mockReturnValue(chain),
-          };
-        }
-        if (table === "analysis_snapshots") {
-          return { insert };
-        }
-        return {};
+      from: vi.fn(() => {
+        const chain = {
+          select: vi.fn().mockReturnThis(),
+          eq: vi.fn().mockReturnThis(),
+          maybeSingle: vi.fn().mockResolvedValue({
+            data: { status: "PROCESSING" },
+            error: null,
+          }),
+        };
+        return chain;
       }),
     };
 
@@ -200,12 +188,6 @@ describe("processManualUploadDocument", () => {
 
     expect(result.status).toBe("processed");
     expect(result.evidenceId).toBe("11111111-1111-4111-8111-111111111111");
-    expect(analyzeAndPersistIncremental).toHaveBeenCalledWith(
-      expect.objectContaining({
-        changedEvidenceIds: ["11111111-1111-4111-8111-111111111111"],
-        company: expect.objectContaining({ id: "co-1" }),
-      }),
-    );
     expect(upsert).toHaveBeenCalledWith(
       "co-1",
       expect.arrayContaining([
@@ -219,8 +201,19 @@ describe("processManualUploadDocument", () => {
         }),
       ]),
     );
-    expect(insert).toHaveBeenCalled();
-    expect(markDocumentProcessed).toHaveBeenCalled();
+    expect(updateDocumentStage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "EXTRACTED",
+        lastStage: "extracted",
+      }),
+    );
+    expect(runCompanyAnalysisPass).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyId: "co-1",
+        triggerDocumentId: "11111111-1111-4111-8111-111111111111",
+      }),
+    );
+    expect(analyzeAndPersistIncremental).not.toHaveBeenCalled();
   });
 
   it("enforces tenant isolation via claim company_id match", async () => {

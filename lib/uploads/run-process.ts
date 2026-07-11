@@ -82,7 +82,9 @@ export async function acceptDocumentForProcessing(input: {
           ? "PROCESSED"
           : result.status === "failed"
             ? "FAILED"
-            : "skipped",
+            : result.status === "extracted"
+              ? "EXTRACTED"
+              : "skipped",
       stage: result.status,
       result,
     };
