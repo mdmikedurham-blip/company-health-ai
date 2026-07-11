@@ -189,14 +189,7 @@ export async function upsertCompanyEvidence(
   if (evidence.length === 0) return;
   await assertNoError(
     await client.from("evidence").upsert(
-      evidence.map((e) => {
-        const metaDocId = e.metadata?.documentId ?? e.metadata?.document_id;
-        const documentId =
-          typeof metaDocId === "string" && metaDocId.length > 0
-            ? metaDocId
-            : null;
-        return evidenceToInsert(companyId, e, documentId);
-      }),
+      evidence.map((e) => evidenceToInsert(companyId, e)),
       { onConflict: "id" },
     ),
     "upsertCompanyEvidence",

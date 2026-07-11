@@ -2,6 +2,7 @@ import {
   PROCESSING_STALE_MS,
   QUEUED_RETRY_AFTER_MS,
 } from "./constants";
+import { canonicalizeEvidenceUuid } from "./evidence-id";
 
 export function isLeaseExpired(
   row: {
@@ -118,13 +119,15 @@ export function visibleManualUploadActions(
 
 export function evidenceIdForManualUpload(documentId: string): string {
   // evidence.id is uuid — use the document row id as the canonical evidence PK.
-  return documentId;
+  // Also strips legacy `upload-` / `upload:` prefixes if a caller still passes them.
+  return canonicalizeEvidenceUuid(documentId, "evidenceIdForManualUpload");
 }
 
-/** Text key for provenance (not a UUID column). */
-export function manualUploadExternalKey(documentId: string): string {
-  return `upload:${documentId}`;
-}
+export {
+  manualUploadExternalKey,
+  canonicalizeEvidenceUuid,
+  isUuid,
+} from "./evidence-id";
 
 export const CANCELLED_LAST_STAGE = "cancelled" as const;
 export const CANCELLED_ERROR = "cancelled_by_user" as const;

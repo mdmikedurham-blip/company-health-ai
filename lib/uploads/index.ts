@@ -63,6 +63,8 @@ export {
   isActivelyProcessing,
   isLeaseExpired,
   manualUploadExternalKey,
+  canonicalizeEvidenceUuid,
+  isUuid,
   visibleManualUploadActions,
   type ManualUploadRowAction,
 } from "./removal-policy";

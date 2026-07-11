@@ -226,13 +226,19 @@ export async function continueClaimedManualUpload(input: {
       MANUAL_UPLOAD_CONNECTOR_ID,
       "Manual Upload",
     );
+    // Canonical document UUID only — never `upload-${uuid}` for evidence.id.
     const evidenceId = evidenceIdForManualUpload(claimed.id);
+    if (evidenceId !== claimed.id) {
+      throw new Error(
+        `manual upload evidence id mismatch: evidence=${evidenceId} document=${claimed.id}`,
+      );
+    }
     const { evidence: built } = runEvidenceExtractionPipeline(raw, extracted, {
       evidenceId,
     });
     const evidence = {
       ...built,
-      id: evidenceId,
+      id: claimed.id,
       metadata: {
         ...built.metadata,
         documentId: claimed.id,
@@ -241,6 +247,14 @@ export async function continueClaimedManualUpload(input: {
         source: "manual-upload",
       },
     };
+
+    logUploadProcessingEvent("manual_upload_processing_started", {
+      documentId,
+      companyId,
+      stage: "evidence_upsert",
+      outcome: "started",
+      evidenceId: evidence.id,
+    });
 
     const evidenceRepo = createEvidenceRepository({ client: input.client });
     await evidenceRepo.upsert(companyId, [evidence]);

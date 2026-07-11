@@ -11,7 +11,6 @@ import {
 import { COMPANY_DOCUMENTS_BUCKET, MANUAL_UPLOAD_CONNECTOR_ID } from "./constants";
 import {
   canRemoveDocument,
-  evidenceIdForManualUpload,
   isActivelyProcessing,
 } from "./removal-policy";
 import { logUploadProcessingEvent } from "./logging";
@@ -86,8 +85,12 @@ export async function removeManualUploadDocument(input: {
     throw err;
   }
 
-  const evidenceId = evidenceIdForManualUpload(documentId);
-  const evidenceIds = await resolveEvidenceIds(client, companyId, documentId, evidenceId);
+  const evidenceIds = await resolveEvidenceIds(
+    client,
+    companyId,
+    documentId,
+    documentId,
+  );
   const { findingsDeleted, risksDeleted } = await cleanupSoleDependents(
     client,
     companyId,

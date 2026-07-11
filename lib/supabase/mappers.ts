@@ -16,6 +16,7 @@ import type {
   TimelineEvent,
 } from "@/lib/domain";
 import type { Json, Tables, TablesInsert } from "./database.types";
+import { canonicalizeEvidenceUuid } from "@/lib/uploads/evidence-id";
 
 type EvidenceRow = Tables<"evidence">;
 type FindingRow = Tables<"findings">;
@@ -119,10 +120,31 @@ export function evidenceToInsert(
     evidence.reliability > 1
       ? Math.min(1, evidence.reliability / 100)
       : evidence.reliability;
+
+  // evidence.id is uuid — never persist legacy `upload-${uuid}` strings.
+  const id = canonicalizeEvidenceUuid(evidence.id, "evidenceToInsert.id");
+  const metaDocId = evidence.metadata?.documentId ?? evidence.metadata?.document_id;
+  const linkedDocumentId =
+    documentId ??
+    (typeof metaDocId === "string" && metaDocId.length > 0 ? metaDocId : null);
+  const document_id = linkedDocumentId
+    ? canonicalizeEvidenceUuid(
+        String(linkedDocumentId),
+        "evidenceToInsert.document_id",
+      )
+    : null;
+
+  const metadata = {
+    ...evidence.metadata,
+    ...(id !== evidence.id
+      ? { externalKey: `upload:${id}`, legacyEvidenceId: evidence.id }
+      : {}),
+  };
+
   return {
-    id: evidence.id,
+    id,
     company_id: companyId,
-    document_id: documentId ?? null,
+    document_id,
     source_system: evidence.sourceSystem,
     source_type: evidence.sourceType,
     title: evidence.title,
@@ -134,7 +156,7 @@ export function evidenceToInsert(
     occurred_at: evidence.occurredAt,
     collected_at: evidence.collectedAt,
     reliability,
-    metadata: asJson(evidence.metadata),
+    metadata: asJson(metadata),
     citation: asJson(evidence.citation),
     finding_ids: evidence.findingIds,
     linked_risk_ids: evidence.linkedRiskIds,
