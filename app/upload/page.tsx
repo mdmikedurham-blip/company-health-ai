@@ -1,6 +1,9 @@
 import { AppShell } from "@/components/AppShell";
+import { CompanyProfilePanel } from "@/components/uploads/CompanyProfilePanel";
 import { DocumentUploadPanel } from "@/components/uploads/DocumentUploadPanel";
+import { WhatToUploadNextPanel } from "@/components/uploads/WhatToUploadNextPanel";
 import { getSessionContext } from "@/lib/auth/session";
+import { getCompanyClassification } from "@/lib/classification/persist";
 import {
   createServiceClient,
   isServiceRoleConfigured,
@@ -21,17 +24,29 @@ export default async function UploadPage() {
     null;
 
   let initialDocuments: Awaited<ReturnType<typeof listManualUploads>> = [];
+  let classification = null as Awaited<
+    ReturnType<typeof getCompanyClassification>
+  >;
   if (ctx?.primaryCompanyId && isServiceRoleConfigured()) {
     try {
-      initialDocuments = await listManualUploads({
-        client: createServiceClient(),
-        companyId: ctx.primaryCompanyId,
-        limit: 50,
-      });
+      const client = createServiceClient();
+      const [docs, profile] = await Promise.all([
+        listManualUploads({
+          client,
+          companyId: ctx.primaryCompanyId,
+          limit: 50,
+        }),
+        getCompanyClassification(client, ctx.primaryCompanyId),
+      ]);
+      initialDocuments = docs;
+      classification = profile;
     } catch {
       initialDocuments = [];
+      classification = null;
     }
   }
+
+  const classifying = !classification || !classification.stage;
 
   return (
     <AppShell
@@ -51,6 +66,14 @@ export default async function UploadPage() {
           ingestion pipeline after upload — analysis does not run during the
           upload itself.
         </p>
+        <CompanyProfilePanel
+          classification={classification}
+          classifying={classifying}
+        />
+        <WhatToUploadNextPanel
+          classification={classification}
+          classifying={classifying}
+        />
         <DocumentUploadPanel initialDocuments={initialDocuments} />
       </div>
     </AppShell>

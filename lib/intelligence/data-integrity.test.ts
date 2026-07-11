@@ -111,10 +111,17 @@ describe("score composition vs period delta", () => {
         dimensionIds: ["dim-customer"],
         extractedFacts: { top3CustomerArrShare: 0.6 },
       }),
+      ev({
+        id: "ev-runway",
+        dimensionIds: ["dim-financial"],
+        extractedFacts: { cashRunwayMonths: 20 },
+      }),
     ];
     const engine = runInsightEngine({
       companyId: "co-prior",
       evidence,
+      classificationStage: "Growth",
+      asOf: AS_OF,
       asOf: AS_OF,
     });
     const explanation = buildScoreChangeExplanation(

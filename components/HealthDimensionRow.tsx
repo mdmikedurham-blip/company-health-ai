@@ -38,6 +38,11 @@ const statusConfig: Record<
     barColor: "bg-zinc-600",
     badge: "text-zinc-400 bg-zinc-500/10 border-zinc-500/20",
   },
+  not_applicable: {
+    label: "Not applicable",
+    barColor: "bg-zinc-700",
+    badge: "text-zinc-500 bg-zinc-500/5 border-zinc-500/15",
+  },
 };
 
 export function HealthDimensionRow({

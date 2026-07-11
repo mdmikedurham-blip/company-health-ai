@@ -190,12 +190,23 @@ describe("causal brief — financial improvement", () => {
         extractedFacts: { cashRunwayMonths: RUNWAY_POSITIVE + 6 },
         reliability: 95,
       }),
+      ev({
+        id: "ev-conc-support",
+        title: "Customer concentration pack",
+        dimensionIds: ["dim-customer"],
+        extractedFacts: { top3CustomerArrShare: 0.4 },
+        reliability: 90,
+      }),
     ];
     const engine = runInsightEngine({
       companyId: "co-fin",
       evidence,
-      previousHealthScore: baseHealth(BASELINE_DIMENSION_SCORE - 3),
+      previousHealthScore: {
+        ...baseHealth(BASELINE_DIMENSION_SCORE - 3),
+        scoreAvailable: true,
+      },
       asOf: AS_OF,
+      classificationStage: "Growth",
     });
     const brief = buildCausalExecutiveBrief({
       healthScore: engine.healthScore,

@@ -29,6 +29,16 @@ export type {
 
 export type { Company } from "./company";
 export type {
+  CompanyClassification,
+  CompanyLifecycleStage,
+  ConfirmedClassificationOverrides,
+  ClassificationCoverageReport,
+  ExpectationItem,
+} from "./company-classification";
+export {
+  COMPANY_LIFECYCLE_STAGES,
+} from "./company-classification";
+export type {
   CompanyDNA,
   BoardMember,
   ConnectedSystem,

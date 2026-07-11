@@ -17,8 +17,8 @@ import { DIMENSION_NAMES } from "@/lib/domain/dimensions";
  */
 export const BASELINE_DIMENSION_SCORE = 85;
 
-/** Minimum scored dimensions required before an overall health score is published. */
-export const MIN_SCORED_DIMENSIONS_FOR_OVERALL = 1;
+/** Minimum scored *applicable* dimensions required before overall health publishes. */
+export const MIN_SCORED_DIMENSIONS_FOR_OVERALL = 2;
 
 export const STATUS_HEALTHY_MIN = 85;
 export const STATUS_WATCH_MIN = 70;
@@ -319,7 +319,9 @@ export function deriveStatus(score: number): "healthy" | "watch" | "at-risk" {
 export function deriveStatusOrInsufficient(
   scored: boolean,
   score: number,
-): "healthy" | "watch" | "at-risk" | "insufficient" {
+  applicable = true,
+): "healthy" | "watch" | "at-risk" | "insufficient" | "not_applicable" {
+  if (!applicable) return "not_applicable";
   if (!scored) return "insufficient";
   return deriveStatus(score);
 }

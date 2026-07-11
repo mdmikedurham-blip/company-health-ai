@@ -21,6 +21,14 @@ import {
   dimensionProfiles,
 } from "@/lib/data/company-profile";
 import {
+  classifyCompanyFromEvidence,
+} from "@/lib/classification";
+import {
+  getCompanyClassification,
+  upsertCompanyClassificationFromResult,
+} from "@/lib/classification/persist";
+import {
+  listEvidence,
   replaceCompanyRecommendations,
   replaceCompanyTimeline,
 } from "@/lib/supabase/repository";
@@ -116,6 +124,30 @@ async function markDocumentsAnalyzing(
   return claimed;
 }
 
+async function refreshCompanyClassification(input: {
+  client: AppSupabaseClient;
+  companyId: string;
+  snapshotId: string | null;
+  scoredDimensionIds?: string[];
+}): Promise<void> {
+  const prior = await getCompanyClassification(input.client, input.companyId);
+  const evidence = await listEvidence(input.client, input.companyId);
+  const result = classifyCompanyFromEvidence({
+    evidence,
+    confirmed: prior?.confirmed,
+    scoredDimensionIds: input.scoredDimensionIds,
+  });
+  await upsertCompanyClassificationFromResult({
+    client: input.client,
+    companyId: input.companyId,
+    snapshotId: input.snapshotId,
+    result,
+    priorConfirmed: prior?.confirmed,
+    confirmedAt: prior?.confirmedAt ?? null,
+    confirmedBy: prior?.confirmedBy ?? null,
+  });
+}
+
 async function persistCompanyIntelligence(input: {
   client: AppSupabaseClient;
   companyId: string;
@@ -137,6 +169,12 @@ async function persistCompanyIntelligence(input: {
     .eq("connector_id", MANUAL_UPLOAD_CONNECTOR_ID)
     .eq("status", "PROCESSED");
 
+  const priorClassification = await getCompanyClassification(
+    client,
+    companyId,
+  ).catch(() => null);
+
+
   const snapshot = await analyzeAndPersistIncremental({
     company,
     changedEvidenceIds: evidenceIds,
@@ -154,6 +192,8 @@ async function persistCompanyIntelligence(input: {
       lastFullScan: now,
     }),
     client,
+    confirmedOverrides: priorClassification?.confirmed,
+    classificationStage: priorClassification?.stage,
   });
 
   await withRetry(async () => {
@@ -168,6 +208,7 @@ async function persistCompanyIntelligence(input: {
     await replaceCompanyTimeline(client, companyId, snapshot.timeline);
   });
 
+  let snapshotId: string | null = null;
   await withRetry(async () => {
     const { error } = await client.from("analysis_snapshots").insert({
       company_id: companyId,
@@ -179,10 +220,49 @@ async function persistCompanyIntelligence(input: {
         evidenceIds,
         healthScore: snapshot.healthScore.score,
         affected: snapshot.affected,
+        classificationStage: snapshot.classificationStage ?? null,
       },
     });
     if (error) throw new Error(`analysis_snapshots.insert: ${error.message}`);
   });
+
+  // Best-effort: load latest snapshot id for classification linkage.
+  try {
+    const { data } = await client
+      .from("analysis_snapshots")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("status", "completed")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    snapshotId = data?.id ?? null;
+  } catch {
+    snapshotId = null;
+  }
+
+  try {
+    await refreshCompanyClassification({
+      client,
+      companyId,
+      snapshotId,
+      scoredDimensionIds: snapshot.dimensions
+        .filter((d) => d.scored)
+        .map((d) => d.id),
+    });
+  } catch (error) {
+    // Classification is additive — never fail document processing if the
+    // table is missing (e.g. migration not applied) or the mock client lacks it.
+    logUploadProcessingEvent("manual_upload_processing_kickoff", {
+      documentId: documentIds[0] ?? "unknown",
+      companyId,
+      stage: "classification",
+      outcome: "deferred",
+      status: "PROCESSED",
+      errorMessage:
+        error instanceof Error ? error.message : "classification_refresh_failed",
+    });
+  }
 }
 
 /**

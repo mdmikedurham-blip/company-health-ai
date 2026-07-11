@@ -21,6 +21,11 @@ import type {
   ScoreChangeExplanation,
   TimelineEvent,
 } from "@/lib/domain";
+import type {
+  CompanyLifecycleStage,
+  ConfirmedClassificationOverrides,
+} from "@/lib/domain/company-classification";
+import { classifyCompanyFromEvidence } from "@/lib/classification";
 import { analyzeEvidence } from "./evidence-analyzer";
 import { deriveFindings } from "./finding-engine";
 import {
@@ -55,6 +60,10 @@ export interface InsightEngineInput {
    * Defaults to DEFAULT_AS_OF (not wall clock).
    */
   asOf?: Date | string;
+  /** User-confirmed classification overrides (never overwritten by inference). */
+  confirmedOverrides?: ConfirmedClassificationOverrides;
+  /** Force stage when already persisted; otherwise inferred from evidence. */
+  classificationStage?: CompanyLifecycleStage | null;
 }
 
 export interface InsightEngineOutput {
@@ -68,6 +77,8 @@ export interface InsightEngineOutput {
   dimensions: HealthDimension[];
   scoreChange: ScoreChangeExplanation;
   evidence: Evidence[];
+  /** Stage used for scoring / N/A gating. */
+  classificationStage: CompanyLifecycleStage | null;
 }
 
 export function resolveAsOf(asOf?: Date | string): Date {
@@ -112,13 +123,23 @@ export function runInsightEngine(input: InsightEngineInput): InsightEngineOutput
   // Stage 3: Findings → Risks
   const risks = assessRisks(findings, rawEvidence);
 
-  // Stage 4: Findings → Health scores
+  // Stage 4: Findings → Health scores (stage-aware; overall gated on classification)
+  const classified = classifyCompanyFromEvidence({
+    evidence: rawEvidence,
+    confirmed: input.confirmedOverrides,
+  });
+  const stage =
+    input.classificationStage ??
+    (rawEvidence.length > 0 ? classified.stage : null);
+  const classificationReady = rawEvidence.length > 0 && stage != null;
+
   const { dimensions, healthScore, scoreChange } = computeHealthFromFindings(
     findings,
     rawEvidence,
     input.previousHealthScore,
     input.dimensionProfiles,
     asOf,
+    { stage, classificationReady },
   );
 
   // Stage 5: Risks → Prioritized recommendations
@@ -167,5 +188,6 @@ export function runInsightEngine(input: InsightEngineInput): InsightEngineOutput
     dimensions,
     scoreChange,
     evidence,
+    classificationStage: stage,
   };
 }

@@ -62,6 +62,7 @@ describe("scoring without fabricated defaults", () => {
       companyId: "co-partial",
       evidence,
       asOf: AS_OF,
+      classificationStage: "Early Revenue",
     });
 
     const customer = engine.dimensions.find((d) => d.id === "dim-customer");
@@ -73,10 +74,14 @@ describe("scoring without fabricated defaults", () => {
 
     const others = engine.dimensions.filter((d) => d.id !== "dim-customer");
     expect(others.every((d) => d.scored === false)).toBe(true);
-    expect(others.every((d) => d.status === "insufficient")).toBe(true);
+    expect(
+      others.every(
+        (d) => d.status === "insufficient" || d.status === "not_applicable",
+      ),
+    ).toBe(true);
     expect(others.every((d) => d.score === 0)).toBe(true);
-    expect(engine.healthScore.scoreAvailable).toBe(true);
-    expect(engine.healthScore.score).toBe(customer?.score);
+    expect(engine.healthScore.scoreAvailable).toBe(false);
+    expect(engine.healthScore.changeLabel).toMatch(/assessment|Classifying/i);
   });
 
   it("one snapshot → no score delta", () => {
@@ -268,6 +273,7 @@ describe("overall health from scored dims only", () => {
         name: "Customer",
         score: 70,
         scored: true,
+        applicable: true,
         trend: { direction: "flat", value: 0 },
         status: "watch",
         confidence: 80,
@@ -285,8 +291,29 @@ describe("overall health from scored dims only", () => {
       {
         id: "dim-financial",
         name: "Financial",
+        score: 80,
+        scored: true,
+        applicable: true,
+        trend: { direction: "flat", value: 0 },
+        status: "watch",
+        confidence: 80,
+        evidenceCount: 1,
+        owner: "",
+        summary: "",
+        topDrivers: [],
+        evidenceIds: ["e2"],
+        findingIds: ["f2"],
+        recommendedActions: [],
+        whyItMatters: "",
+        estimatedScoreImprovement: 0,
+        weight: 1,
+      },
+      {
+        id: "dim-legal",
+        name: "Legal",
         score: 0,
         scored: false,
+        applicable: true,
         trend: { direction: "flat", value: 0 },
         status: "insufficient",
         confidence: 0,
@@ -302,8 +329,10 @@ describe("overall health from scored dims only", () => {
         weight: 1,
       },
     ];
-    const overall = calculateOverallHealth(dims, [], undefined, AS_OF);
+    const overall = calculateOverallHealth(dims, [], undefined, AS_OF, {
+      classificationReady: true,
+    });
     expect(overall.scoreAvailable).toBe(true);
-    expect(overall.score).toBe(70);
+    expect(overall.score).toBe(75);
   });
 });
