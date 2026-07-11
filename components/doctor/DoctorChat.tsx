@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  getDoctorExplainPrompt,
-  getDoctorSuggestedPrompts,
-} from "@/lib/doctor";
+  doctorSuggestedPrompts,
+  getDoctorExplainPromptFallback,
+} from "@/lib/doctor/prompts";
 import type { DoctorAnswer, DoctorAskResponse } from "@/lib/doctor/types";
 import type { DoctorMessage } from "@/lib/types";
 import { DoctorResponseCard } from "./DoctorResponseCard";
@@ -14,6 +14,7 @@ interface DoctorChatProps {
   explainRiskId?: string;
   documentsAnalyzed?: number;
   systemsConnected?: number;
+  suggestedPrompts?: readonly string[];
 }
 
 function formatTime() {
@@ -52,6 +53,7 @@ export function DoctorChat({
   explainRiskId,
   documentsAnalyzed = 0,
   systemsConnected = 0,
+  suggestedPrompts = doctorSuggestedPrompts,
 }: DoctorChatProps) {
   const [messages, setMessages] = useState<DoctorMessage[]>([]);
   const [input, setInput] = useState("");
@@ -190,7 +192,7 @@ export function DoctorChat({
     if (explainRiskId) {
       handledRef.current = true;
       const timer = setTimeout(() => {
-        void sendMessage(getDoctorExplainPrompt(explainRiskId), {
+        void sendMessage(getDoctorExplainPromptFallback(), {
           explainRiskId,
         });
       }, 0);
@@ -272,7 +274,7 @@ export function DoctorChat({
         <div className="mx-auto max-w-3xl">
           {messages.filter((m) => m.role === "user").length === 0 && (
             <div className="mb-3 flex flex-wrap gap-2">
-              {getDoctorSuggestedPrompts().map((prompt) => (
+              {suggestedPrompts.map((prompt) => (
                 <button
                   key={prompt}
                   type="button"

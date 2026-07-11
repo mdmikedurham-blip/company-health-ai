@@ -221,6 +221,37 @@ describe("end-to-end askDoctor", () => {
     expect(result.answer.insufficientEvidence).toBe(false);
   });
 
+  it("does not throw for unknown tenant companyId without a snapshot", async () => {
+    const result = await askDoctor({
+      question: "What are the biggest risks?",
+      companyId: "00000000-0000-4000-8000-000000000099",
+    });
+    expect(result.answer.insufficientEvidence).toBe(true);
+    expect(result.answer.answer.toLowerCase()).toMatch(
+      /enough|assessment|upload|evidence/,
+    );
+  });
+
+  it("uses an injected tenant snapshot instead of Acme", async () => {
+    const tenantSnap = {
+      ...companySnapshot,
+      company: {
+        ...companySnapshot.company,
+        id: "tenant-uuid-1",
+        name: "Tenant Co",
+      },
+    };
+    const result = await askDoctor(
+      {
+        question: "What are the biggest risks?",
+        companyId: "tenant-uuid-1",
+      },
+      { snapshot: tenantSnap },
+    );
+    expect(result.answer.insufficientEvidence).toBe(false);
+    expect(result.answer.answer.length).toBeGreaterThan(10);
+  });
+
   it("uses injected LLM provider without changing pipeline", async () => {
     const stub: LLMProvider = {
       name: "stub",

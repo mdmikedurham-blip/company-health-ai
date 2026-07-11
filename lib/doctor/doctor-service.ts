@@ -3,11 +3,14 @@ import {
   getRiskById,
   listRegisteredCompanyIds,
 } from "@/lib/data";
+import { isDemoCompanyId } from "@/lib/dashboard/demo-mode";
+import type { CompanyHealthSnapshot, Risk } from "@/lib/domain";
 import type { LLMProvider } from "@/lib/ai/llm-provider";
 import { createMockLLMProvider } from "@/lib/ai/mock-llm-provider";
 import { buildDoctorContext, toEvidenceCitation } from "./context-builder";
 import { classifyQuery } from "./query-classifier";
 import { retrieveRelevantContext } from "./retriever";
+import { doctorSuggestedPrompts } from "./prompts";
 import type {
   DoctorAnswer,
   DoctorAskRequest,
@@ -51,7 +54,6 @@ export function enforceCitationIntegrity(
     allowedEvidenceIds.has(c.id),
   );
 
-  // Recover citations mentioned in prose that were dropped or missing
   const mentioned = new Set<string>();
   const idPattern = /\[(ev-[a-z0-9-]+)\]/gi;
   let match: RegExpExecArray | null;
@@ -63,7 +65,6 @@ export function enforceCitationIntegrity(
   const citationIds = new Set(validCitations.map((c) => c.id));
   for (const id of mentioned) {
     if (!allowedEvidenceIds.has(id)) {
-      // Fabricated id — strip from prose and flag limitation
       continue;
     }
     if (!citationIds.has(id)) {
@@ -109,6 +110,56 @@ export function enforceCitationIntegrity(
 
 export interface AskDoctorOptions {
   llm?: LLMProvider;
+  /**
+   * Tenant / demo snapshot. Required for real company UUIDs.
+   * When omitted, only registered demo companies (e.g. Acme) resolve.
+   */
+  snapshot?: CompanyHealthSnapshot;
+}
+
+function emptyAssessmentAnswer(companyName: string): DoctorAnswer {
+  return {
+    answer: `${companyName} does not have enough persisted health evidence yet. Upload and process documents, then ask again.`,
+    summary: "No assessment available.",
+    riskLevel: "low",
+    confidence: 0,
+    evidenceCitations: [],
+    relevantFindings: [],
+    relevantRisks: [],
+    recommendedActions: [],
+    limitations: [
+      "Company Doctor uses your published assessment snapshot and evidence — none were available.",
+    ],
+    insufficientEvidence: true,
+  };
+}
+
+function resolveSnapshot(
+  companyId: string,
+  options?: AskDoctorOptions,
+): CompanyHealthSnapshot | null {
+  if (options?.snapshot) return options.snapshot;
+
+  const registered =
+    isDemoCompanyId(companyId) ||
+    listRegisteredCompanyIds().includes(companyId);
+  if (!registered) return null;
+
+  try {
+    return getCompanyHealthSnapshot(companyId);
+  } catch {
+    return null;
+  }
+}
+
+function resolveRisk(
+  snapshot: CompanyHealthSnapshot,
+  riskId: string,
+): Risk | undefined {
+  return (
+    snapshot.risks.find((r) => r.id === riskId) ??
+    (isDemoCompanyId(snapshot.company.id) ? getRiskById(riskId) : undefined)
+  );
 }
 
 /**
@@ -140,12 +191,19 @@ export async function askDoctor(
   }
 
   const companyId = request.companyId ?? defaultCompanyId();
-  const snapshot = getCompanyHealthSnapshot(companyId);
+  const snapshot = resolveSnapshot(companyId, options);
+
+  if (!snapshot) {
+    return {
+      answer: emptyAssessmentAnswer("Your company"),
+      classified: { intent: "general", dimensionHints: [] },
+    };
+  }
+
   const classified = classifyQuery(question);
 
-  // Deep-link from explain drawer: boost that risk's vocabulary
   if (request.explainRiskId) {
-    const risk = getRiskById(request.explainRiskId);
+    const risk = resolveRisk(snapshot, request.explainRiskId);
     if (risk) {
       classified.boostTerms = [
         ...classified.boostTerms,
@@ -155,13 +213,30 @@ export async function askDoctor(
       if (!classified.dimensionHints.includes(risk.dimensionId)) {
         classified.dimensionHints.push(risk.dimensionId);
       }
-      if (classified.intent === "general" || classified.intent === "unsupported") {
-        // explain links are always in-scope
+      if (
+        classified.intent === "general" ||
+        classified.intent === "unsupported"
+      ) {
         if (classified.intent === "unsupported") {
           classified.intent = "general";
         }
       }
     }
+  }
+
+  if (
+    snapshot.evidence.length === 0 &&
+    snapshot.findings.length === 0 &&
+    snapshot.risks.length === 0 &&
+    snapshot.healthScore.scoreAvailable === false
+  ) {
+    return {
+      answer: emptyAssessmentAnswer(snapshot.company.name),
+      classified: {
+        intent: classified.intent,
+        dimensionHints: classified.dimensionHints,
+      },
+    };
   }
 
   const retrieval = retrieveRelevantContext(snapshot, classified, {
@@ -188,28 +263,25 @@ export async function askDoctor(
   };
 }
 
-/** Suggested prompts — same API path as free text (no canned responses). */
+/** Suggested prompts — prefer client-safe doctorSuggestedPrompts from ./prompts. */
 export function getDoctorSuggestedPrompts(): string[] {
-  const snapshot = getCompanyHealthSnapshot(defaultCompanyId());
-  const governance = snapshot.dimensions.find((d) => d.id === "dim-governance");
-  const governanceScore = governance?.score ?? 71;
-  return [
-    "What are the biggest risks?",
-    `Why is governance only ${governanceScore}?`,
-    "What should I fix before fundraising?",
-    "Generate a board update.",
-    "Show evidence for customer concentration.",
-  ];
+  try {
+    const snapshot = getCompanyHealthSnapshot(defaultCompanyId());
+    const governance = snapshot.dimensions.find((d) => d.id === "dim-governance");
+    const governanceScore = governance?.score ?? 71;
+    return [
+      "What are the biggest risks?",
+      `Why is governance only ${governanceScore}?`,
+      "What should I fix before fundraising?",
+      "Generate a board update.",
+      "Show evidence for customer concentration.",
+    ];
+  } catch {
+    return [...doctorSuggestedPrompts];
+  }
 }
 
-/** Static fallbacks for UI that needs a stable list at import time. */
-export const doctorSuggestedPrompts = [
-  "What are the biggest risks?",
-  "Why is governance only 71?",
-  "What should I fix before fundraising?",
-  "Generate a board update.",
-  "Show evidence for customer concentration.",
-] as const;
+export { doctorSuggestedPrompts };
 
 export function getDoctorExplainPrompt(riskId: string): string {
   const risk = getRiskById(riskId);
