@@ -10,6 +10,7 @@ import type {
   ScoreChangeExplanation,
   TimelineEvent,
 } from "@/lib/domain";
+import type { AssessmentGoalDashboardContext } from "@/lib/domain/assessment-goal";
 import type { EvidenceCoverageReport } from "@/lib/domain/evidence-coverage";
 import type {
   ConfidenceMethod,
@@ -45,6 +46,8 @@ export type TenantDashboardView = {
   provenance: DashboardProvenance;
   companyName: string;
   metrics: DashboardMetric[];
+  /** Operating mode — prioritization/presentation only; does not change scoring. */
+  assessmentGoal: AssessmentGoalDashboardContext;
   /** Stage-aware diligence completeness — shown before health. */
   evidenceCoverage: EvidenceCoverageReport | null;
   healthScore: HealthScore;

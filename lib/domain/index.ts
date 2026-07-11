@@ -46,6 +46,24 @@ export type {
   EvidenceCoverageItemId,
 } from "./evidence-coverage";
 export type {
+  AssessmentGoalId,
+  AssessmentGoalMeta,
+  AssessmentGoalDashboardContext,
+  CompanyAssessmentGoal,
+  DimensionPriority,
+  RecommendationPriority,
+  EvidencePriority,
+  UploadPriority,
+  DashboardWidgetSpec,
+  ReportingTemplateSpec,
+  OperatingLens,
+  OperatingLensId,
+} from "./assessment-goal";
+export {
+  ASSESSMENT_GOAL_IDS,
+  DEFAULT_ASSESSMENT_GOAL,
+} from "./assessment-goal";
+export type {
   CompanyDNA,
   BoardMember,
   ConnectedSystem,

@@ -253,6 +253,20 @@ export async function createCompanyWorkspace(input: {
     { onConflict: "user_id" },
   );
 
+  // Default assessment goal — Run the Company (no user interaction required).
+  try {
+    const { ensureCompanyAssessmentGoal } = await import(
+      "@/lib/assessment-goals"
+    );
+    await ensureCompanyAssessmentGoal({
+      client: db,
+      companyId: company.id,
+      selectedBy: input.userId,
+    });
+  } catch {
+    // Non-fatal if migration 015 is not applied yet.
+  }
+
   return { companyId: company.id };
 }
 

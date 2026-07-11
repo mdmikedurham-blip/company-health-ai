@@ -70,6 +70,48 @@ export type Database = {
           },
         ];
       };
+      company_assessment_goals: {
+        Row: {
+          company_id: string;
+          goal: string;
+          selected_by: string | null;
+          selected_at: string;
+          last_updated: string;
+          updated_at: string;
+        };
+        Insert: {
+          company_id: string;
+          goal?: string;
+          selected_by?: string | null;
+          selected_at?: string;
+          last_updated?: string;
+          updated_at?: string;
+        };
+        Update: {
+          company_id?: string;
+          goal?: string;
+          selected_by?: string | null;
+          selected_at?: string;
+          last_updated?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "company_assessment_goals_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: true;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "company_assessment_goals_selected_by_fkey";
+            columns: ["selected_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       company_classifications: {
         Row: {
           id: string;

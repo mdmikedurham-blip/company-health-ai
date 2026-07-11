@@ -42,8 +42,8 @@ export default function DemoDashboard() {
 
   return (
     <AppShell
-      title="Executive Dashboard"
-      subtitle={executiveBrief.date}
+      title={view.assessmentGoal.label}
+      subtitle={view.assessmentGoal.purpose}
       userName="Sarah Chen"
       companyName="Acme Corp"
       userEmail="sarah@acme.demo"

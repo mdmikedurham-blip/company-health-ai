@@ -10,8 +10,14 @@ import type {
   Risk,
   ScoreChangeExplanation,
 } from "@/lib/domain";
+import { DEFAULT_ASSESSMENT_GOAL } from "@/lib/domain/assessment-goal";
+import type { AssessmentGoalDashboardContext } from "@/lib/domain/assessment-goal";
 import { buildExecutiveBrief } from "@/lib/application/build-brief";
 import { toDimensionSummary, toRiskCardView } from "@/lib/domain";
+import {
+  buildAssessmentGoalDashboardContext,
+  loadAssessmentGoalDashboardContext,
+} from "@/lib/assessment-goals";
 import type { AppSupabaseClient } from "@/lib/supabase/client";
 import {
   getLatestHealthScore,
@@ -36,6 +42,19 @@ import type {
   DashboardProvenance,
   TenantDashboardView,
 } from "./types";
+
+function defaultAssessmentGoalContext(
+  companyId: string,
+): AssessmentGoalDashboardContext {
+  const now = new Date().toISOString();
+  return buildAssessmentGoalDashboardContext({
+    companyId,
+    goal: DEFAULT_ASSESSMENT_GOAL,
+    selectedBy: null,
+    selectedAt: now,
+    lastUpdated: now,
+  });
+}
 
 const EMPTY_HEALTH: HealthScore = {
   score: 0,
@@ -189,6 +208,7 @@ export function emptyTenantDashboard(input: {
   companyId: string;
   companyName: string;
   documentCount?: number;
+  assessmentGoal?: AssessmentGoalDashboardContext;
 }): TenantDashboardView {
   const healthScore = EMPTY_HEALTH;
   const documentCount = input.documentCount ?? 0;
@@ -215,6 +235,8 @@ export function emptyTenantDashboard(input: {
       confidence: 0,
       scoreAvailable: false,
     }),
+    assessmentGoal:
+      input.assessmentGoal ?? defaultAssessmentGoalContext(input.companyId),
     evidenceCoverage: null,
     healthScore,
     scoreChangeExplanation: emptyScoreChange(0),
@@ -274,8 +296,18 @@ export async function loadTenantDashboard(input: {
 
   const latest = await getLatestHealthScore(client, companyId);
 
+  const assessmentGoal = await loadAssessmentGoalDashboardContext({
+    client,
+    companyId,
+  }).catch(() => defaultAssessmentGoalContext(companyId));
+
   if (!latest && !snapshotRow) {
-    return emptyTenantDashboard({ companyId, companyName, documentCount });
+    return emptyTenantDashboard({
+      companyId,
+      companyName,
+      documentCount,
+      assessmentGoal,
+    });
   }
 
   const [findings, risks, recommendations, timelineEvents, evidence, classification] =
@@ -437,6 +469,7 @@ export async function loadTenantDashboard(input: {
       confidence: healthScore.confidence,
       scoreAvailable: healthScore.scoreAvailable,
     }),
+    assessmentGoal,
     evidenceCoverage,
     healthScore,
     scoreChangeExplanation,
@@ -457,12 +490,16 @@ export async function loadTenantDashboard(input: {
 
 /** Build a demo view from the Acme in-memory snapshot — /demo only. */
 export function loadDemoDashboardView(
-  view: Omit<TenantDashboardView, "provenance"> & {
+  view: Omit<TenantDashboardView, "provenance" | "assessmentGoal"> & {
     provenance?: Partial<DashboardProvenance>;
+    assessmentGoal?: AssessmentGoalDashboardContext;
   },
 ): TenantDashboardView {
+  const companyId = view.provenance?.company_id ?? "company-acme";
   return {
     ...view,
+    assessmentGoal:
+      view.assessmentGoal ?? defaultAssessmentGoalContext(companyId),
     provenance: {
       company_id: "company-acme",
       snapshot_id: "demo-acme",
