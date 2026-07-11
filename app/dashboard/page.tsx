@@ -1,7 +1,6 @@
 import { AppShell } from "@/components/AppShell";
 import { DashboardContent } from "@/components/dashboard/DashboardContent";
 import { EmptyDashboard } from "@/components/dashboard/EmptyDashboard";
-import { executiveBrief } from "@/lib/data";
 import { getSessionContext } from "@/lib/auth/session";
 import {
   createServiceClient,
@@ -10,6 +9,11 @@ import {
 import { hasCompletedAnalysis } from "@/lib/auth/connector-status";
 import { MANUAL_UPLOAD_CONNECTOR_ID } from "@/lib/uploads/constants";
 import { computeDashboardProcessingState } from "@/lib/uploads/progress";
+import {
+  emptyTenantDashboard,
+  loadTenantDashboard,
+  type TenantDashboardView,
+} from "@/lib/dashboard";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +31,7 @@ export default async function ExecutiveDashboard() {
 
   let hasSnapshot = false;
   let hasHealthScore = false;
+  let dashboardView: TenantDashboardView | null = null;
   let processing = computeDashboardProcessingState({
     hasAnalysisSnapshot: false,
     uploads: [],
@@ -59,12 +64,23 @@ export default async function ExecutiveDashboard() {
         .limit(1)
         .maybeSingle();
       hasHealthScore = Boolean(score);
+
+      if (hasSnapshot || hasHealthScore) {
+        dashboardView = await loadTenantDashboard({
+          client,
+          companyId,
+          companyName: companyName ?? "Your company",
+        });
+      }
     } catch {
       hasSnapshot = false;
+      dashboardView = null;
     }
   }
 
-  const showLiveDashboard = hasSnapshot || hasHealthScore;
+  const showLiveDashboard =
+    Boolean(dashboardView) &&
+    dashboardView!.provenance.source === "persisted_analysis";
   // Stop spinning when snapshot exists OR every upload is terminal.
   const leaveProcessingState =
     showLiveDashboard || processing.allTerminal || !processing.hasUploads;
@@ -78,22 +94,22 @@ export default async function ExecutiveDashboard() {
     redirect("/upload");
   }
 
+  const subtitle = showLiveDashboard
+    ? dashboardView!.executiveBrief.date
+    : companyName
+      ? `${companyName} · setup`
+      : "Setup";
+
   return (
     <AppShell
       title="Executive Dashboard"
-      subtitle={
-        showLiveDashboard
-          ? executiveBrief.date
-          : companyName
-            ? `${companyName} · setup`
-            : "Setup"
-      }
+      subtitle={subtitle}
       userName={userName}
       companyName={companyName}
       userEmail={ctx?.user.email ?? null}
     >
       {showLiveDashboard && leaveProcessingState && !processing.inFlight ? (
-        <DashboardContent />
+        <DashboardContent view={dashboardView!} />
       ) : (
         <EmptyDashboard
           companyName={companyName}
@@ -106,4 +122,9 @@ export default async function ExecutiveDashboard() {
       )}
     </AppShell>
   );
+}
+
+/** Exported for tests — empty path must not touch Acme seed. */
+export function emptyDashboardForTests(companyId: string) {
+  return emptyTenantDashboard({ companyId, companyName: "Test Co" });
 }

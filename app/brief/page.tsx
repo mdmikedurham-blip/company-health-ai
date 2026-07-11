@@ -4,7 +4,9 @@ import { AppShell } from "@/components/AppShell";
 import { ExportActions } from "@/components/brief/ExportActions";
 import { HealthScoreCard } from "@/components/HealthScoreCard";
 import { RiskCard } from "@/components/RiskCard";
-import { executiveBrief, healthScore } from "@/lib/data";
+import { loadAuthenticatedDashboardView } from "@/lib/dashboard";
+
+export const dynamic = "force-dynamic";
 
 const boardStatusStyles = {
   ready: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
@@ -18,7 +20,11 @@ const boardStatusLabels = {
   pending: "Pending",
 };
 
-export default function ExecutiveBriefPage() {
+export default async function ExecutiveBriefPage() {
+  const { view, companyName, userName, userEmail } =
+    await loadAuthenticatedDashboardView();
+  const { executiveBrief, healthScore } = view;
+
   const boardMeeting = executiveBrief.boardMeeting;
   const needsAttention = executiveBrief.boardImplications.filter(
     (item) => item.status === "needs-attention",
@@ -35,215 +41,173 @@ export default function ExecutiveBriefPage() {
     <AppShell
       title="Executive Brief"
       subtitle={`${executiveBrief.date} · Generated ${executiveBrief.generatedAt}`}
+      userName={userName}
+      companyName={companyName}
+      userEmail={userEmail}
     >
-      <div className="space-y-5">
-        <div className="panel border-indigo-500/15 bg-indigo-500/5 p-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-indigo-400">
-                Daily CEO Briefing
-              </p>
-              <h2 className="mt-1 text-xl font-semibold tracking-tight">
-                {executiveBrief.headline}
-              </h2>
-              <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-zinc-400">
-                {executiveBrief.overallSummary}
-              </p>
-              <p className="mt-2 text-[11px] text-zinc-600">
-                Confidence {executiveBrief.confidence}% · Generated automatically
-              </p>
-            </div>
-            <Link
-              href="/doctor?prompt=Generate%20a%20board%20update."
-              className="shrink-0 rounded-lg border border-indigo-500/25 bg-indigo-500/10 px-3 py-2 text-xs font-medium text-indigo-300 transition-colors hover:border-indigo-500/40"
-            >
-              Ask Company Doctor →
+      {view.provenance.source === "empty_state" ? (
+        <div className="panel p-8 text-center text-sm text-zinc-500">
+          No persisted analysis yet. Upload and process documents to generate a brief.
+          <div className="mt-4">
+            <Link href="/upload" className="text-indigo-400 hover:text-indigo-300">
+              Upload documents →
             </Link>
           </div>
         </div>
+      ) : (
+      <div className="space-y-5">
+        <div className="panel border-indigo-500/15 bg-indigo-500/5 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-indigo-400">
+                Causal executive brief
+              </p>
+              <h2 className="mt-2 text-xl font-semibold text-white">
+                {executiveBrief.headline}
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm leading-relaxed text-zinc-400">
+                {executiveBrief.overallSummary}
+              </p>
+            </div>
+            <ExportActions />
+          </div>
+          <div className="mt-4 flex flex-wrap gap-3 text-xs text-zinc-500">
+            <span>
+              Score {executiveBrief.scoreChange.currentScore}{" "}
+              <span className="text-zinc-600">({changeLabel})</span>
+            </span>
+            <span>·</span>
+            <span>{executiveBrief.confidence}% confidence</span>
+            {boardMeeting?.date ? (
+              <>
+                <span>·</span>
+                <span>
+                  Board {boardMeeting.date}
+                  {typeof boardMeeting.daysUntil === "number"
+                    ? ` · ${boardMeeting.daysUntil}d`
+                    : ""}
+                </span>
+              </>
+            ) : null}
+            {needsAttention > 0 ? (
+              <>
+                <span>·</span>
+                <span className="text-amber-400">
+                  {needsAttention} board item
+                  {needsAttention === 1 ? "" : "s"} need attention
+                </span>
+              </>
+            ) : null}
+          </div>
+        </div>
 
-        <div className="grid gap-4 lg:grid-cols-3">
-          <HealthScoreCard
-            score={healthScore.score}
-            status={healthScore.status}
-            change={executiveBrief.scoreChange.change}
-            changeLabel={changeLabel}
-            lastUpdated={healthScore.lastUpdated}
-            confidence={executiveBrief.confidence}
-            summary={executiveBrief.overallSummary}
-          />
-          <div className="panel p-5 lg:col-span-2">
+        <div className="grid gap-4 lg:grid-cols-5">
+          <div className="lg:col-span-2">
+            <HealthScoreCard
+              score={healthScore.score}
+              status={healthScore.status}
+              change={healthScore.change}
+              changeLabel={healthScore.changeLabel}
+              lastUpdated={healthScore.lastUpdated}
+              confidence={healthScore.confidence}
+              summary={executiveBrief.overallSummary}
+            />
+          </div>
+          <div className="panel lg:col-span-3 p-5">
             <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-              Why did it change?
+              Primary drivers
             </p>
-            <div className="mt-4 space-y-4">
+            <ul className="mt-3 space-y-3">
               {executiveBrief.primaryDrivers.length === 0 ? (
-                <p className="text-xs text-zinc-500">
-                  No material drivers identified for this period.
-                </p>
+                <li className="text-sm text-zinc-500">No material drivers.</li>
               ) : (
-                executiveBrief.primaryDrivers.map((driver, i) => (
-                  <div key={driver.id} className="flex gap-3">
-                    <span
-                      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-                        driver.healthImpact >= 0
-                          ? "bg-emerald-500/10 text-emerald-400"
-                          : "bg-red-500/10 text-red-400"
-                      }`}
-                    >
-                      {i + 1}
+                executiveBrief.primaryDrivers.map((driver) => (
+                  <li key={driver.id} className="text-sm text-zinc-300">
+                    <span className="font-medium text-zinc-100">{driver.title}</span>
+                    <span className="text-zinc-500">
+                      {" "}
+                      · {driver.dimension} · impact {driver.healthImpact > 0 ? "+" : ""}
+                      {driver.healthImpact}
                     </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-zinc-200">
-                        {driver.title}
-                      </p>
-                      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-4">
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-zinc-600">
-                            Health Impact
-                          </p>
-                          <p
-                            className={`text-xs font-medium tabular-nums ${
-                              driver.healthImpact > 0
-                                ? "text-emerald-400"
-                                : driver.healthImpact < 0
-                                  ? "text-red-400"
-                                  : "text-zinc-400"
-                            }`}
-                          >
-                            {driver.healthImpact > 0 ? "+" : ""}
-                            {driver.healthImpact}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-zinc-600">
-                            Confidence
-                          </p>
-                          <p className="text-xs font-medium tabular-nums text-zinc-300">
-                            {driver.confidence}%
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-zinc-600">
-                            Evidence
-                          </p>
-                          <p className="text-xs font-medium tabular-nums text-zinc-300">
-                            {driver.evidenceCount}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] uppercase tracking-wider text-zinc-600">
-                            Materiality
-                          </p>
-                          <p
-                            className={`text-xs font-medium capitalize ${
-                              driver.businessMateriality === "high"
-                                ? "text-amber-400"
-                                : driver.businessMateriality === "medium"
-                                  ? "text-zinc-300"
-                                  : "text-zinc-500"
-                            }`}
-                          >
-                            {driver.businessMateriality}
-                          </p>
-                        </div>
-                      </div>
-                      <p className="mt-2 text-xs leading-relaxed text-zinc-500">
-                        {driver.reason}
-                      </p>
-                    </div>
-                  </div>
+                    <p className="mt-1 text-xs text-zinc-500">{driver.reason}</p>
+                  </li>
+                ))
+              )}
+            </ul>
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div>
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
+              Top risks
+            </p>
+            <div className="space-y-3">
+              {executiveBrief.topRisks.length === 0 ? (
+                <p className="text-sm text-zinc-500">No risks in this assessment.</p>
+              ) : (
+                executiveBrief.topRisks.map((risk, index) => (
+                  <RiskCard
+                    key={risk.riskId}
+                    rank={index + 1}
+                    title={risk.title}
+                    level={risk.severity}
+                    dimension={risk.dimension}
+                    summary={risk.summary}
+                    source=""
+                    riskId={risk.riskId}
+                  />
+                ))
+              )}
+            </div>
+          </div>
+          <div>
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
+              Recommended actions
+            </p>
+            <div className="space-y-2">
+              {executiveBrief.recommendedActions.length === 0 ? (
+                <p className="text-sm text-zinc-500">No actions in this assessment.</p>
+              ) : (
+                executiveBrief.recommendedActions.map((action) => (
+                  <ActionCard
+                    key={action.recommendationId}
+                    title={action.title}
+                    priority={action.priority}
+                    dimension={action.dimension}
+                    description={action.description}
+                  />
                 ))
               )}
             </div>
           </div>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-2">
-          <div>
-            <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-              Top Risks
+        {executiveBrief.boardImplications.length > 0 ? (
+          <div className="panel p-5">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
+              Board implications
             </p>
-            <div className="space-y-3">
-              {executiveBrief.topRisks.map((risk, index) => (
-                <RiskCard
-                  key={risk.riskId}
-                  rank={index + 1}
-                  title={risk.title}
-                  level={risk.severity}
-                  dimension={risk.dimension}
-                  summary={risk.summary}
-                  source={risk.evidenceIds[0] ?? "—"}
-                  riskId={risk.riskId}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-              Recommended Actions
-            </p>
-            <div className="space-y-2">
-              {executiveBrief.recommendedActions.map((action) => (
-                <ActionCard
-                  key={action.recommendationId}
-                  title={action.title}
-                  priority={action.priority}
-                  dimension={action.dimension}
-                  description={action.description}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="panel p-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                Board Meeting Prep
-              </p>
-              {boardMeeting && (
-                <p className="mt-1 text-sm text-zinc-300">
-                  {boardMeeting.date}
-                  <span className="ml-2 text-zinc-500">
-                    · {boardMeeting.daysUntil} days away
-                  </span>
-                </p>
-              )}
-            </div>
-            {needsAttention > 0 && (
-              <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-400">
-                {needsAttention} item{needsAttention === 1 ? "" : "s"} needs
-                attention
-              </span>
-            )}
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            {executiveBrief.boardImplications.map((item) => (
-              <div
-                key={item.title}
-                className="rounded-lg border border-[var(--border)] bg-white/[0.02] p-4"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-sm font-medium text-zinc-200">{item.title}</p>
-                  <span
-                    className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium ${boardStatusStyles[item.status]}`}
-                  >
+            <ul className="mt-3 space-y-2">
+              {executiveBrief.boardImplications.map((item) => (
+                <li
+                  key={item.title}
+                  className={`rounded-md border px-3 py-2 text-sm ${boardStatusStyles[item.status]}`}
+                >
+                  <span className="font-medium">{item.title}</span>
+                  <span className="ml-2 text-[10px] uppercase tracking-wide">
                     {boardStatusLabels[item.status]}
                   </span>
-                </div>
-                <p className="mt-2 text-xs leading-relaxed text-zinc-500">
-                  {item.detail}
-                </p>
-              </div>
-            ))}
+                  {item.detail ? (
+                    <p className="mt-1 text-xs opacity-80">{item.detail}</p>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
           </div>
-        </div>
-
-        <ExportActions />
+        ) : null}
       </div>
+      )}
     </AppShell>
   );
 }

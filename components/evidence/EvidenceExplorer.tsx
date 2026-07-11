@@ -1,44 +1,55 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  evidenceGraphEdges,
-  evidenceGraphNodes,
-  evidenceRecords,
-} from "@/lib/data";
+import type { EvidenceRecordView } from "@/lib/types";
 import { EvidenceGraph } from "./EvidenceGraph";
 import { EvidenceRecordCard } from "./EvidenceRecordCard";
 
 interface EvidenceExplorerProps {
   /** Deep-link from Company Doctor citations (`/evidence?id=...`). */
   initialSelectedId?: string;
+  records: EvidenceRecordView[];
 }
 
-export function EvidenceExplorer({ initialSelectedId }: EvidenceExplorerProps) {
+export function EvidenceExplorer({
+  initialSelectedId,
+  records,
+}: EvidenceExplorerProps) {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(() => {
     if (
       initialSelectedId &&
-      evidenceRecords.some((r) => r.id === initialSelectedId)
+      records.some((r) => r.id === initialSelectedId)
     ) {
       return initialSelectedId;
     }
-    return evidenceRecords[0]?.id ?? null;
+    return records[0]?.id ?? null;
   });
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase().trim();
-    if (!q) return evidenceRecords;
-    return evidenceRecords.filter(
+    if (!q) return records;
+    return records.filter(
       (r) =>
         r.documentName.toLowerCase().includes(q) ||
         r.sourceSystem.toLowerCase().includes(q) ||
         r.dimension.toLowerCase().includes(q) ||
         r.summary.toLowerCase().includes(q),
     );
-  }, [query]);
+  }, [query, records]);
 
   const selectedNodeId = selectedId ?? undefined;
+  const nodes = useMemo(
+    () =>
+      records.map((r, i) => ({
+        id: r.id,
+        label: r.documentName,
+        type: "document" as const,
+        x: 80 + (i % 4) * 120,
+        y: 80 + Math.floor(i / 4) * 90,
+      })),
+    [records],
+  );
 
   return (
     <div className="space-y-4">
@@ -63,7 +74,11 @@ export function EvidenceExplorer({ initialSelectedId }: EvidenceExplorerProps) {
         <div className="space-y-3 xl:col-span-2">
           {filtered.length === 0 ? (
             <div className="panel p-8 text-center">
-              <p className="text-sm text-zinc-500">No evidence records match your search.</p>
+              <p className="text-sm text-zinc-500">
+                {records.length === 0
+                  ? "No evidence in the current assessment."
+                  : "No evidence records match your search."}
+              </p>
             </div>
           ) : (
             filtered.map((record) => (
@@ -78,8 +93,8 @@ export function EvidenceExplorer({ initialSelectedId }: EvidenceExplorerProps) {
         </div>
         <div className="xl:col-span-3">
           <EvidenceGraph
-            nodes={evidenceGraphNodes}
-            edges={evidenceGraphEdges}
+            nodes={nodes}
+            edges={[]}
             selectedNodeId={selectedNodeId}
           />
         </div>

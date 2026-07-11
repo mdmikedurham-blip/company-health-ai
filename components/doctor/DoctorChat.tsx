@@ -5,7 +5,6 @@ import {
   getDoctorExplainPrompt,
   getDoctorSuggestedPrompts,
 } from "@/lib/doctor";
-import { evidenceCatalog } from "@/lib/data";
 import type { DoctorAnswer, DoctorAskResponse } from "@/lib/doctor/types";
 import type { DoctorMessage } from "@/lib/types";
 import { DoctorResponseCard } from "./DoctorResponseCard";
@@ -13,6 +12,8 @@ import { DoctorResponseCard } from "./DoctorResponseCard";
 interface DoctorChatProps {
   initialPrompt?: string;
   explainRiskId?: string;
+  documentsAnalyzed?: number;
+  systemsConnected?: number;
 }
 
 function formatTime() {
@@ -46,7 +47,12 @@ async function callDoctorApi(
   return (await res.json()) as DoctorAskResponse;
 }
 
-export function DoctorChat({ initialPrompt, explainRiskId }: DoctorChatProps) {
+export function DoctorChat({
+  initialPrompt,
+  explainRiskId,
+  documentsAnalyzed = 0,
+  systemsConnected = 0,
+}: DoctorChatProps) {
   const [messages, setMessages] = useState<DoctorMessage[]>([]);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -128,7 +134,7 @@ export function DoctorChat({ initialPrompt, explainRiskId }: DoctorChatProps) {
             ...result.answer,
             summary:
               result.answer.summary ||
-              `Analyzed ${evidenceCatalog.totalDocuments.toLocaleString()} documents across ${evidenceCatalog.systemsConnected} systems.`,
+              `Analyzed ${documentsAnalyzed.toLocaleString()} documents across ${systemsConnected} systems.`,
           };
           setMessages([
             {
@@ -148,7 +154,7 @@ export function DoctorChat({ initialPrompt, explainRiskId }: DoctorChatProps) {
               content: "",
               timestamp: formatTime(),
               response: {
-                answer: `I've indexed ${evidenceCatalog.totalDocuments.toLocaleString()} documents across ${evidenceCatalog.systemsConnected} systems. Ask about risks, governance, concentration, or fundraising readiness.`,
+                answer: `I've indexed ${documentsAnalyzed.toLocaleString()} documents across ${systemsConnected} systems. Ask about risks, governance, concentration, or fundraising readiness.`,
                 summary: "Company Doctor is ready.",
                 riskLevel: "low",
                 confidence: 50,
@@ -176,7 +182,7 @@ export function DoctorChat({ initialPrompt, explainRiskId }: DoctorChatProps) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, []);
+  }, [documentsAnalyzed, systemsConnected]);
 
   useEffect(() => {
     if (!ready || handledRef.current) return;
@@ -311,7 +317,7 @@ export function DoctorChat({ initialPrompt, explainRiskId }: DoctorChatProps) {
           </form>
           <p className="mt-2 text-center text-[10px] text-zinc-600">
             Answers include evidence citations from{" "}
-            {evidenceCatalog.totalDocuments.toLocaleString()} analyzed documents
+            {documentsAnalyzed.toLocaleString()} analyzed documents
           </p>
         </div>
       </div>
