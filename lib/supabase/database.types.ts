@@ -965,6 +965,18 @@ export type Database = {
         };
         Returns: Database["public"]["Tables"]["documents"]["Row"] | null;
       };
+      company_analysis_lock_key: {
+        Args: { p_company_id: string };
+        Returns: number;
+      };
+      try_lock_company_analysis: {
+        Args: { p_company_id: string };
+        Returns: boolean;
+      };
+      unlock_company_analysis: {
+        Args: { p_company_id: string };
+        Returns: boolean;
+      };
     };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;

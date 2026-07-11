@@ -206,7 +206,7 @@ describe("dashboard progress states", () => {
     expect(progressLabelForStatus("UPLOADED")).toBe("Uploading");
     expect(progressLabelForStatus("QUEUED")).toBe("Queued");
     expect(progressLabelForStatus("PROCESSING")).toBe("Extracting");
-    expect(progressLabelForStatus("EXTRACTED")).toBe("Extracting");
+    expect(progressLabelForStatus("EXTRACTED")).toBe("Analyzing");
     expect(progressLabelForStatus("ANALYZING")).toBe("Analyzing");
     expect(progressLabelForStatus("PROCESSED")).toBe("Complete");
     expect(progressLabelForStatus("FAILED")).toBe("Failed");

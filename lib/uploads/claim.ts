@@ -234,17 +234,19 @@ export async function markDocumentProcessed(input: {
   client: AppSupabaseClient;
   companyId: string;
   documentId: string;
-  rawSummary: string;
+  rawSummary?: string;
 }): Promise<void> {
   const rich = {
     status: "PROCESSED" as const,
     last_stage: "processed",
-    raw_summary: input.rawSummary.slice(0, 2000),
     error_message: null,
     processing_completed_at: new Date().toISOString(),
     synced_at: new Date().toISOString(),
     lease_expires_at: null,
     locked_at: null,
+    ...(input.rawSummary != null
+      ? { raw_summary: input.rawSummary.slice(0, 2000) }
+      : {}),
   };
 
   const { error } = await input.client
@@ -259,7 +261,9 @@ export async function markDocumentProcessed(input: {
     .from("documents")
     .update({
       status: "PROCESSED",
-      raw_summary: input.rawSummary.slice(0, 2000),
+      ...(input.rawSummary != null
+        ? { raw_summary: input.rawSummary.slice(0, 2000) }
+        : {}),
       synced_at: new Date().toISOString(),
       metadata: {
         source: "manual-upload",
