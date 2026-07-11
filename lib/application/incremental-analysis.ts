@@ -108,7 +108,12 @@ export async function analyzeAndPersistIncremental(
   }
 
   const previousHealthScore =
-    input.previousHealthScore ?? priorHealth?.healthScore;
+    input.previousHealthScore ??
+    (priorHealth &&
+    priorHealth.healthScore.scoreAvailable !== false &&
+    priorHealth.healthScore.status !== "insufficient"
+      ? priorHealth.healthScore
+      : undefined);
 
   // Engine runs on full evidence for correct aggregation; we only persist
   // the affected finding/risk/dimension slices.
@@ -183,22 +188,22 @@ export async function analyzeAndPersistIncremental(
         ? input.asOf
         : new Date();
 
-  // Recompose overall health from merged dimensions (unchanged dims carried forward)
+  // Recompose overall health from full engine dimensions (engine already
+  // rescored all dims from complete evidence — do not carry legacy baseline-85).
   const healthScore = calculateOverallHealth(
-    merged.dimensions,
+    engine.dimensions,
     allEvidence,
     previousHealthScore,
     asOf,
   );
-  healthScore.scoreExplanations = (engine.healthScore.scoreExplanations ?? []).filter(
-    (e) => scope.dimensionIds.includes(e.dimensionId),
-  );
+  healthScore.scoreExplanations = engine.healthScore.scoreExplanations;
 
   const scoreChange = buildScoreChangeExplanation(
     healthScore,
     healthScore.scoreExplanations ?? [],
-    merged.findings,
+    engine.findings,
     previousHealthScore,
+    priorHealth?.dimensions,
   );
 
   const evidenceToPersist = engine.evidence.filter((e) =>
@@ -213,7 +218,7 @@ export async function analyzeAndPersistIncremental(
     risksDelete: merged.risksDelete,
     evidence: evidenceToPersist,
     healthScore,
-    dimensions: merged.dimensions,
+    dimensions: engine.dimensions,
     scoreChange,
     asOf: asOf.toISOString(),
   });
@@ -226,19 +231,20 @@ export async function analyzeAndPersistIncremental(
       ...input.dna.keyMetrics.filter((m) => m.label !== "Health Score"),
       {
         label: "Health Score",
-        value: String(healthScore.score),
+        value: healthScore.scoreAvailable
+          ? String(healthScore.score)
+          : "—",
         change: healthScore.changeLabel,
       },
     ],
   };
 
   const timeline = [...engine.timelineEvents, ...(input.timelineSeed ?? [])];
-  const priorScore =
-    input.previousHealthScore ?? priorHealth?.healthScore ?? undefined;
+  const priorScore = previousHealthScore;
 
   const executiveBrief = buildExecutiveBrief({
     healthScore,
-    dimensions: merged.dimensions,
+    dimensions: engine.dimensions,
     findings: merged.findings,
     risks: merged.risks,
     recommendations: engine.recommendations,
@@ -264,7 +270,7 @@ export async function analyzeAndPersistIncremental(
   return {
     company: input.company,
     healthScore,
-    dimensions: merged.dimensions,
+    dimensions: engine.dimensions,
     evidence: engine.evidence,
     evidenceCatalog: input.evidenceCatalog,
     findings: merged.findings,

@@ -513,15 +513,23 @@ describe("risk severity derivation", () => {
 });
 
 describe("empty evidence through full engine", () => {
-  it("returns baseline scores with reduced confidence and no invented risks", () => {
+  it("returns no overall score and insufficient dimensions (not baseline 85)", () => {
     const result = runInsightEngine({ companyId: "c1", evidence: [] });
     expect(result.findings).toHaveLength(0);
     expect(result.risks).toHaveLength(0);
     expect(result.recommendations).toHaveLength(0);
+    expect(result.healthScore.scoreAvailable).toBe(false);
+    expect(result.healthScore.status).toBe("insufficient");
     expect(result.healthScore.confidence).toBe(CONFIDENCE_EMPTY);
-    expect(result.dimensions.every((d) => d.score === BASELINE_DIMENSION_SCORE)).toBe(
+    expect(result.healthScore.score).toBe(0);
+    expect(result.dimensions.every((d) => d.scored === false)).toBe(true);
+    expect(result.dimensions.every((d) => d.status === "insufficient")).toBe(
       true,
     );
+    expect(
+      result.dimensions.every((d) => d.score !== BASELINE_DIMENSION_SCORE),
+    ).toBe(true);
+    expect(result.scoreChange.hasPriorSnapshot).toBe(false);
   });
 });
 

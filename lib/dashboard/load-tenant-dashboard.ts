@@ -22,6 +22,13 @@ import {
 } from "@/lib/supabase/repository";
 import { createEvidenceRepository } from "@/lib/repositories";
 import { MANUAL_UPLOAD_CONNECTOR_ID } from "@/lib/uploads/constants";
+import {
+  buildDimensionCoverage,
+  deriveConfidenceMethod,
+  deriveScoreMethod,
+  isValidPriorAssessment,
+  sanitizeHealthAssessment,
+} from "./sanitize-health";
 import type {
   DashboardMetric,
   DashboardProvenance,
@@ -30,7 +37,8 @@ import type {
 
 const EMPTY_HEALTH: HealthScore = {
   score: 0,
-  status: "watch",
+  scoreAvailable: false,
+  status: "insufficient",
   change: 0,
   changeLabel: "No assessment yet",
   lastUpdated: "—",
@@ -42,6 +50,7 @@ function emptyScoreChange(score: number): ScoreChangeExplanation {
     previousScore: score,
     currentScore: score,
     change: 0,
+    hasPriorSnapshot: false,
     period: "Current assessment",
     summary: "No prior assessment to compare.",
     drivers: [],
@@ -112,11 +121,13 @@ export function buildDashboardMetrics(input: {
   risks: Risk[];
   recommendations: Recommendation[];
   confidence: number;
+  scoreAvailable?: boolean;
 }): DashboardMetric[] {
   const highPriorityActions = input.recommendations.filter(
     (r) => r.priority === "high",
   ).length;
   const highRisks = input.risks.filter((r) => r.severity === "high").length;
+  const scoreAvailable = input.scoreAvailable !== false;
 
   return [
     {
@@ -146,9 +157,10 @@ export function buildDashboardMetrics(input: {
     },
     {
       label: "Confidence score",
-      value: `${input.confidence}%`,
-      change:
-        input.confidence >= 85
+      value: scoreAvailable ? `${input.confidence}%` : "—",
+      change: !scoreAvailable
+        ? "Awaiting findings"
+        : input.confidence >= 85
           ? "High reliability"
           : input.confidence >= 60
             ? "Moderate reliability"
@@ -181,8 +193,13 @@ export function emptyTenantDashboard(input: {
   const provenance: DashboardProvenance = {
     company_id: input.companyId,
     snapshot_id: null,
+    prior_snapshot_id: null,
     generated_at: null,
     document_count: documentCount,
+    evidence_count: 0,
+    dimension_coverage: { scored: 0, total: 0 },
+    score_method: "none",
+    confidence_method: "none",
     source: "empty_state",
   };
   return {
@@ -194,6 +211,7 @@ export function emptyTenantDashboard(input: {
       risks: [],
       recommendations: [],
       confidence: 0,
+      scoreAvailable: false,
     }),
     healthScore,
     scoreChangeExplanation: emptyScoreChange(0),
@@ -236,18 +254,20 @@ export async function loadTenantDashboard(input: {
 
   const documentCount = processedCount ?? 0;
 
-  const { data: snapshotRow, error: snapshotError } = await client
+  const { data: snapshotRows, error: snapshotError } = await client
     .from("analysis_snapshots")
     .select("id, created_at, as_of, payload")
     .eq("company_id", companyId)
     .eq("status", "completed")
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(2);
 
   if (snapshotError) {
     throw new Error(`loadTenantDashboard.snapshot: ${snapshotError.message}`);
   }
+
+  const snapshotRow = snapshotRows?.[0] ?? null;
+  const priorSnapshotRow = snapshotRows?.[1] ?? null;
 
   const latest = await getLatestHealthScore(client, companyId);
 
@@ -264,30 +284,95 @@ export async function loadTenantDashboard(input: {
       createEvidenceRepository({ client }).listByCompany(companyId),
     ]);
 
-  const healthScore = latest?.healthScore ?? {
+  const rawHealth = latest?.healthScore ?? {
     ...EMPTY_HEALTH,
     lastUpdated: snapshotRow?.as_of ?? snapshotRow?.created_at ?? "—",
   };
-  const dimensions: HealthDimension[] = latest?.dimensions ?? [];
-  const scoreChangeExplanation =
-    latest?.scoreChange ?? emptyScoreChange(healthScore.score);
+  const rawDimensions: HealthDimension[] = latest?.dimensions ?? [];
+  const rawScoreChange = latest?.scoreChange ?? null;
+
+  const sanitized = sanitizeHealthAssessment({
+    healthScore: rawHealth,
+    dimensions: rawDimensions,
+    scoreChange: rawScoreChange,
+    findingsCount: findings.length,
+  });
+
+  let { healthScore, scoreChange: scoreChangeExplanation } = sanitized;
+  const { dimensions } = sanitized;
 
   const { data: priorScores } = await client
     .from("health_scores")
-    .select("score, confidence, dimensions, as_of")
+    .select("id, score, status, confidence, dimensions, as_of, score_change")
     .eq("company_id", companyId)
     .order("as_of", { ascending: false })
     .limit(2);
 
   const priorRow = priorScores && priorScores.length > 1 ? priorScores[1] : null;
+  const priorValid =
+    priorRow != null &&
+    isValidPriorAssessment({
+      score: Number(priorRow.score),
+      status: String(priorRow.status),
+      dimensions: priorRow.dimensions as HealthDimension[] | null,
+      findingsCount: findings.length,
+    });
 
-  const previous = priorRow
+  if (!priorValid || !healthScore.scoreAvailable) {
+    scoreChangeExplanation = {
+      ...scoreChangeExplanation,
+      hasPriorSnapshot: false,
+      change: 0,
+      previousScore: healthScore.score,
+      currentScore: healthScore.score,
+      summary: healthScore.scoreAvailable
+        ? "No prior assessment to compare."
+        : scoreChangeExplanation.summary,
+      drivers: healthScore.scoreAvailable
+        ? scoreChangeExplanation.drivers.map((d) => ({
+            ...d,
+            periodDelta: 0,
+          }))
+        : [],
+    };
+    healthScore = {
+      ...healthScore,
+      change: 0,
+      changeLabel: healthScore.scoreAvailable
+        ? "No prior assessment"
+        : healthScore.changeLabel,
+    };
+  } else if (!scoreChangeExplanation.hasPriorSnapshot) {
+    // Reconstruct delta from two real persisted rows when payload omitted it.
+    const priorScore = Number(priorRow.score);
+    const change = healthScore.score - priorScore;
+    scoreChangeExplanation = {
+      ...scoreChangeExplanation,
+      hasPriorSnapshot: true,
+      previousScore: priorScore,
+      currentScore: healthScore.score,
+      change,
+      summary: `Health ${priorScore} → ${healthScore.score} (${change > 0 ? "+" : ""}${change}) across scored dimensions.`,
+    };
+    healthScore = {
+      ...healthScore,
+      change,
+      changeLabel:
+        change > 0
+          ? `+${change} vs prior`
+          : change < 0
+            ? `${change} vs prior`
+            : "unchanged",
+    };
+  }
+
+  const previous = priorValid
     ? {
         healthScore: {
-          score: Number(priorRow.score),
-          confidence: Number(priorRow.confidence),
+          score: Number(priorRow!.score),
+          confidence: Number(priorRow!.confidence),
         },
-        dimensions: (priorRow.dimensions as HealthDimension[] | null)?.map(
+        dimensions: (priorRow!.dimensions as HealthDimension[] | null)?.map(
           (d) => ({
             id: d.id,
             name: d.name,
@@ -295,12 +380,7 @@ export async function loadTenantDashboard(input: {
           }),
         ),
       }
-    : {
-        healthScore: {
-          score: scoreChangeExplanation.previousScore,
-          confidence: healthScore.confidence,
-        },
-      };
+    : undefined;
 
   const executiveBrief = buildExecutiveBrief({
     healthScore,
@@ -315,15 +395,23 @@ export async function loadTenantDashboard(input: {
     asOf: healthScore.lastUpdated,
   });
 
+  const coverage = buildDimensionCoverage(dimensions);
   const provenance: DashboardProvenance = {
     company_id: companyId,
-    snapshot_id: snapshotRow?.id ?? null,
+    snapshot_id: snapshotRow?.id ?? priorScores?.[0]?.id ?? null,
+    prior_snapshot_id: priorValid
+      ? (priorSnapshotRow?.id ?? priorRow?.id ?? null)
+      : null,
     generated_at:
       snapshotRow?.created_at ??
       (typeof healthScore.lastUpdated === "string"
         ? healthScore.lastUpdated
         : null),
     document_count: documentCount,
+    evidence_count: evidence.length,
+    dimension_coverage: coverage,
+    score_method: deriveScoreMethod(healthScore),
+    confidence_method: deriveConfidenceMethod(healthScore),
     source: "persisted_analysis",
   };
 
@@ -336,6 +424,7 @@ export async function loadTenantDashboard(input: {
       risks,
       recommendations,
       confidence: healthScore.confidence,
+      scoreAvailable: healthScore.scoreAvailable,
     }),
     healthScore,
     scoreChangeExplanation,
@@ -365,8 +454,13 @@ export function loadDemoDashboardView(
     provenance: {
       company_id: "company-acme",
       snapshot_id: "demo-acme",
+      prior_snapshot_id: null,
       generated_at: new Date().toISOString(),
       document_count: view.evidenceCatalog.totalDocuments,
+      evidence_count: view.evidenceCatalog.totalDocuments,
+      dimension_coverage: buildDimensionCoverage(view.dimensions ?? []),
+      score_method: "findings_weighted",
+      confidence_method: "evidence_coverage",
       source: "demo",
       ...view.provenance,
     },

@@ -1,6 +1,6 @@
 /** Shared primitive types used across the company health domain. */
 
-export type HealthStatus = "healthy" | "watch" | "at-risk";
+export type HealthStatus = "healthy" | "watch" | "at-risk" | "insufficient";
 
 export type RiskSeverity = "high" | "medium" | "low";
 
@@ -83,6 +83,8 @@ export interface ScoreChangeExplanation {
   currentScore: number;
   /** Period-over-period overall score change (current − previous). */
   change: number;
+  /** True only when a real prior persisted assessment exists. Defaults false when omitted. */
+  hasPriorSnapshot?: boolean;
   period: string;
   summary: string;
   drivers: ScoreChangeDriver[];

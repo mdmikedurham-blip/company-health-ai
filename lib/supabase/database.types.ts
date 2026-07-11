@@ -680,7 +680,7 @@ export type Database = {
           id: string;
           company_id: string;
           score: number;
-          status: "healthy" | "watch" | "at-risk";
+          status: "healthy" | "watch" | "at-risk" | "insufficient";
           change: number;
           change_label: string;
           confidence: number;
@@ -694,7 +694,7 @@ export type Database = {
           id?: string;
           company_id: string;
           score: number;
-          status: "healthy" | "watch" | "at-risk";
+          status: "healthy" | "watch" | "at-risk" | "insufficient";
           change?: number;
           change_label?: string;
           confidence?: number;
@@ -708,7 +708,7 @@ export type Database = {
           id?: string;
           company_id?: string;
           score?: number;
-          status?: "healthy" | "watch" | "at-risk";
+          status?: "healthy" | "watch" | "at-risk" | "insufficient";
           change?: number;
           change_label?: string;
           confidence?: number;

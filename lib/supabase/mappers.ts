@@ -353,19 +353,40 @@ export function healthScoreFromRow(row: HealthScoreRow): {
   dimensions: HealthDimension[];
   scoreChange: ScoreChangeExplanation | null;
 } {
+  const dimensions = ((row.dimensions as unknown as HealthDimension[]) ?? []).map(
+    (d) => ({
+      ...d,
+      scored:
+        d.scored !== false &&
+        d.status !== "insufficient" &&
+        ((d.findingIds?.length ?? 0) > 0 || d.scored === true),
+    }),
+  );
+  const scoreChange =
+    (row.score_change as unknown as ScoreChangeExplanation | null) ?? null;
+  const status = row.status as HealthScore["status"];
+  const scoreAvailable =
+    status !== "insufficient" &&
+    (dimensions.some((d) => d.scored) || Number(row.score) > 0);
+
   return {
     healthScore: {
       score: Number(row.score),
-      status: row.status,
+      scoreAvailable,
+      status,
       change: Number(row.change),
       changeLabel: row.change_label,
       lastUpdated: row.as_of,
       confidence: Number(row.confidence),
       scoreExplanations: row.score_explanations as unknown as ScoreImpactExplanation[],
     },
-    dimensions: (row.dimensions as unknown as HealthDimension[]) ?? [],
-    scoreChange:
-      (row.score_change as unknown as ScoreChangeExplanation | null) ?? null,
+    dimensions,
+    scoreChange: scoreChange
+      ? {
+          ...scoreChange,
+          hasPriorSnapshot: scoreChange.hasPriorSnapshot === true,
+        }
+      : null,
   };
 }
 

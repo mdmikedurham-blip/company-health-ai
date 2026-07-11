@@ -45,7 +45,8 @@ function ev(
 function baseHealth(score: number): HealthScore {
   return {
     score,
-    status: score >= 85 ? "healthy" : score >= 70 ? "watch" : "critical",
+    scoreAvailable: true,
+    status: score >= 85 ? "healthy" : score >= 70 ? "watch" : "at-risk",
     change: 0,
     changeLabel: "baseline",
     lastUpdated: "Jun 1, 2026",
@@ -62,8 +63,9 @@ function dim(
     id,
     name,
     score,
+    scored: true,
     trend: { direction: "flat", value: 0 },
-    status: score >= 85 ? "healthy" : score >= 70 ? "watch" : "critical",
+    status: score >= 85 ? "healthy" : score >= 70 ? "watch" : "at-risk",
     confidence: 80,
     evidenceCount: 1,
     owner: "Test",

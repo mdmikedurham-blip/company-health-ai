@@ -26,9 +26,13 @@ export const companyProfile: Company = {
   arr: "$7.2M",
 };
 
-/** Prior period score — used to compute change vs current engine output. */
+/**
+ * Demo-only prior score for Acme mock/demo surfaces.
+ * Authenticated analysis must load prior scores from persisted health_scores only.
+ */
 export const previousHealthScore: HealthScore = {
   score: 82,
+  scoreAvailable: true,
   status: "watch",
   change: 0,
   changeLabel: "June baseline",
@@ -112,12 +116,13 @@ const dimensionMeta: Pick<HealthDimension, "id" | "name" | "owner" | "whyItMatte
 export const dimensionProfiles: HealthDimension[] = dimensionMeta.map((meta) => ({
   ...meta,
   score: 0,
+  scored: false,
   trend: { direction: "flat", value: 0 },
-  status: "watch",
+  status: "insufficient",
   confidence: 0,
   evidenceCount: 0,
-  summary: "Awaiting evidence-backed assessment.",
-  topDrivers: [],
+  summary: "Not enough evidence",
+  topDrivers: ["Not enough evidence"],
   evidenceIds: [],
   findingIds: [],
   recommendedActions: [],

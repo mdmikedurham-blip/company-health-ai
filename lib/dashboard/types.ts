@@ -10,6 +10,11 @@ import type {
   ScoreChangeExplanation,
   TimelineEvent,
 } from "@/lib/domain";
+import type {
+  ConfidenceMethod,
+  DimensionCoverage,
+  ScoreMethod,
+} from "./sanitize-health";
 
 export type DashboardDataSource =
   | "persisted_analysis"
@@ -19,8 +24,13 @@ export type DashboardDataSource =
 export type DashboardProvenance = {
   company_id: string;
   snapshot_id: string | null;
+  prior_snapshot_id: string | null;
   generated_at: string | null;
   document_count: number;
+  evidence_count: number;
+  dimension_coverage: DimensionCoverage;
+  score_method: ScoreMethod;
+  confidence_method: ConfidenceMethod;
   source: DashboardDataSource;
 };
 

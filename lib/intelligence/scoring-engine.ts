@@ -1,6 +1,9 @@
 /**
  * Scoring Engine — Findings → dimension scores → overall HealthScore.
  * All numeric policy comes from rules.ts.
+ *
+ * Dimensions without findings are NOT scored (no baseline-85 display).
+ * Overall health exists only when enough dimensions are scored from findings.
  */
 
 import type {
@@ -22,8 +25,10 @@ import {
   CONFIDENCE_WEIGHTS,
   DEFAULT_DIMENSION_WEIGHT,
   DIMENSION_WEIGHTS,
+  MIN_SCORED_DIMENSIONS_FOR_OVERALL,
   clampScore,
   deriveStatus,
+  deriveStatusOrInsufficient,
 } from "./rules";
 
 const MS_PER_DAY = 86_400_000;
@@ -92,25 +97,31 @@ export function calculateDimensionScores(
       (e) => e.dimensionId === dimensionId || e.dimensionIds.includes(dimensionId),
     );
 
-    let score = BASELINE_DIMENSION_SCORE;
+    const scored = dimFindings.length > 0;
     const impacts: ScoreImpactExplanation["impacts"] = [];
 
-    for (const finding of dimFindings) {
-      score += finding.scoreImpact;
-      impacts.push({
-        findingId: finding.id,
-        impact: finding.scoreImpact,
-        reason: finding.title,
-        evidenceIds: finding.evidenceIds,
-      });
+    let finalScore = 0;
+    if (scored) {
+      let score = BASELINE_DIMENSION_SCORE;
+      for (const finding of dimFindings) {
+        score += finding.scoreImpact;
+        impacts.push({
+          findingId: finding.id,
+          impact: finding.scoreImpact,
+          reason: finding.title,
+          evidenceIds: finding.evidenceIds,
+        });
+      }
+      finalScore = clampScore(score);
     }
 
-    const finalScore = clampScore(score);
-    const confidence = calculateConfidence(dimEvidence, asOf);
+    const confidence = scored
+      ? calculateConfidence(dimEvidence, asOf)
+      : CONFIDENCE_EMPTY;
 
     explanations.push({
       dimensionId,
-      baselineScore: BASELINE_DIMENSION_SCORE,
+      baselineScore: scored ? BASELINE_DIMENSION_SCORE : 0,
       finalScore,
       impacts,
     });
@@ -125,33 +136,40 @@ export function calculateDimensionScores(
     const positiveFindings = dimFindings.filter((f) => f.direction === "positive");
 
     let summary: string;
-    if (dimFindings.length === 0) {
-      summary = `No material findings for ${DIMENSION_NAMES[dimensionId] ?? dimensionId}. Score held at baseline; confidence reduced until evidence is available.`;
+    if (!scored) {
+      summary = "Not enough evidence";
     } else if (negativeFindings.length > 0) {
       summary = negativeFindings.map((f) => f.description).join(" ");
     } else {
       summary = positiveFindings.map((f) => f.description).join(" ");
     }
 
-    const netImpact = finalScore - BASELINE_DIMENSION_SCORE;
+    const netImpact = scored ? finalScore - BASELINE_DIMENSION_SCORE : 0;
     const trend =
-      netImpact > 0
-        ? ({ direction: "up" as const, value: Math.abs(netImpact) })
-        : netImpact < 0
-          ? ({ direction: "down" as const, value: Math.abs(netImpact) })
-          : ({ direction: "flat" as const, value: 0 });
+      !scored
+        ? ({ direction: "flat" as const, value: 0 })
+        : netImpact > 0
+          ? ({ direction: "up" as const, value: Math.abs(netImpact) })
+          : netImpact < 0
+            ? ({ direction: "down" as const, value: Math.abs(netImpact) })
+            : ({ direction: "flat" as const, value: 0 });
 
     dimensions.push({
       id: dimensionId,
       name: DIMENSION_NAMES[dimensionId] ?? dimensionId,
       score: finalScore,
+      scored,
       trend,
-      status: deriveStatus(finalScore),
+      status: deriveStatusOrInsufficient(scored, finalScore),
       confidence,
       evidenceCount: dimEvidence.length,
       owner: "",
       summary,
-      topDrivers: topDrivers.length > 0 ? topDrivers : ["Baseline — awaiting evidence"],
+      topDrivers: scored
+        ? topDrivers.length > 0
+          ? topDrivers
+          : []
+        : ["Not enough evidence"],
       evidenceIds: dimEvidence.map((e) => e.id),
       findingIds: dimFindings.map((f) => f.id),
       recommendedActions: [],
@@ -188,7 +206,22 @@ export function calculateOverallHealth(
   previousHealthScore: HealthScore | undefined,
   asOf: Date,
 ): HealthScore {
-  const totalWeight = dimensions.reduce(
+  const scoredDims = dimensions.filter((d) => d.scored !== false && d.status !== "insufficient");
+  const scoreAvailable = scoredDims.length >= MIN_SCORED_DIMENSIONS_FOR_OVERALL;
+
+  if (!scoreAvailable) {
+    return {
+      score: 0,
+      scoreAvailable: false,
+      status: "insufficient",
+      change: 0,
+      changeLabel: "No assessment yet",
+      lastUpdated: formatLastUpdated(asOf),
+      confidence: CONFIDENCE_EMPTY,
+    };
+  }
+
+  const totalWeight = scoredDims.reduce(
     (sum, d) =>
       sum + (d.weight ?? DIMENSION_WEIGHTS[d.id] ?? DEFAULT_DIMENSION_WEIGHT),
     0,
@@ -196,23 +229,40 @@ export function calculateOverallHealth(
 
   const weighted =
     totalWeight === 0
-      ? BASELINE_DIMENSION_SCORE
-      : dimensions.reduce((sum, d) => {
+      ? 0
+      : scoredDims.reduce((sum, d) => {
           const w = d.weight ?? DIMENSION_WEIGHTS[d.id] ?? DEFAULT_DIMENSION_WEIGHT;
           return sum + d.score * w;
         }, 0) / totalWeight;
 
   const score = clampScore(weighted);
-  const confidence = calculateConfidence(evidence, asOf);
-  const previous = previousHealthScore?.score ?? score;
-  const change = score - previous;
+
+  // Confidence from evidence that actually supports scored dimensions / findings.
+  const scoredEvidenceIds = new Set(scoredDims.flatMap((d) => d.evidenceIds));
+  const supportingEvidence =
+    scoredEvidenceIds.size > 0
+      ? evidence.filter((e) => scoredEvidenceIds.has(e.id))
+      : evidence;
+  const confidence = calculateConfidence(supportingEvidence, asOf);
+
+  const priorAvailable = previousHealthScore?.scoreAvailable !== false &&
+    previousHealthScore != null &&
+    previousHealthScore.status !== "insufficient";
+  const previous = priorAvailable ? previousHealthScore!.score : score;
+  const change = priorAvailable ? score - previous : 0;
 
   return {
     score,
+    scoreAvailable: true,
     status: deriveStatus(score),
     change,
-    changeLabel:
-      change > 0 ? `+${change} vs prior` : change < 0 ? `${change} vs prior` : "unchanged",
+    changeLabel: priorAvailable
+      ? change > 0
+        ? `+${change} vs prior`
+        : change < 0
+          ? `${change} vs prior`
+          : "unchanged"
+      : "No prior assessment",
     lastUpdated: formatLastUpdated(asOf),
     confidence,
   };
@@ -223,9 +273,16 @@ export function buildScoreChangeExplanation(
   explanations: ScoreImpactExplanation[],
   findings: Finding[],
   previousHealthScore?: HealthScore,
-  previousDimensions?: Pick<HealthDimension, "id" | "score">[],
+  previousDimensions?: Pick<HealthDimension, "id" | "score" | "scored">[],
 ): ScoreChangeExplanation {
-  const previousScore = previousHealthScore?.score ?? healthScore.score;
+  const hasPriorSnapshot =
+    previousHealthScore != null &&
+    previousHealthScore.scoreAvailable !== false &&
+    previousHealthScore.status !== "insufficient";
+
+  const previousScore = hasPriorSnapshot
+    ? previousHealthScore!.score
+    : healthScore.score;
   const priorById = new Map(
     (previousDimensions ?? []).map((d) => [d.id, d.score]),
   );
@@ -236,7 +293,9 @@ export function buildScoreChangeExplanation(
       const currentScoreImpact = e.finalScore - e.baselineScore;
       const priorDim = priorById.get(e.dimensionId);
       const periodDelta =
-        priorDim !== undefined ? e.finalScore - priorDim : 0;
+        hasPriorSnapshot && priorDim !== undefined
+          ? e.finalScore - priorDim
+          : 0;
       const primary = e.impacts[0];
       return {
         dimension: DIMENSION_NAMES[e.dimensionId] ?? e.dimensionId,
@@ -252,18 +311,29 @@ export function buildScoreChangeExplanation(
         Math.abs(b.currentScoreImpact) - Math.abs(a.currentScoreImpact),
     );
 
-  const periodChange = healthScore.score - previousScore;
-  const summary =
-    findings.length === 0
-      ? "Insufficient evidence to explain score movement; confidence reduced."
-      : previousHealthScore
-        ? `Health ${previousScore} → ${healthScore.score} (${formatSigned(periodChange)}) based on ${findings.length} finding${findings.length === 1 ? "" : "s"}. Composition drivers show current score impact vs baseline; period deltas show change vs prior.`
-        : `Health at ${healthScore.score} based on ${findings.length} finding${findings.length === 1 ? "" : "s"} across scored dimensions.`;
+  const periodChange = hasPriorSnapshot
+    ? healthScore.score - previousScore
+    : 0;
+
+  const scoreAvailable = healthScore.scoreAvailable !== false;
+
+  let summary: string;
+  if (!scoreAvailable) {
+    summary =
+      "Not enough evidence to publish an overall health score. Upload documents that produce findings for at least one dimension.";
+  } else if (findings.length === 0) {
+    summary = "Not enough evidence to explain score movement.";
+  } else if (hasPriorSnapshot) {
+    summary = `Health ${previousScore} → ${healthScore.score} (${formatSigned(periodChange)}) based on ${findings.length} finding${findings.length === 1 ? "" : "s"}. Composition drivers show current score impact vs baseline; period deltas show change vs prior.`;
+  } else {
+    summary = `Health at ${healthScore.score} based on ${findings.length} finding${findings.length === 1 ? "" : "s"} across scored dimensions. No prior assessment to compare.`;
+  }
 
   return {
     previousScore,
-    currentScore: healthScore.score,
+    currentScore: scoreAvailable ? healthScore.score : 0,
     change: periodChange,
+    hasPriorSnapshot,
     period: "Current assessment",
     summary,
     drivers,
@@ -326,7 +396,19 @@ export function computeHealthFromFindings(
     explanations,
     findings,
     previousHealthScore,
+    previousDimensionsFrom(previousHealthScore),
   );
 
   return { dimensions, healthScore, scoreChange, explanations };
+}
+
+function previousDimensionsFrom(
+  previous: HealthScore | undefined,
+): Pick<HealthDimension, "id" | "score" | "scored">[] | undefined {
+  if (!previous?.scoreExplanations?.length) return undefined;
+  return previous.scoreExplanations.map((e) => ({
+    id: e.dimensionId,
+    score: e.finalScore,
+    scored: e.impacts.length > 0,
+  }));
 }

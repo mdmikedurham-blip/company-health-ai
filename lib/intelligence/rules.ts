@@ -11,7 +11,14 @@ import { DIMENSION_NAMES } from "@/lib/domain/dimensions";
 
 // ─── Baseline & status ───────────────────────────────────────────────────────
 
+/**
+ * Starting point for a dimension ONLY when it has findings.
+ * Never displayed as a real score when findings are absent.
+ */
 export const BASELINE_DIMENSION_SCORE = 85;
+
+/** Minimum scored dimensions required before an overall health score is published. */
+export const MIN_SCORED_DIMENSIONS_FOR_OVERALL = 1;
 
 export const STATUS_HEALTHY_MIN = 85;
 export const STATUS_WATCH_MIN = 70;
@@ -219,7 +226,7 @@ export const CONCENTRATION_TARGET = 0.45;
 
 // ─── Confidence model ────────────────────────────────────────────────────────
 
-export const CONFIDENCE_EMPTY = 40;
+export const CONFIDENCE_EMPTY = 0;
 export const CONFIDENCE_QUANTITY_SATURATION = 8;
 export const CONFIDENCE_UNKNOWN_FRESHNESS = 0.7;
 export const CONFIDENCE_FRESHNESS_DAYS = {
@@ -289,6 +296,14 @@ export function deriveStatus(score: number): "healthy" | "watch" | "at-risk" {
   if (score >= STATUS_HEALTHY_MIN) return "healthy";
   if (score >= STATUS_WATCH_MIN) return "watch";
   return "at-risk";
+}
+
+export function deriveStatusOrInsufficient(
+  scored: boolean,
+  score: number,
+): "healthy" | "watch" | "at-risk" | "insufficient" {
+  if (!scored) return "insufficient";
+  return deriveStatus(score);
 }
 
 export function formatPercent(ratio: number): string {
