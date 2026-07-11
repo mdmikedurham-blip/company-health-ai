@@ -11,6 +11,9 @@ export {
   PROCESSING_LEASE_SECONDS,
   PROCESSING_STALE_MS,
   QUEUED_RETRY_AFTER_MS,
+  EXTRACTION_TIMEOUT_MS,
+  DOWNLOAD_TIMEOUT_MS,
+  STALE_EXTRACTED_MS,
   UPLOAD_DOCUMENT_STATUSES,
   type ManualUploadMimeType,
   type UploadDocumentStatus,
@@ -49,6 +52,15 @@ export {
 } from "./kickoff";
 export { acceptDocumentForProcessing } from "./run-process";
 export { logUploadProcessingEvent } from "./logging";
+export {
+  recoverAbandonedManualUploadJobs,
+  type StaleRecoveryResult,
+} from "./stale-recovery";
+export {
+  withTimeout,
+  TimeoutError,
+  isTimeoutError,
+} from "./timeout";
 export {
   computeDashboardProcessingState,
   buildUploadProgressItem,

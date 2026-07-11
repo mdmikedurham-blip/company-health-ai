@@ -69,7 +69,7 @@ export async function POST(request: Request) {
         .from("documents")
         .select("company_id")
         .eq("connector_id", MANUAL_UPLOAD_CONNECTOR_ID)
-        .in("status", ["QUEUED", "PROCESSING"]);
+        .in("status", ["QUEUED", "PROCESSING", "EXTRACTED"]);
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });
