@@ -81,7 +81,6 @@ export default async function ExecutiveDashboard() {
   const showLiveDashboard =
     Boolean(dashboardView) &&
     dashboardView!.provenance.source === "persisted_analysis";
-  // Stop spinning when snapshot exists OR every upload is terminal.
   const leaveProcessingState =
     showLiveDashboard || processing.allTerminal || !processing.hasUploads;
 
@@ -94,16 +93,20 @@ export default async function ExecutiveDashboard() {
     redirect("/upload");
   }
 
-  const subtitle = showLiveDashboard
-    ? dashboardView!.executiveBrief.date
-    : companyName
-      ? `${companyName} · setup`
-      : "Setup";
-
   return (
     <AppShell
-      title="Executive Dashboard"
-      subtitle={subtitle}
+      title={
+        showLiveDashboard
+          ? dashboardView!.assessmentGoal.label
+          : "Executive Dashboard"
+      }
+      subtitle={
+        showLiveDashboard
+          ? dashboardView!.assessmentGoal.purpose
+          : companyName
+            ? `${companyName} · setup`
+            : "Setup"
+      }
       userName={userName}
       companyName={companyName}
       userEmail={ctx?.user.email ?? null}

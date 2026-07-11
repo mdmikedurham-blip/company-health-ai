@@ -5,9 +5,56 @@ import {
   isDemoModeEnabled,
   loadTenantDashboard,
 } from "./index";
+import { buildAssessmentGoalDashboardContext } from "@/lib/assessment-goals";
 import type { Risk, Recommendation } from "@/lib/domain";
 
 describe("dashboard tenant isolation", () => {
+  it("evidence remains identical regardless of goal", () => {
+    const runCtx = buildAssessmentGoalDashboardContext({
+      companyId: "co-e",
+      goal: "run-the-company",
+      selectedBy: null,
+      selectedAt: "2026-01-01T00:00:00.000Z",
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+    });
+    const capitalCtx = buildAssessmentGoalDashboardContext({
+      companyId: "co-e",
+      goal: "raise-capital",
+      selectedBy: null,
+      selectedAt: "2026-01-01T00:00:00.000Z",
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+    });
+    const withRun = emptyTenantDashboard({
+      companyId: "co-e",
+      companyName: "E",
+      documentCount: 4,
+      assessmentGoal: runCtx,
+    });
+    const withCapital = emptyTenantDashboard({
+      companyId: "co-e",
+      companyName: "E",
+      documentCount: 4,
+      assessmentGoal: capitalCtx,
+    });
+    expect(withRun.assessmentGoal.goal).not.toBe(withCapital.assessmentGoal.goal);
+    expect(withRun.evidenceCatalog).toEqual(withCapital.evidenceCatalog);
+    expect(withRun.healthScore).toEqual(withCapital.healthScore);
+    expect(withRun.provenance.document_count).toBe(
+      withCapital.provenance.document_count,
+    );
+    expect(withRun.evidenceCoverage).toEqual(withCapital.evidenceCoverage);
+  });
+
+  it("empty tenant defaults assessment goal to Run the Company", () => {
+    const view = emptyTenantDashboard({
+      companyId: "co-new",
+      companyName: "New Co",
+    });
+    expect(view.assessmentGoal.goal).toBe("run-the-company");
+    expect(view.assessmentGoal.label).toBe("Run the Company");
+    expect(view.assessmentGoal.purpose).toMatch(/operational health/i);
+  });
+
   it("empty tenant shows zero documents and empty_state provenance", () => {
     const view = emptyTenantDashboard({
       companyId: "co-new",
