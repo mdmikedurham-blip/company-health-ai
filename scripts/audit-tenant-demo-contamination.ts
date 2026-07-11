@@ -11,29 +11,12 @@
  * timeline seed metadata, etc.). Real manual-upload rows are listed as "keep".
  */
 
-import { createClient } from "@supabase/supabase-js";
-import { readFileSync } from "fs";
 import { resolve } from "path";
+import { config as loadEnvFromDotenv } from "dotenv";
+import { createClient } from "@supabase/supabase-js";
 
-function loadEnv() {
-  try {
-    const raw = readFileSync(resolve(process.cwd(), ".env.local"), "utf8");
-    for (const line of raw.split("\n")) {
-      const m = line.match(/^([^#=]+)=(.*)$/);
-      if (!m) continue;
-      let val = m[2].trim();
-      if (
-        (val.startsWith('"') && val.endsWith('"')) ||
-        (val.startsWith("'") && val.endsWith("'"))
-      ) {
-        val = val.slice(1, -1);
-      }
-      process.env[m[1].trim()] ??= val;
-    }
-  } catch {
-    /* optional */
-  }
-}
+// dotenv/config equivalent pointed at .env.local (never log secrets).
+loadEnvFromDotenv({ path: resolve(process.cwd(), ".env.local") });
 
 const ACME_EVIDENCE_IDS = [
   "ev-board-minutes",
@@ -51,17 +34,20 @@ const ACME_TITLE_FRAGMENTS = [
 ];
 
 async function main() {
-  loadEnv();
   const arg = process.argv[2];
   if (!arg) {
-    console.error("Usage: npx tsx scripts/audit-tenant-demo-contamination.ts <company_id_or_name>");
+    console.error(
+      "Usage: npx tsx scripts/audit-tenant-demo-contamination.ts <company_id_or_name>",
+    );
     process.exit(1);
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
-    console.error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+    console.error(
+      "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY",
+    );
     process.exit(1);
   }
 
