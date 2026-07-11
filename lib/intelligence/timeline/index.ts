@@ -30,6 +30,7 @@ export {
   resolveCausalLinks,
   stableChainId,
   stableEventId,
+  timelineEventKey,
 } from "./causal-linker";
 
 export { buildCausalTimeline } from "./timeline-builder";

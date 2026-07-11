@@ -33,6 +33,21 @@ import {
   timelineEventFromRow,
   timelineEventToInsert,
 } from "./mappers";
+import { isUuid } from "@/lib/uploads/evidence-id";
+import {
+  stableFindingUuid,
+  stableRiskUuid,
+} from "@/lib/domain/stable-uuid";
+
+function toFindingDbIds(ids: string[]): string[] {
+  return [
+    ...new Set(ids.map((id) => (isUuid(id) ? id : stableFindingUuid(id)))),
+  ];
+}
+
+function toRiskDbIds(ids: string[]): string[] {
+  return [...new Set(ids.map((id) => (isUuid(id) ? id : stableRiskUuid(id))))];
+}
 
 export type PersistEngineResultInput = {
   companyId: string;
@@ -282,7 +297,7 @@ export async function deleteFindingsByIds(
       .from("findings")
       .delete()
       .eq("company_id", companyId)
-      .in("id", findingIds),
+      .in("id", toFindingDbIds(findingIds)),
     "deleteFindingsByIds",
   );
 }
@@ -342,7 +357,7 @@ export async function deleteRisksByIds(
       .from("risks")
       .delete()
       .eq("company_id", companyId)
-      .in("id", riskIds),
+      .in("id", toRiskDbIds(riskIds)),
     "deleteRisksByIds",
   );
 }

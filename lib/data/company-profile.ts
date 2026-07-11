@@ -11,6 +11,10 @@ import type {
   Report,
   TimelineEvent,
 } from "@/lib/domain";
+import {
+  deterministicUuid,
+  stableTimelineChainUuid,
+} from "@/lib/domain/stable-uuid";
 
 export const companyProfile: Company = {
   id: "company-acme",
@@ -206,10 +210,14 @@ export const companyBriefSeed = {
   },
 };
 
+const SEED_1 = deterministicUuid("timeline:tl-seed-1");
+const SEED_2 = deterministicUuid("timeline:tl-seed-2");
+const SEED_3 = deterministicUuid("timeline:tl-seed-3");
+
 /** Seed timeline retained for historical context; engine appends live events. */
 export const companyTimelineSeed: TimelineEvent[] = [
   {
-    id: "tl-seed-1",
+    id: SEED_1,
     companyId: "company-acme",
     date: "Jun 1, 2026",
     month: "June 2026",
@@ -223,13 +231,13 @@ export const companyTimelineSeed: TimelineEvent[] = [
     evidenceIds: [],
     findingIds: [],
     riskIds: [],
-    rootEventId: "tl-seed-1",
-    causalChainId: "chain-tl-seed-1",
+    rootEventId: SEED_1,
+    causalChainId: stableTimelineChainUuid(`chain:${SEED_1}`),
     confidence: 88,
-    metadata: { seed: true },
+    metadata: { seed: true, eventKey: "tl-seed-1" },
   },
   {
-    id: "tl-seed-2",
+    id: SEED_2,
     companyId: "company-acme",
     date: "May 22, 2026",
     month: "May 2026",
@@ -243,13 +251,13 @@ export const companyTimelineSeed: TimelineEvent[] = [
     evidenceIds: [],
     findingIds: [],
     riskIds: [],
-    rootEventId: "tl-seed-2",
-    causalChainId: "chain-tl-seed-2",
+    rootEventId: SEED_2,
+    causalChainId: stableTimelineChainUuid(`chain:${SEED_2}`),
     confidence: 70,
-    metadata: { seed: true },
+    metadata: { seed: true, eventKey: "tl-seed-2" },
   },
   {
-    id: "tl-seed-3",
+    id: SEED_3,
     companyId: "company-acme",
     date: "May 10, 2026",
     month: "May 2026",
@@ -263,9 +271,9 @@ export const companyTimelineSeed: TimelineEvent[] = [
     evidenceIds: [],
     findingIds: [],
     riskIds: [],
-    rootEventId: "tl-seed-3",
-    causalChainId: "chain-tl-seed-3",
+    rootEventId: SEED_3,
+    causalChainId: stableTimelineChainUuid(`chain:${SEED_3}`),
     confidence: 90,
-    metadata: { seed: true },
+    metadata: { seed: true, eventKey: "tl-seed-3" },
   },
 ];

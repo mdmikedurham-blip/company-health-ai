@@ -16,7 +16,16 @@ import type {
   TimelineEvent,
 } from "@/lib/domain";
 import type { Json, Tables, TablesInsert } from "./database.types";
-import { canonicalizeEvidenceUuid } from "@/lib/uploads/evidence-id";
+import {
+  canonicalizeEvidenceUuid,
+  isUuid,
+} from "@/lib/uploads/evidence-id";
+import {
+  stableFindingUuid,
+  stableRecommendationUuid,
+  stableRiskUuid,
+  stableTimelineEventUuid,
+} from "@/lib/domain/stable-uuid";
 
 type EvidenceRow = Tables<"evidence">;
 type FindingRow = Tables<"findings">;
@@ -25,6 +34,24 @@ type RecommendationRow = Tables<"recommendations">;
 type HealthScoreRow = Tables<"health_scores">;
 type TimelineEventRow = Tables<"timeline_events">;
 type CompanyRow = Tables<"companies">;
+
+/** Domain id for uuid PK tables: prefer human stable_key when present. */
+function domainIdFromStableRow(row: {
+  id: string;
+  stable_key?: string | null;
+}): string {
+  return row.stable_key || row.id;
+}
+
+function dbUuidFromStableKey(
+  domainId: string,
+  toUuid: (key: string) => string,
+): { id: string; stableKey: string | null } {
+  if (isUuid(domainId)) {
+    return { id: domainId, stableKey: null };
+  }
+  return { id: toUuid(domainId), stableKey: domainId };
+}
 
 function asJson(value: unknown): Json {
   return value as Json;
@@ -167,7 +194,7 @@ export function evidenceToInsert(
 
 export function findingFromRow(row: FindingRow): Finding {
   return {
-    id: row.id,
+    id: domainIdFromStableRow(row),
     title: row.title,
     description: row.description,
     summary: row.summary,
@@ -188,8 +215,13 @@ export function findingToInsert(
   companyId: string,
   finding: Finding,
 ): TablesInsert<"findings"> {
+  const { id, stableKey } = dbUuidFromStableKey(
+    finding.id,
+    stableFindingUuid,
+  );
   return {
-    id: finding.id,
+    id,
+    stable_key: stableKey,
     company_id: companyId,
     title: finding.title,
     description: finding.description,
@@ -211,7 +243,7 @@ export function findingToInsert(
 
 export function riskFromRow(row: RiskRow): Risk {
   return {
-    id: row.id,
+    id: domainIdFromStableRow(row),
     title: row.title,
     summary: row.summary,
     dimensionId: row.dimension_id,
@@ -236,8 +268,10 @@ export function riskToInsert(
   companyId: string,
   risk: Risk,
 ): TablesInsert<"risks"> {
+  const { id, stableKey } = dbUuidFromStableKey(risk.id, stableRiskUuid);
   return {
-    id: risk.id,
+    id,
+    stable_key: stableKey,
     company_id: companyId,
     title: risk.title,
     summary: risk.summary,
@@ -261,9 +295,11 @@ export function riskToInsert(
 
 // ─── Recommendations ─────────────────────────────────────────────────────────
 
-export function recommendationFromRow(row: RecommendationRow): Recommendation {
+export function recommendationFromRow(
+  row: RecommendationRow,
+): Recommendation {
   return {
-    id: row.id,
+    id: domainIdFromStableRow(row),
     title: row.title,
     description: row.description,
     dimensionId: row.dimension_id,
@@ -285,8 +321,13 @@ export function recommendationToInsert(
   companyId: string,
   recommendation: Recommendation,
 ): TablesInsert<"recommendations"> {
+  const { id, stableKey } = dbUuidFromStableKey(
+    recommendation.id,
+    stableRecommendationUuid,
+  );
   return {
-    id: recommendation.id,
+    id,
+    stable_key: stableKey,
     company_id: companyId,
     title: recommendation.title,
     description: recommendation.description,
@@ -354,6 +395,10 @@ export function healthScoreToInsert(
 export function timelineEventFromRow(row: TimelineEventRow): TimelineEvent {
   const summary = row.summary ?? row.description;
   const rootEventId = row.root_event_id ?? row.id;
+  const metadata = {
+    ...((row.metadata as TimelineEvent["metadata"]) ?? {}),
+    ...(row.event_key ? { eventKey: row.event_key } : {}),
+  };
   return {
     id: row.id,
     companyId: row.company_id,
@@ -382,7 +427,7 @@ export function timelineEventFromRow(row: TimelineEventRow): TimelineEvent {
     rootEventId,
     causalChainId: row.causal_chain_id ?? `chain-${rootEventId}`,
     confidence: Number(row.confidence ?? 0),
-    metadata: (row.metadata as TimelineEvent["metadata"]) ?? {},
+    metadata,
   };
 }
 
@@ -398,8 +443,21 @@ export function timelineEventToInsert(
     typeof event.currentValue === "number"
       ? event.currentValue
       : event.scoreAfter ?? null;
+  const metaEventKey =
+    typeof event.metadata?.eventKey === "string"
+      ? event.metadata.eventKey
+      : null;
+  const eventKey = metaEventKey ?? (!isUuid(event.id) ? event.id : null);
+  const id = isUuid(event.id)
+    ? event.id
+    : stableTimelineEventUuid(eventKey ?? event.id);
+  const metadata = {
+    ...(event.metadata ?? {}),
+    ...(eventKey ? { eventKey } : {}),
+  };
   return {
-    id: event.id,
+    id,
+    event_key: eventKey,
     company_id: companyId,
     event_date: event.date,
     month: event.month,
@@ -420,10 +478,18 @@ export function timelineEventToInsert(
     previous_value: previousNumeric,
     current_value: currentNumeric,
     score_delta: event.scoreDelta ?? null,
-    parent_event_id: event.parentEventId ?? null,
-    root_event_id: event.rootEventId,
+    parent_event_id: event.parentEventId
+      ? isUuid(event.parentEventId)
+        ? event.parentEventId
+        : stableTimelineEventUuid(event.parentEventId)
+      : null,
+    root_event_id: isUuid(event.rootEventId)
+      ? event.rootEventId
+      : event.rootEventId
+        ? stableTimelineEventUuid(event.rootEventId)
+        : id,
     causal_chain_id: event.causalChainId,
     confidence: event.confidence,
-    metadata: asJson(event.metadata ?? {}),
+    metadata: asJson(metadata),
   };
 }

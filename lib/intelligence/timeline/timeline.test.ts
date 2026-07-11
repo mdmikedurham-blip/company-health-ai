@@ -13,6 +13,7 @@ import {
   diffFindings,
   diffRisks,
   stableEventId,
+  timelineEventKey,
 } from "@/lib/intelligence/timeline";
 import type { TimelinePreviousSlice } from "@/lib/intelligence/timeline";
 import { DEFAULT_AS_OF, runInsightEngine } from "@/lib/intelligence";
@@ -124,12 +125,16 @@ function sliceFromEngine(
 }
 
 describe("stableEventId", () => {
-  it("is deterministic", () => {
-    expect(stableEventId("finding-created", "finding-a")).toBe(
-      "tl-finding-created-finding-a",
+  it("is deterministic UUID (never prefixed tl- string)", () => {
+    const a = stableEventId("finding-created", "finding-a");
+    const b = stableEventId("finding-created", "finding-a");
+    expect(a).toBe(b);
+    expect(a).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );
-    expect(stableEventId("finding-created", "finding-a")).toBe(
-      stableEventId("finding-created", "finding-a"),
+    expect(a).not.toMatch(/^tl-/);
+    expect(timelineEventKey("finding-created", "finding-a")).toBe(
+      "tl-finding-created-finding-a",
     );
   });
 });

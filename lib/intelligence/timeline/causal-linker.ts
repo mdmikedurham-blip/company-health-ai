@@ -1,10 +1,14 @@
 import type { TimelineEvent } from "@/lib/domain";
+import {
+  stableTimelineChainUuid,
+  stableTimelineEventUuid,
+} from "@/lib/domain/stable-uuid";
 import type { CausalLinkMap } from "./timeline-types";
 
 /**
- * Deterministic event ID — same entity + type always yields the same id.
+ * Human-readable event key (text only — never a uuid column value).
  */
-export function stableEventId(
+export function timelineEventKey(
   type: string,
   entityId: string,
   suffix?: string,
@@ -13,14 +17,22 @@ export function stableEventId(
   return suffix ? `${base}-${suffix}` : base;
 }
 
-export function stableChainId(rootEventId: string): string {
-  return `chain-${rootEventId}`;
+/**
+ * Deterministic UUID for timeline_events.id from the stable event key.
+ */
+export function stableEventId(
+  type: string,
+  entityId: string,
+  suffix?: string,
+): string {
+  return stableTimelineEventUuid(timelineEventKey(type, entityId, suffix));
 }
 
-/**
- * Resolve parent / root / chain for a new event from its causal parents.
- * Prefers the most specific parent (finding → evidence → document).
- */
+export function stableChainId(rootEventId: string): string {
+  // rootEventId is already a timeline event UUID; derive a chain UUID from it.
+  return stableTimelineChainUuid(`chain:${rootEventId}`);
+}
+
 export function resolveCausalLinks(params: {
   parentEventId?: string;
   fallbackParentIds?: string[];
@@ -35,7 +47,6 @@ export function resolveCausalLinks(params: {
     [...(params.fallbackParentIds ?? [])].sort()[0];
 
   if (!parentEventId) {
-    // Will be filled by caller once event id is known (self-root)
     return {
       parentEventId: undefined,
       rootEventId: "",
@@ -43,9 +54,6 @@ export function resolveCausalLinks(params: {
     };
   }
 
-  // Walk to root via known events if we stored them — for map we only have ids;
-  // root is derived as chain of the parent if parent was registered with root in metadata.
-  // Callers pass root from parent event when available.
   return {
     parentEventId,
     rootEventId: parentEventId,
@@ -74,7 +82,9 @@ export function inheritRootFromParent(
     return {
       parentEventId: parent.id,
       rootEventId: parent.rootEventId || parent.id,
-      causalChainId: parent.causalChainId || stableChainId(parent.rootEventId || parent.id),
+      causalChainId:
+        parent.causalChainId ||
+        stableChainId(parent.rootEventId || parent.id),
     };
   }
   if (parentEventId) {
