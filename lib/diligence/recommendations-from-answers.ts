@@ -68,10 +68,13 @@ export function generateRecommendationsFromAnswers(
       effort: template.effort,
       confidence: answer.confidence,
       estimatedScoreImprovement,
-      rationale: `${template.rationale} (${answer.state}: ${answer.reasoning})`,
+      rationale: `${template.rationale} (${answer.state}: ${answer.reasoning}) [question=${answer.questionId}; concepts=${(answer.conceptIds ?? []).join(",") || "none"}; missing=${answer.missingEvidence.join(",") || "none"}]`,
       nextSteps: template.nextSteps,
       priorityScore,
       findingIds: [],
+      questionIds: [answer.questionId],
+      conceptIds: answer.conceptIds ?? [],
+      missingEvidence: answer.missingEvidence,
     });
   }
 

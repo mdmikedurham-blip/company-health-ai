@@ -80,6 +80,15 @@ export {
   DILIGENCE_DIMENSION_IDS,
 } from "./diligence-question";
 export type {
+  BusinessConceptId,
+  BusinessConceptState,
+  BusinessConceptDefinition,
+  BusinessConcept,
+  ConceptExplainabilityNode,
+  DiligenceExplainabilityPath,
+} from "./business-concept";
+export { BUSINESS_CONCEPT_IDS } from "./business-concept";
+export type {
   CompanyDNA,
   BoardMember,
   ConnectedSystem,

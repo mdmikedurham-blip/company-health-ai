@@ -284,6 +284,23 @@ async function persistCompanyIntelligence(input: {
   } catch {
     // Migration 016 may not be applied yet.
   }
+
+  try {
+    const { replaceCompanyBusinessConcepts } = await import("@/lib/concepts");
+    if (snapshot.businessConcepts?.length) {
+      await replaceCompanyBusinessConcepts({
+        client,
+        companyId,
+        concepts: snapshot.businessConcepts.map((c) => ({
+          ...c,
+          snapshotId: snapshotId ?? c.snapshotId,
+        })),
+        snapshotId,
+      });
+    }
+  } catch {
+    // Migration 017 may not be applied yet.
+  }
 }
 
 /**

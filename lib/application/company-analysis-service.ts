@@ -127,6 +127,7 @@ function assembleSnapshot(
     executiveBrief,
     questionAnswers: engine.questionAnswers,
     questionCoverage: engine.questionCoverage,
+    businessConcepts: engine.businessConcepts,
   };
 }
 
@@ -228,6 +229,7 @@ export async function analyzeAndPersistFromStoredEvidence(
           ? input.asOf
           : input.asOf?.toISOString(),
       questionAnswers: snapshot.questionAnswers,
+      businessConcepts: snapshot.businessConcepts,
     });
   }
 
@@ -260,6 +262,7 @@ export async function analyzeAndPersistCompany(
           ? input.asOf
           : input.asOf?.toISOString(),
       questionAnswers: snapshot.questionAnswers,
+      businessConcepts: snapshot.businessConcepts,
     });
   }
 
