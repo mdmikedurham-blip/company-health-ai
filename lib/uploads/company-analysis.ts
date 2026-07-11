@@ -213,36 +213,117 @@ async function persistCompanyIntelligence(input: {
   });
 
   let snapshotId: string | null = null;
-  await withRetry(async () => {
-    const { error } = await client.from("analysis_snapshots").insert({
-      company_id: companyId,
-      status: "completed",
-      as_of: now,
-      payload: {
-        source: "manual-upload",
-        documentIds,
-        evidenceIds,
-        healthScore: snapshot.healthScore.score,
-        affected: snapshot.affected,
-        classificationStage: snapshot.classificationStage ?? null,
-      },
-    });
-    if (error) throw new Error(`analysis_snapshots.insert: ${error.message}`);
-  });
-
-  // Best-effort: load latest snapshot id for classification linkage.
   try {
-    const { data } = await client
-      .from("analysis_snapshots")
-      .select("id")
-      .eq("company_id", companyId)
-      .eq("status", "completed")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    snapshotId = data?.id ?? null;
-  } catch {
-    snapshotId = null;
+    const { getCompanyAssessmentGoal } = await import("@/lib/assessment-goals");
+    const { publishAssessmentSnapshot } = await import(
+      "@/lib/assessment-snapshots"
+    );
+    const goalRow = await getCompanyAssessmentGoal({
+      client,
+      companyId,
+    }).catch(() => null);
+
+    const published = await publishAssessmentSnapshot({
+      client,
+      companyId,
+      assessmentGoal: goalRow?.goal ?? "run-the-company",
+      companyStage: snapshot.classificationStage,
+      generatedBy: "manual-upload",
+      documentVersions: documentIds.map((id) => ({
+        documentId: id,
+      })),
+      healthScore: snapshot.healthScore,
+      dimensions: snapshot.dimensions,
+      scoreChange: snapshot.scoreChange,
+      findings: snapshot.findings,
+      risks: snapshot.risks,
+      recommendations: snapshot.recommendations,
+      questionAnswers: snapshot.questionAnswers,
+      questionCoverage: snapshot.questionCoverage,
+      businessConcepts: snapshot.businessConcepts,
+      evidenceIds,
+      documentIds,
+      syncCurrentTables: true,
+    });
+    snapshotId = published.snapshotId;
+  } catch (error) {
+    // Fallback: legacy sparse snapshot insert if Phase 6 publish is unavailable.
+    logUploadProcessingEvent("manual_upload_processing_kickoff", {
+      documentId: documentIds[0] ?? "unknown",
+      companyId,
+      stage: "assessment_snapshot_publish",
+      outcome: "deferred",
+      status: "PROCESSED",
+      errorMessage:
+        error instanceof Error ? error.message : "snapshot_publish_failed",
+    });
+    await withRetry(async () => {
+      const { error: insertError } = await client
+        .from("analysis_snapshots")
+        .insert({
+          company_id: companyId,
+          status: "completed",
+          as_of: now,
+          payload: {
+            source: "manual-upload",
+            documentIds,
+            evidenceIds,
+            healthScore: snapshot.healthScore.score,
+            affected: snapshot.affected,
+            classificationStage: snapshot.classificationStage ?? null,
+          },
+        });
+      if (insertError) {
+        throw new Error(`analysis_snapshots.insert: ${insertError.message}`);
+      }
+    });
+    try {
+      const { data } = await client
+        .from("analysis_snapshots")
+        .select("id")
+        .eq("company_id", companyId)
+        .eq("status", "completed")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      snapshotId = data?.id ?? null;
+    } catch {
+      snapshotId = null;
+    }
+
+    try {
+      const { replaceCompanyQuestionAnswers } = await import("@/lib/diligence");
+      if (snapshot.questionAnswers?.length) {
+        await replaceCompanyQuestionAnswers({
+          client,
+          companyId,
+          answers: snapshot.questionAnswers.map((a) => ({
+            ...a,
+            snapshotId: snapshotId ?? a.snapshotId,
+          })),
+          snapshotId,
+        });
+      }
+    } catch {
+      // Migration 016 may not be applied yet.
+    }
+
+    try {
+      const { replaceCompanyBusinessConcepts } = await import("@/lib/concepts");
+      if (snapshot.businessConcepts?.length) {
+        await replaceCompanyBusinessConcepts({
+          client,
+          companyId,
+          concepts: snapshot.businessConcepts.map((c) => ({
+            ...c,
+            snapshotId: snapshotId ?? c.snapshotId,
+          })),
+          snapshotId,
+        });
+      }
+    } catch {
+      // Migration 017 may not be applied yet.
+    }
   }
 
   try {
@@ -266,40 +347,6 @@ async function persistCompanyIntelligence(input: {
       errorMessage:
         error instanceof Error ? error.message : "classification_refresh_failed",
     });
-  }
-
-  try {
-    const { replaceCompanyQuestionAnswers } = await import("@/lib/diligence");
-    if (snapshot.questionAnswers?.length) {
-      await replaceCompanyQuestionAnswers({
-        client,
-        companyId,
-        answers: snapshot.questionAnswers.map((a) => ({
-          ...a,
-          snapshotId: snapshotId ?? a.snapshotId,
-        })),
-        snapshotId,
-      });
-    }
-  } catch {
-    // Migration 016 may not be applied yet.
-  }
-
-  try {
-    const { replaceCompanyBusinessConcepts } = await import("@/lib/concepts");
-    if (snapshot.businessConcepts?.length) {
-      await replaceCompanyBusinessConcepts({
-        client,
-        companyId,
-        concepts: snapshot.businessConcepts.map((c) => ({
-          ...c,
-          snapshotId: snapshotId ?? c.snapshotId,
-        })),
-        snapshotId,
-      });
-    }
-  } catch {
-    // Migration 017 may not be applied yet.
   }
 }
 

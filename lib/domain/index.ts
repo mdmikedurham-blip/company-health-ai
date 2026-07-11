@@ -89,6 +89,14 @@ export type {
 } from "./business-concept";
 export { BUSINESS_CONCEPT_IDS } from "./business-concept";
 export type {
+  AssessmentSnapshotPack,
+  AssessmentSnapshotRecord,
+  AssessmentSnapshotDiff,
+  AssessmentSnapshotPublishKind,
+  AssessmentSnapshotStatus,
+  DocumentVersionStamp,
+} from "./assessment-snapshot";
+export type {
   CompanyDNA,
   BoardMember,
   ConnectedSystem,

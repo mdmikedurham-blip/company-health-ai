@@ -249,10 +249,22 @@ export function DashboardContent({ view }: { view: TenantDashboardView }) {
         data-score-method={provenance.score_method}
         data-confidence-method={provenance.confidence_method}
         data-dimension-coverage={`${provenance.dimension_coverage.scored}/${provenance.dimension_coverage.total}`}
+        data-coverage-ratio={provenance.coverage_ratio ?? ""}
+        data-confidence={provenance.confidence ?? ""}
+        data-analysis-version={provenance.analysis_version ?? ""}
       >
         Source: {provenance.source}
         {provenance.snapshot_id
           ? ` · snapshot ${provenance.snapshot_id.slice(0, 8)}`
+          : ""}
+        {provenance.generated_at
+          ? ` · generated ${provenance.generated_at}`
+          : ""}
+        {provenance.coverage_ratio != null
+          ? ` · coverage ${Math.round(provenance.coverage_ratio * 100)}%`
+          : ""}
+        {provenance.confidence != null
+          ? ` · confidence ${Math.round(provenance.confidence)}`
           : ""}
         {" · "}
         {provenance.document_count} processed docs

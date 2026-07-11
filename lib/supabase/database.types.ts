@@ -35,6 +35,7 @@ export type Database = {
           created_by: string | null;
           created_at: string;
           updated_at: string;
+          current_snapshot_id: string | null;
         };
         Insert: {
           id?: string;
@@ -47,6 +48,7 @@ export type Database = {
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
+          current_snapshot_id?: string | null;
         };
         Update: {
           id?: string;
@@ -59,6 +61,7 @@ export type Database = {
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
+          current_snapshot_id?: string | null;
         };
         Relationships: [
           {
@@ -526,6 +529,21 @@ export type Database = {
           as_of: string;
           created_at: string;
           updated_at: string;
+          publish_kind: string;
+          published_at: string | null;
+          superseded_at: string | null;
+          superseded_by: string | null;
+          parent_snapshot_id: string | null;
+          assessment_goal: string | null;
+          company_stage: string | null;
+          analysis_version: string | null;
+          extraction_version: string | null;
+          evidence_version: string | null;
+          document_versions: Json;
+          generated_by: string | null;
+          confidence: number | null;
+          coverage_ratio: number | null;
+          overall_health_available: boolean;
         };
         Insert: {
           id?: string;
@@ -536,6 +554,21 @@ export type Database = {
           as_of?: string;
           created_at?: string;
           updated_at?: string;
+          publish_kind?: string;
+          published_at?: string | null;
+          superseded_at?: string | null;
+          superseded_by?: string | null;
+          parent_snapshot_id?: string | null;
+          assessment_goal?: string | null;
+          company_stage?: string | null;
+          analysis_version?: string | null;
+          extraction_version?: string | null;
+          evidence_version?: string | null;
+          document_versions?: Json;
+          generated_by?: string | null;
+          confidence?: number | null;
+          coverage_ratio?: number | null;
+          overall_health_available?: boolean;
         };
         Update: {
           id?: string;
@@ -546,6 +579,21 @@ export type Database = {
           as_of?: string;
           created_at?: string;
           updated_at?: string;
+          publish_kind?: string;
+          published_at?: string | null;
+          superseded_at?: string | null;
+          superseded_by?: string | null;
+          parent_snapshot_id?: string | null;
+          assessment_goal?: string | null;
+          company_stage?: string | null;
+          analysis_version?: string | null;
+          extraction_version?: string | null;
+          evidence_version?: string | null;
+          document_versions?: Json;
+          generated_by?: string | null;
+          confidence?: number | null;
+          coverage_ratio?: number | null;
+          overall_health_available?: boolean;
         };
         Relationships: [
           {

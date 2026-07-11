@@ -439,12 +439,67 @@ export async function loadTenantDashboard(input: {
   });
 
   const coverage = buildDimensionCoverage(dimensions);
+
+  // Prefer companies.current_snapshot_id when Phase 6 pointer is present.
+  let currentSnapshotId = snapshotRow?.id ?? null;
+  let priorSnapshotId = priorValid
+    ? (priorSnapshotRow?.id ?? priorRow?.id ?? null)
+    : null;
+  let coverageRatio: number | null = null;
+  let snapshotConfidence: number | null = null;
+  let analysisVersion: string | null = null;
+  let snapshotGoalId: string | null = null;
+  try {
+    const { data: companyRow } = await client
+      .from("companies")
+      .select("current_snapshot_id")
+      .eq("id", companyId)
+      .maybeSingle();
+    const pointer = (companyRow as { current_snapshot_id?: string | null } | null)
+      ?.current_snapshot_id;
+    if (pointer) {
+      currentSnapshotId = pointer;
+      const { data: currentSnap } = await client
+        .from("analysis_snapshots")
+        .select(
+          "id, created_at, parent_snapshot_id, coverage_ratio, confidence, analysis_version, assessment_goal, payload",
+        )
+        .eq("id", pointer)
+        .maybeSingle();
+      if (currentSnap) {
+        const row = currentSnap as {
+          created_at?: string;
+          parent_snapshot_id?: string | null;
+          coverage_ratio?: number | null;
+          confidence?: number | null;
+          analysis_version?: string | null;
+          assessment_goal?: string | null;
+          payload?: {
+            coverageRatio?: number;
+            confidence?: number;
+            analysisVersion?: string;
+            assessmentGoal?: string;
+          };
+        };
+        priorSnapshotId = row.parent_snapshot_id ?? priorSnapshotId;
+        coverageRatio =
+          row.coverage_ratio ?? row.payload?.coverageRatio ?? null;
+        snapshotConfidence =
+          row.confidence ?? row.payload?.confidence ?? null;
+        analysisVersion =
+          row.analysis_version ?? row.payload?.analysisVersion ?? null;
+        snapshotGoalId =
+          row.assessment_goal ?? row.payload?.assessmentGoal ?? null;
+      }
+    }
+  } catch {
+    // Migration 018 may not be applied — keep legacy provenance.
+  }
+
   const provenance: DashboardProvenance = {
     company_id: companyId,
-    snapshot_id: snapshotRow?.id ?? priorScores?.[0]?.id ?? null,
-    prior_snapshot_id: priorValid
-      ? (priorSnapshotRow?.id ?? priorRow?.id ?? null)
-      : null,
+    snapshot_id: currentSnapshotId,
+    prior_snapshot_id: priorSnapshotId,
     generated_at:
       snapshotRow?.created_at ??
       (typeof healthScore.lastUpdated === "string"
@@ -456,6 +511,10 @@ export async function loadTenantDashboard(input: {
     score_method: deriveScoreMethod(healthScore),
     confidence_method: deriveConfidenceMethod(healthScore),
     source: "persisted_analysis",
+    coverage_ratio: coverageRatio,
+    confidence: snapshotConfidence ?? healthScore.confidence,
+    analysis_version: analysisVersion,
+    assessment_goal: snapshotGoalId,
   };
 
   return {
