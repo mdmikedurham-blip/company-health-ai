@@ -160,15 +160,17 @@ describe("hello.txt process-route handoff proof", () => {
   });
 
   it("kickoff → process route → PROCESSED within 30s", async () => {
+    const documentId = "05c28277-3c7a-4f6a-9429-02469d22b26d";
+    const companyId = "11111111-2222-4333-8444-555555555555";
     const doc: DocRow = {
-      id: "doc-hello",
-      company_id: "co-1",
+      id: documentId,
+      company_id: companyId,
       connector_id: "manual-upload",
-      external_id: "doc-hello",
+      external_id: documentId,
       title: "hello.txt",
       filename: "hello.txt",
       mime_type: "text/plain",
-      storage_path: "co-1/doc-hello/hello.txt",
+      storage_path: `${companyId}/${documentId}/hello.txt`,
       path: "hello.txt",
       status: "QUEUED",
       uri: "storage://x",
@@ -199,8 +201,8 @@ describe("hello.txt process-route handoff proof", () => {
 
     const started = Date.now();
     const result = await kickoffDocumentProcessing({
-      companyId: "co-1",
-      documentId: "doc-hello",
+      companyId,
+      documentId,
       byteSize: 6,
       mode: "sync",
       client: fakeClientHolder.current as never,
@@ -221,5 +223,8 @@ describe("hello.txt process-route handoff proof", () => {
     expect(log).toContain("EXTRACTED");
     expect(log).toContain("ANALYZING");
     expect(log.at(-1)).toBe("PROCESSED");
+    expect(log).toEqual(
+      expect.arrayContaining(["PROCESSING", "EXTRACTED", "ANALYZING", "PROCESSED"]),
+    );
   });
 });

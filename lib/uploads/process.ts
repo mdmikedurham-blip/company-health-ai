@@ -33,8 +33,12 @@ import {
   updateDocumentStage,
   type DocumentJobRow,
 } from "./claim";
-import { logUploadProcessingEvent } from "./logging";
+import { logUploadProcessingEvent, logUploadProcessingException } from "./logging";
 import { wasProcessingCancelled } from "./cancel";
+import {
+  evidenceIdForManualUpload,
+  manualUploadExternalKey,
+} from "./removal-policy";
 
 export type ProcessDocumentResult = {
   documentId: string;
@@ -222,10 +226,21 @@ export async function continueClaimedManualUpload(input: {
       MANUAL_UPLOAD_CONNECTOR_ID,
       "Manual Upload",
     );
-    const evidenceId = `upload-${claimed.id}`;
-    const { evidence } = runEvidenceExtractionPipeline(raw, extracted, {
+    const evidenceId = evidenceIdForManualUpload(claimed.id);
+    const { evidence: built } = runEvidenceExtractionPipeline(raw, extracted, {
       evidenceId,
     });
+    const evidence = {
+      ...built,
+      id: evidenceId,
+      metadata: {
+        ...built.metadata,
+        documentId: claimed.id,
+        document_id: claimed.id,
+        externalKey: manualUploadExternalKey(claimed.id),
+        source: "manual-upload",
+      },
+    };
 
     const evidenceRepo = createEvidenceRepository({ client: input.client });
     await evidenceRepo.upsert(companyId, [evidence]);
@@ -350,6 +365,14 @@ export async function continueClaimedManualUpload(input: {
       evidenceId,
     };
   } catch (err) {
+    logUploadProcessingException("manual_upload_processing_exception", {
+      documentId,
+      companyId,
+      filename: claimed.filename ?? claimed.title,
+      mimeType: claimed.mime_type,
+      stage: "continueClaimedManualUpload",
+      err,
+    });
     const message = err instanceof Error ? err.message : String(err);
     await markDocumentFailed({
       client: input.client,
@@ -365,6 +388,10 @@ export async function continueClaimedManualUpload(input: {
       outcome: "failed",
       status: "FAILED",
       errorMessage: message.slice(0, 500),
+      errorStack:
+        err instanceof Error
+          ? (err.stack ?? message).slice(0, 4000)
+          : String(err),
     });
     return {
       documentId,

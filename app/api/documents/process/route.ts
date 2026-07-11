@@ -16,7 +16,10 @@ import {
 } from "@/lib/uploads/process";
 import { acceptDocumentForProcessing } from "@/lib/uploads/run-process";
 import { MANUAL_UPLOAD_CONNECTOR_ID } from "@/lib/uploads/constants";
-import { logUploadProcessingEvent } from "@/lib/uploads/logging";
+import {
+  logUploadProcessingEvent,
+  logUploadProcessingException,
+} from "@/lib/uploads/logging";
 
 export const maxDuration = 120;
 
@@ -28,6 +31,8 @@ export const maxDuration = 120;
  * mode=accept: claim, return 202, finish via waitUntil.
  */
 export async function POST(request: Request) {
+  let routeDocumentId = "unknown";
+  let routeCompanyId = "unknown";
   try {
     if (!isSupabaseConfigured() || !isServiceRoleConfigured()) {
       return NextResponse.json(
@@ -46,6 +51,7 @@ export async function POST(request: Request) {
     };
     const documentId = String(body.documentId ?? "").trim() || null;
     const mode = body.mode ?? (documentId ? "accept" : "drain");
+    routeDocumentId = documentId ?? "unknown";
 
     if (isInternal) {
       companyId = String(body.companyId ?? "").trim() || null;
@@ -96,6 +102,7 @@ export async function POST(request: Request) {
         { status: isInternal ? 400 : 401 },
       );
     }
+    routeCompanyId = companyId;
 
     if (!documentId) {
       const result = await processQueuedManualUploads({
@@ -162,11 +169,23 @@ export async function POST(request: Request) {
       status: accepted.claimed ? 202 : 200,
     });
   } catch (err) {
+    logUploadProcessingException("manual_upload_processing_exception", {
+      documentId: routeDocumentId,
+      companyId: routeCompanyId,
+      stage: "process-route",
+      err,
+    });
     const message = err instanceof Error ? err.message : String(err);
     logUploadProcessingEvent("manual_upload_processing_failed", {
+      documentId: routeDocumentId,
+      companyId: routeCompanyId,
       stage: "route",
       outcome: "failed",
       errorMessage: message.slice(0, 500),
+      errorStack:
+        err instanceof Error
+          ? (err.stack ?? message).slice(0, 4000)
+          : String(err),
     });
     if (message.includes("write access")) {
       return NextResponse.json({ error: message }, { status: 403 });

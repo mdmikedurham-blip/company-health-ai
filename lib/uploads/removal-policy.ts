@@ -117,7 +117,13 @@ export function visibleManualUploadActions(
 }
 
 export function evidenceIdForManualUpload(documentId: string): string {
-  return `upload-${documentId}`;
+  // evidence.id is uuid — use the document row id as the canonical evidence PK.
+  return documentId;
+}
+
+/** Text key for provenance (not a UUID column). */
+export function manualUploadExternalKey(documentId: string): string {
+  return `upload:${documentId}`;
 }
 
 export const CANCELLED_LAST_STAGE = "cancelled" as const;

@@ -398,7 +398,7 @@ describe("removeManualUploadDocument", () => {
         },
       ],
     ]);
-    const evidenceId = "upload-doc-e";
+    const evidenceId = "doc-e";
     listFindingsMock.mockResolvedValue([
       { id: "f-sole", evidenceIds: [evidenceId] } as never,
       { id: "f-shared", evidenceIds: [evidenceId, "other-ev"] } as never,
