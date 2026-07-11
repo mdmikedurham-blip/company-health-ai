@@ -16,7 +16,6 @@ import {
   companyReports,
   companyTimelineSeed,
   dimensionProfiles,
-  previousHealthScore,
 } from "@/lib/data/company-profile";
 import {
   createServiceClient,
@@ -141,7 +140,6 @@ async function runScheduledSync(request: Request) {
             company,
             changedEvidenceIds: sync.changedEvidenceIds,
             dimensionProfiles,
-            previousHealthScore,
             dna: dnaProfile,
             reports: companyReports,
             timelineSeed: companyTimelineSeed,

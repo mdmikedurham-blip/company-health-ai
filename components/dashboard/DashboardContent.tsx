@@ -51,6 +51,8 @@ export function DashboardContent({ view }: { view: TenantDashboardView }) {
             changeLabel={healthScore.changeLabel}
             lastUpdated={healthScore.lastUpdated}
             confidence={healthScore.confidence}
+            scoreAvailable={healthScore.scoreAvailable}
+            hasPriorSnapshot={scoreChangeExplanation.hasPriorSnapshot}
             summary={scoreChangeExplanation.summary}
           />
         </div>
@@ -168,6 +170,7 @@ export function DashboardContent({ view }: { view: TenantDashboardView }) {
                     name={dimension.name}
                     score={dimension.score}
                     status={dimension.status}
+                    scored={dimension.scored}
                     trend={dimension.trend}
                     trendValue={dimension.trendValue}
                     dimensionId={dimension.id}
@@ -230,12 +233,24 @@ export function DashboardContent({ view }: { view: TenantDashboardView }) {
         data-dashboard-source={provenance.source}
         data-company-id={provenance.company_id}
         data-snapshot-id={provenance.snapshot_id ?? ""}
+        data-prior-snapshot-id={provenance.prior_snapshot_id ?? ""}
         data-document-count={provenance.document_count}
+        data-evidence-count={provenance.evidence_count}
+        data-score-method={provenance.score_method}
+        data-confidence-method={provenance.confidence_method}
+        data-dimension-coverage={`${provenance.dimension_coverage.scored}/${provenance.dimension_coverage.total}`}
       >
         Source: {provenance.source}
-        {provenance.snapshot_id ? ` · snapshot ${provenance.snapshot_id.slice(0, 8)}` : ""}
+        {provenance.snapshot_id
+          ? ` · snapshot ${provenance.snapshot_id.slice(0, 8)}`
+          : ""}
         {" · "}
         {provenance.document_count} processed docs
+        {" · "}
+        {provenance.dimension_coverage.scored}/
+        {provenance.dimension_coverage.total} dims scored
+        {" · "}
+        {provenance.score_method}
       </p>
     </div>
   );

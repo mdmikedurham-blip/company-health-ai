@@ -12,3 +12,8 @@ export {
   loadTenantDashboard,
 } from "./load-tenant-dashboard";
 export { loadAuthenticatedDashboardView } from "./load-authenticated-view";
+export {
+  buildDimensionCoverage,
+  isLegacyBaselineOnlySnapshot,
+  sanitizeHealthAssessment,
+} from "./sanitize-health";

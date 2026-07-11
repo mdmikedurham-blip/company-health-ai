@@ -23,7 +23,6 @@ import {
   companyReports,
   companyTimelineSeed,
   dimensionProfiles,
-  previousHealthScore,
 } from "@/lib/data/company-profile";
 import { createServiceClient, isSupabaseConfigured } from "@/lib/supabase";
 import { GOOGLE_DRIVE_CONNECTOR_ID } from "@/lib/connectors/google-drive/constants";
@@ -108,7 +107,6 @@ export async function GET(request: Request) {
             company,
             changedEvidenceIds: sync.changedEvidenceIds,
             dimensionProfiles,
-            previousHealthScore,
             dna: dnaProfile,
             reports: companyReports,
             timelineSeed: companyTimelineSeed,

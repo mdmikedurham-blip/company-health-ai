@@ -16,10 +16,29 @@ describe("dashboard tenant isolation", () => {
     expect(view.provenance.source).toBe("empty_state");
     expect(view.provenance.company_id).toBe("co-new");
     expect(view.provenance.document_count).toBe(0);
+    expect(view.provenance.score_method).toBe("none");
+    expect(view.provenance.evidence_count).toBe(0);
     expect(view.metrics[0]?.value).toBe("0");
     expect(view.healthScore.score).toBe(0);
+    expect(view.healthScore.scoreAvailable).toBe(false);
+    expect(view.healthScore.status).toBe("insufficient");
+    expect(view.scoreChangeExplanation.hasPriorSnapshot).toBe(false);
     expect(view.topRisks).toEqual([]);
     expect(view.recommendations).toEqual([]);
+  });
+
+  it("dashboard panels reconcile to one snapshot id in provenance", () => {
+    const view = emptyTenantDashboard({
+      companyId: "co-snap",
+      companyName: "Snap Co",
+    });
+    expect(view.provenance.snapshot_id).toBeNull();
+    expect(view.provenance.prior_snapshot_id).toBeNull();
+    // Single provenance object feeds score, risks, and actions panels
+    expect(view.provenance.company_id).toBe("co-snap");
+    expect(view.topRisks).toEqual([]);
+    expect(view.nextBestActions).toEqual([]);
+    expect(view.healthScore.scoreAvailable).toBe(false);
   });
 
   it("documents analyzed equals processed document count (not mock 1292)", () => {

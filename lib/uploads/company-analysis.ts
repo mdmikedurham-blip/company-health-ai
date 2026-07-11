@@ -19,7 +19,6 @@ import {
   companyReports,
   companyTimelineSeed,
   dimensionProfiles,
-  previousHealthScore,
 } from "@/lib/data/company-profile";
 import {
   replaceCompanyRecommendations,
@@ -142,7 +141,6 @@ async function persistCompanyIntelligence(input: {
     company,
     changedEvidenceIds: evidenceIds,
     dimensionProfiles,
-    previousHealthScore,
     dna: dnaProfile,
     reports: companyReports,
     timelineSeed: companyTimelineSeed,
@@ -429,7 +427,6 @@ export async function rebuildCompanyIntelligenceUnderLock(input: {
         company,
         lastFullScan: now,
         dimensionProfiles,
-        previousHealthScore,
         dna: dnaProfile,
         reports: companyReports,
         timelineSeed: companyTimelineSeed,

@@ -13,6 +13,8 @@ import type {
  */
 export interface HealthScore {
   score: number;
+  /** False when no dimension met the scoring threshold — do not present score as real. */
+  scoreAvailable?: boolean;
   status: HealthStatus;
   change: number;
   changeLabel: string;
@@ -26,6 +28,8 @@ export interface HealthDimension {
   id: DimensionId;
   name: string;
   score: number;
+  /** False when this dimension lacks findings — UI shows "Not enough evidence". */
+  scored?: boolean;
   trend: Trend;
   status: HealthStatus;
   confidence: number;
@@ -47,6 +51,7 @@ export interface HealthDimensionSummary {
   id: DimensionId;
   name: string;
   score: number;
+  scored: boolean;
   status: HealthStatus;
   trend: Trend["direction"];
   trendValue: Trend["value"];
@@ -57,6 +62,7 @@ export function toDimensionSummary(dimension: HealthDimension): HealthDimensionS
     id: dimension.id,
     name: dimension.name,
     score: dimension.score,
+    scored: dimension.scored !== false && dimension.status !== "insufficient",
     status: dimension.status,
     trend: dimension.trend.direction,
     trendValue: dimension.trend.value,
