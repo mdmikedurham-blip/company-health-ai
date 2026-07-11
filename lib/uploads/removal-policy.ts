@@ -150,6 +150,11 @@ export function visibleManualUploadActions(
     actions.push("retry");
   }
 
+  // Allow re-extraction of completed docs (needed after extractor upgrades).
+  if (row.status === "PROCESSED" && !actions.includes("retry")) {
+    actions.push("retry");
+  }
+
   if (canRemoveDocument(row, now)) {
     actions.push("remove");
   }
