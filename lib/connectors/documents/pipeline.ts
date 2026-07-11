@@ -14,6 +14,10 @@ import type { Evidence, ExtractedFacts } from "@/lib/domain";
 import { dimensionIdFromName, dimensionName } from "@/lib/domain/dimensions";
 import { createEvidence } from "../create-evidence";
 import type { ExtractedDocument } from "../extraction/types";
+import {
+  hasEnoughFinancialFacts,
+  mergeFinancialFactsInto,
+} from "../extraction/financial-facts";
 import { extractEvidence } from "../evidence-extraction/extract-evidence";
 import type { EvidenceExtractionResult } from "../evidence-extraction/types";
 import type { EvidenceCandidate, RawDocument } from "./types";
@@ -31,17 +35,10 @@ const EVIDENCE_TYPE_TO_DIMENSION: Record<string, string> = {
   general: "dim-governance",
 };
 
-function resolveDimensionId(extraction: EvidenceExtractionResult): string {
-  return (
-    dimensionIdFromName(extraction.dimension) ??
-    EVIDENCE_TYPE_TO_DIMENSION[extraction.evidenceType] ??
-    "dim-governance"
-  );
-}
-
 function inferTypedFacts(
   extraction: EvidenceExtractionResult,
   text: string,
+  extracted: ExtractedDocument,
 ): ExtractedFacts {
   const facts: ExtractedFacts = {
     extractionFacts: extraction.facts,
@@ -104,7 +101,36 @@ function inferTypedFacts(
     );
   }
 
-  return facts;
+  // Spreadsheet structure → typed financial metrics (no inference of missing values).
+  const merged = mergeFinancialFactsInto(facts, extracted);
+  return merged.facts;
+}
+
+function resolveDimensionId(
+  extraction: EvidenceExtractionResult,
+  facts: ExtractedFacts,
+): string {
+  const financialCore =
+    typeof facts.revenue === "number" ||
+    typeof facts.cashBalance === "number" ||
+    typeof facts.cashRunwayMonths === "number" ||
+    typeof facts.burnRateMonthly === "number" ||
+    typeof facts.ebitda === "number" ||
+    typeof facts.operatingIncome === "number" ||
+    typeof facts.grossMargin === "number" ||
+    typeof facts.debt === "number";
+
+  // Spreadsheet financial metrics belong on Financial even if keyword
+  // classification leaned toward Revenue Quality / General.
+  if (financialCore || hasEnoughFinancialFacts(facts)) {
+    return "dim-financial";
+  }
+
+  return (
+    dimensionIdFromName(extraction.dimension) ??
+    EVIDENCE_TYPE_TO_DIMENSION[extraction.evidenceType] ??
+    "dim-governance"
+  );
 }
 
 function defaultEvidenceId(raw: RawDocument): string {
@@ -132,8 +158,9 @@ export function toEvidenceCandidate(
   extraction: EvidenceExtractionResult,
   options?: { evidenceId?: string },
 ): EvidenceCandidate {
-  const dimensionId = resolveDimensionId(extraction);
   const text = extracted.text || raw.rawSummary || raw.title;
+  const facts = inferTypedFacts(extraction, text, extracted);
+  const dimensionId = resolveDimensionId(extraction, facts);
   const firstIso = extraction.dates.find((d) => d.iso)?.iso;
   const proposedId = options?.evidenceId ?? defaultEvidenceId(raw);
 
@@ -152,7 +179,7 @@ export function toEvidenceCandidate(
     occurredAt: firstIso ?? raw.modifiedAt ?? raw.syncedAt,
     collectedAt: raw.syncedAt,
     confidence: extraction.confidence,
-    facts: inferTypedFacts(extraction, text),
+    facts,
     rawDocument: {
       externalId: raw.externalId,
       connectorId: raw.connectorId,
@@ -173,6 +200,14 @@ export function toEvidenceCandidate(
       evidenceType: extraction.evidenceType,
       extractionConfidence: extraction.confidence,
       connectorId: raw.connectorId,
+      financialFactsComplete:
+        typeof facts.financialFactsComplete === "boolean"
+          ? facts.financialFactsComplete
+          : null,
+      financialMetricCount:
+        typeof facts.financialMetricCount === "number"
+          ? facts.financialMetricCount
+          : null,
     },
     citation: {
       label: `${raw.sourceSystem} · ${raw.title || extracted.title}`,

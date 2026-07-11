@@ -268,6 +268,66 @@ export function analyzeEvidence(evidence: Evidence[]): Insight[] {
         }),
       );
     }
+
+    // Structured financial spreadsheet/document metrics → Financial finding.
+    // Only fires when enough typed financial facts were extracted (no inference).
+    const financialPresent = [
+      asNumber(facts.revenue),
+      asNumber(facts.revenueGrowth),
+      asRatio(facts.grossMargin),
+      asNumber(facts.ebitda),
+      asNumber(facts.operatingIncome),
+      asNumber(facts.cashBalance),
+      asNumber(facts.burnRateMonthly),
+      asNumber(facts.cashRunwayMonths),
+      asNumber(facts.debt),
+    ].filter((v) => v !== null);
+    if (financialPresent.length >= 2) {
+      const parts: string[] = [];
+      if (asNumber(facts.revenue) !== null) parts.push("revenue");
+      if (asNumber(facts.cashBalance) !== null) parts.push("cash");
+      if (asNumber(facts.cashRunwayMonths) !== null) {
+        parts.push(`runway ${asNumber(facts.cashRunwayMonths)} mo`);
+      }
+      if (asRatio(facts.grossMargin) !== null) {
+        parts.push(`gross margin ${formatPercent(asRatio(facts.grossMargin)!)}`);
+      }
+      if (asNumber(facts.ebitda) !== null || asNumber(facts.operatingIncome) !== null) {
+        parts.push("operating earnings");
+      }
+      if (asNumber(facts.burnRateMonthly) !== null) parts.push("burn");
+      if (asNumber(facts.debt) !== null) parts.push("debt");
+      const period =
+        typeof facts.revenuePeriod === "string"
+          ? facts.revenuePeriod
+          : typeof facts.cashBalancePeriod === "string"
+            ? facts.cashBalancePeriod
+            : null;
+      const worksheet =
+        typeof facts.revenueWorksheet === "string"
+          ? facts.revenueWorksheet
+          : typeof facts.cashBalanceWorksheet === "string"
+            ? facts.cashBalanceWorksheet
+            : null;
+      const contextBits = [
+        worksheet ? `sheet ${worksheet}` : null,
+        period ? `period ${period}` : null,
+      ].filter(Boolean);
+      insights.push(
+        makeInsight({
+          id: `insight-financial-metrics-${item.id}`,
+          statement: `Financial metrics extracted from source documents (${parts.join(", ")})${
+            contextBits.length ? ` · ${contextBits.join(" · ")}` : ""
+          }.`,
+          dimensionId: "dim-financial",
+          evidenceIds: ids,
+          confidence: conf,
+          generatedAt: now,
+          type: "neutral",
+          ruleId: "financial-metrics",
+        }),
+      );
+    }
   }
 
   return insights;

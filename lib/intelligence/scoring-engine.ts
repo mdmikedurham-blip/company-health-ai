@@ -30,6 +30,10 @@ import {
   deriveStatus,
   deriveStatusOrInsufficient,
 } from "./rules";
+import {
+  hasEnoughFinancialFacts,
+  missingFinancialFactKeys,
+} from "@/lib/connectors/extraction/financial-facts";
 
 const MS_PER_DAY = 86_400_000;
 
@@ -134,14 +138,41 @@ export function calculateDimensionScores(
 
     const negativeFindings = dimFindings.filter((f) => f.direction === "negative");
     const positiveFindings = dimFindings.filter((f) => f.direction === "positive");
+    const neutralFindings = dimFindings.filter((f) => f.direction === "neutral");
 
     let summary: string;
     if (!scored) {
-      summary = "Not enough evidence";
+      const financialEvidence = dimEvidence.filter(
+        (e) =>
+          e.dimensionId === "dim-financial" ||
+          e.dimensionIds.includes("dim-financial") ||
+          typeof e.extractedFacts.revenue === "number" ||
+          typeof e.extractedFacts.cashBalance === "number" ||
+          e.extractedFacts.financialMetricCount != null,
+      );
+      if (dimensionId === "dim-financial" && financialEvidence.length > 0) {
+        const mergedFacts = financialEvidence.reduce(
+          (acc, e) => ({ ...acc, ...e.extractedFacts }),
+          {} as (typeof financialEvidence)[0]["extractedFacts"],
+        );
+        if (!hasEnoughFinancialFacts(mergedFacts)) {
+          const missing = missingFinancialFactKeys(mergedFacts).slice(0, 6);
+          summary =
+            missing.length > 0
+              ? `Missing required financial fields: ${missing.join(", ")}`
+              : "Missing required financial fields";
+        } else {
+          summary = "Not enough evidence";
+        }
+      } else {
+        summary = "Not enough evidence";
+      }
     } else if (negativeFindings.length > 0) {
       summary = negativeFindings.map((f) => f.description).join(" ");
-    } else {
+    } else if (positiveFindings.length > 0) {
       summary = positiveFindings.map((f) => f.description).join(" ");
+    } else {
+      summary = neutralFindings.map((f) => f.description).join(" ") || "Scored from extracted financial facts.";
     }
 
     const netImpact = scored ? finalScore - BASELINE_DIMENSION_SCORE : 0;
@@ -169,7 +200,9 @@ export function calculateDimensionScores(
         ? topDrivers.length > 0
           ? topDrivers
           : []
-        : ["Not enough evidence"],
+        : summary.startsWith("Missing required financial")
+          ? [summary]
+          : ["Not enough evidence"],
       evidenceIds: dimEvidence.map((e) => e.id),
       findingIds: dimFindings.map((f) => f.id),
       recommendedActions: [],
