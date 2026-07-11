@@ -1,6 +1,11 @@
 /** Shared primitive types used across the company health domain. */
 
-export type HealthStatus = "healthy" | "watch" | "at-risk" | "insufficient";
+export type HealthStatus =
+  | "healthy"
+  | "watch"
+  | "at-risk"
+  | "insufficient"
+  | "not_applicable";
 
 export type RiskSeverity = "high" | "medium" | "low";
 

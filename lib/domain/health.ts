@@ -30,6 +30,8 @@ export interface HealthDimension {
   score: number;
   /** False when this dimension lacks findings — UI shows "Not enough evidence". */
   scored?: boolean;
+  /** False when dimension is not relevant for the classified company stage. */
+  applicable?: boolean;
   trend: Trend;
   status: HealthStatus;
   confidence: number;

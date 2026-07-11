@@ -56,6 +56,8 @@ export type IncrementalAnalyzeInput = {
   client?: AppSupabaseClient;
   /** Persistence port for evidence — defaults to createEvidenceRepository(). */
   repository?: EvidenceRepository;
+  confirmedOverrides?: import("@/lib/domain/company-classification").ConfirmedClassificationOverrides;
+  classificationStage?: import("@/lib/domain/company-classification").CompanyLifecycleStage | null;
 };
 
 /**
@@ -71,6 +73,7 @@ export async function analyzeAndPersistIncremental(
       riskIds: string[];
       dimensionIds: string[];
     };
+    classificationStage: import("@/lib/domain/company-classification").CompanyLifecycleStage | null;
   }
 > {
   if (!isSupabaseConfigured()) {
@@ -164,6 +167,8 @@ export async function analyzeAndPersistIncremental(
     },
     dimensionProfiles: input.dimensionProfiles,
     asOf: input.asOf,
+    confirmedOverrides: input.confirmedOverrides,
+    classificationStage: input.classificationStage,
   });
 
   const priorDimensions =
@@ -195,6 +200,7 @@ export async function analyzeAndPersistIncremental(
     allEvidence,
     previousHealthScore,
     asOf,
+    { classificationReady: allEvidence.length > 0 && engine.classificationStage != null },
   );
   healthScore.scoreExplanations = engine.healthScore.scoreExplanations;
 
@@ -287,6 +293,7 @@ export async function analyzeAndPersistIncremental(
       riskIds: scope.riskIds,
       dimensionIds: scope.dimensionIds,
     },
+    classificationStage: engine.classificationStage,
   };
 }
 

@@ -14,7 +14,9 @@ import type {
   ScoreChangeExplanation,
   ScoreImpactExplanation,
 } from "@/lib/domain";
+import type { CompanyLifecycleStage } from "@/lib/domain/company-classification";
 import { DIMENSION_NAMES } from "@/lib/domain/dimensions";
+import { isDimensionRelevantForStage } from "@/lib/classification/expectation-matrix";
 import {
   BASELINE_DIMENSION_SCORE,
   CONFIDENCE_EMPTY,
@@ -88,20 +90,25 @@ export function calculateDimensionScores(
   evidence: Evidence[],
   dimensionIds: string[] = Object.keys(DIMENSION_WEIGHTS),
   asOf: Date,
+  options?: { stage?: CompanyLifecycleStage | null },
 ): {
   dimensions: HealthDimension[];
   explanations: ScoreImpactExplanation[];
 } {
   const explanations: ScoreImpactExplanation[] = [];
   const dimensions: HealthDimension[] = [];
+  const stage = options?.stage ?? null;
 
   for (const dimensionId of dimensionIds) {
-    const dimFindings = findings.filter((f) => f.dimensionId === dimensionId);
+    const applicable = isDimensionRelevantForStage(stage, dimensionId);
+    const dimFindings = applicable
+      ? findings.filter((f) => f.dimensionId === dimensionId)
+      : [];
     const dimEvidence = evidence.filter(
       (e) => e.dimensionId === dimensionId || e.dimensionIds.includes(dimensionId),
     );
 
-    const scored = dimFindings.length > 0;
+    const scored = applicable && dimFindings.length > 0;
     const impacts: ScoreImpactExplanation["impacts"] = [];
 
     let finalScore = 0;
@@ -141,7 +148,9 @@ export function calculateDimensionScores(
     const neutralFindings = dimFindings.filter((f) => f.direction === "neutral");
 
     let summary: string;
-    if (!scored) {
+    if (!applicable) {
+      summary = "Not applicable";
+    } else if (!scored) {
       const financialEvidence = dimEvidence.filter(
         (e) =>
           e.dimensionId === "dim-financial" ||
@@ -190,8 +199,9 @@ export function calculateDimensionScores(
       name: DIMENSION_NAMES[dimensionId] ?? dimensionId,
       score: finalScore,
       scored,
+      applicable,
       trend,
-      status: deriveStatusOrInsufficient(scored, finalScore),
+      status: deriveStatusOrInsufficient(scored, finalScore, applicable),
       confidence,
       evidenceCount: dimEvidence.length,
       owner: "",
@@ -200,9 +210,11 @@ export function calculateDimensionScores(
         ? topDrivers.length > 0
           ? topDrivers
           : []
-        : summary.startsWith("Missing required financial")
-          ? [summary]
-          : ["Not enough evidence"],
+        : !applicable
+          ? ["Not applicable for this stage"]
+          : summary.startsWith("Missing required financial")
+            ? [summary]
+            : ["Not enough evidence"],
       evidenceIds: dimEvidence.map((e) => e.id),
       findingIds: dimFindings.map((f) => f.id),
       recommendedActions: [],
@@ -238,9 +250,19 @@ export function calculateOverallHealth(
   evidence: Evidence[],
   previousHealthScore: HealthScore | undefined,
   asOf: Date,
+  options?: { classificationReady?: boolean },
 ): HealthScore {
-  const scoredDims = dimensions.filter((d) => d.scored !== false && d.status !== "insufficient");
-  const scoreAvailable = scoredDims.length >= MIN_SCORED_DIMENSIONS_FOR_OVERALL;
+  const classificationReady = options?.classificationReady !== false;
+  const scoredDims = dimensions.filter(
+    (d) =>
+      d.scored !== false &&
+      d.applicable !== false &&
+      d.status !== "insufficient" &&
+      d.status !== "not_applicable",
+  );
+  const scoreAvailable =
+    classificationReady &&
+    scoredDims.length >= MIN_SCORED_DIMENSIONS_FOR_OVERALL;
 
   if (!scoreAvailable) {
     return {
@@ -248,7 +270,9 @@ export function calculateOverallHealth(
       scoreAvailable: false,
       status: "insufficient",
       change: 0,
-      changeLabel: "No assessment yet",
+      changeLabel: classificationReady
+        ? "No assessment yet"
+        : "Classifying company",
       lastUpdated: formatLastUpdated(asOf),
       confidence: CONFIDENCE_EMPTY,
     };
@@ -383,6 +407,10 @@ export function computeHealthFromFindings(
   previousHealthScore: HealthScore | undefined,
   dimensionProfiles: HealthDimension[] | undefined,
   asOf: Date,
+  options?: {
+    stage?: CompanyLifecycleStage | null;
+    classificationReady?: boolean;
+  },
 ): {
   dimensions: HealthDimension[];
   healthScore: HealthScore;
@@ -399,6 +427,7 @@ export function computeHealthFromFindings(
     evidence,
     dimensionIds,
     asOf,
+    { stage: options?.stage },
   );
 
   const dimensions = scored.map((d) => {
@@ -421,6 +450,7 @@ export function computeHealthFromFindings(
     evidence,
     previousHealthScore,
     asOf,
+    { classificationReady: options?.classificationReady },
   );
   healthScore.scoreExplanations = explanations;
 
