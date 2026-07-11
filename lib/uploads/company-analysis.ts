@@ -10,6 +10,7 @@
 
 import type { AppSupabaseClient } from "@/lib/supabase/client";
 import { analyzeAndPersistIncremental } from "@/lib/application/incremental-analysis";
+import { analyzeAndPersistFromStoredEvidence } from "@/lib/application/company-analysis-service";
 import { buildSingleConnectorCatalog } from "@/lib/connectors/ingest";
 import {
   companyBriefSeed,
@@ -372,4 +373,102 @@ export async function mapWithConcurrency<T, R>(
     Array.from({ length: Math.min(limit, items.length) }, () => run()),
   );
   return results;
+}
+
+export type RebuildCompanyIntelligenceResult = {
+  rebuilt: boolean;
+  deferred: boolean;
+  errorMessage?: string;
+};
+
+/**
+ * Full company rebuild from remaining stored evidence under the analysis lock.
+ * Used after deleting a PROCESSED document's evidence.
+ */
+export async function rebuildCompanyIntelligenceUnderLock(input: {
+  client: AppSupabaseClient;
+  companyId: string;
+  waitMs?: number;
+}): Promise<RebuildCompanyIntelligenceResult> {
+  const { client, companyId, waitMs = COMPANY_ANALYSIS_WAIT_MS } = input;
+  const deadline = Date.now() + waitMs;
+  let locked = false;
+
+  while (Date.now() < deadline) {
+    locked = await tryLockCompanyAnalysis({ client, companyId });
+    if (locked) break;
+    await sleep(COMPANY_ANALYSIS_POLL_MS);
+  }
+
+  if (!locked) {
+    return {
+      rebuilt: false,
+      deferred: true,
+      errorMessage:
+        "Company analysis is busy. Retry removal after processing finishes.",
+    };
+  }
+
+  try {
+    const now = new Date().toISOString();
+    const company =
+      companyId === companyProfile.id
+        ? companyProfile
+        : { ...companyProfile, id: companyId, name: companyId };
+
+    // Count remaining PROCESSED docs only (the target is already DELETING).
+    const { count: processedCount } = await client
+      .from("documents")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .eq("connector_id", MANUAL_UPLOAD_CONNECTOR_ID)
+      .eq("status", "PROCESSED");
+
+    await withRetry(async () => {
+      await analyzeAndPersistFromStoredEvidence({
+        company,
+        lastFullScan: now,
+        dimensionProfiles,
+        previousHealthScore,
+        dna: dnaProfile,
+        reports: companyReports,
+        timelineSeed: companyTimelineSeed,
+        briefSeed: companyBriefSeed,
+        evidenceCatalog: buildSingleConnectorCatalog({
+          connectorId: MANUAL_UPLOAD_CONNECTOR_ID,
+          name: "Manual Upload",
+          system: "Manual Upload",
+          documentsAnalyzed: processedCount ?? 0,
+          lastSynced: now,
+          lastFullScan: now,
+        }),
+        asOf: now,
+        client,
+      });
+    });
+
+    await withRetry(async () => {
+      const { error } = await client.from("analysis_snapshots").insert({
+        company_id: companyId,
+        status: "completed",
+        as_of: now,
+        payload: {
+          source: "manual-upload-removal-rebuild",
+          documentsAnalyzed: processedCount ?? 0,
+        },
+      });
+      if (error) throw new Error(`analysis_snapshots.insert: ${error.message}`);
+    });
+
+    return { rebuilt: true, deferred: false };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      rebuilt: false,
+      deferred: false,
+      errorMessage: message,
+    };
+  } finally {
+    await unlockCompanyAnalysis({ client, companyId });
+  }
 }
