@@ -108,14 +108,18 @@ function inferTypedFacts(
 }
 
 function defaultEvidenceId(raw: RawDocument): string {
-  // Manual uploads use the documents.id UUID as evidence.id (uuid PK).
+  // Manual uploads: evidence.id must be the document UUID (no connector prefix).
   if (raw.connectorId === "manual-upload") {
     return raw.externalId;
   }
+  // Never emit `upload-${uuid}` — that string is not a valid uuid PK.
   const prefix =
     typeof raw.connectorId === "string"
       ? raw.connectorId.replace(/[^a-z0-9]+/gi, "-")
       : "doc";
+  if (prefix === "upload") {
+    return raw.externalId;
+  }
   return `${prefix}-${raw.externalId}`;
 }
 
