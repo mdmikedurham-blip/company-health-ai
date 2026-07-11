@@ -27,3 +27,15 @@ export type { RunInsightEngineFromRepositoryInput } from "./insight-from-reposit
 export { buildExecutiveBrief } from "./build-brief";
 export type { BriefSeed } from "./build-brief";
 export { buildEvidenceGraph } from "./evidence-graph";
+export {
+  buildEvidenceExplorerGraph,
+  buildEvidenceExplorerRecords,
+  collectHighlightIds,
+  filterMatchesDimension,
+} from "./evidence-explorer-model";
+export type {
+  EvidenceExplorerRecord,
+  ExplorerGraphNode,
+  ExplorerGraphEdge,
+} from "./evidence-explorer-model";
+export { layoutEvidenceExplorerGraph } from "./evidence-graph-layout";

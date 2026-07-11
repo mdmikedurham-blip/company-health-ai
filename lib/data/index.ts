@@ -156,20 +156,35 @@ function toEvidenceRecordView(item: Evidence): EvidenceRecordView {
     .map((riskId) => getRisk(companySnapshot, riskId)?.title)
     .filter((title): title is string => title !== undefined);
 
-  const linkedInsights = companySnapshot.insights
-    .filter((insight) => insight.evidenceIds.includes(item.id))
-    .map((insight) => insight.statement);
+  const linkedFindings = companySnapshot.findings.filter((f) =>
+    f.evidenceIds.includes(item.id),
+  );
+  const linkedRecs = companySnapshot.recommendations.filter(
+    (rec) =>
+      rec.evidenceIds.includes(item.id) ||
+      rec.findingIds.some((fid) =>
+        linkedFindings.some((f) => f.id === fid),
+      ),
+  );
 
   return {
     id: item.id,
     sourceSystem: item.sourceSystem,
     documentName: item.title,
+    documentType: item.sourceType || "document",
     confidence: item.reliability,
-    dimension: item.dimension,
-    lastReviewed: item.collectedAt,
-    summary: item.contentSummary,
-    linkedRisks,
-    linkedInsights,
+    dimensions: [item.dimension].filter(Boolean),
+    dimensionIds: [item.dimensionId, ...item.dimensionIds].filter(Boolean),
+    aiSummary: item.contentSummary?.slice(0, 180) || "Evidence record",
+    rawExtract: item.contentSummary || "",
+    findingsCreated: linkedFindings.map((f) => f.title),
+    risksCreated: linkedRisks,
+    recommendationsCreated: linkedRecs.map((r) => r.title),
+    processingDate: item.collectedAt,
+    linkedFindingIds: linkedFindings.map((f) => f.id),
+    linkedRiskIds: item.linkedRiskIds,
+    linkedRecommendationIds: linkedRecs.map((r) => r.id),
+    linkedDimensionIds: [item.dimensionId],
   };
 }
 
