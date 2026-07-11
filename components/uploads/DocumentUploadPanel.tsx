@@ -1,18 +1,18 @@
 "use client";
 
-import { useCallback, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import {
   MANUAL_UPLOAD_ACCEPT,
   MANUAL_UPLOAD_FORMAT_LABELS,
   MAX_UPLOAD_BYTES,
 } from "@/lib/uploads/constants";
 import {
+  PROCESSING_IN_PROGRESS_LABEL,
+  isRemovalBlocked,
+  removeConfirmMessage,
   visibleManualUploadActions,
   type ManualUploadRowAction,
 } from "@/lib/uploads/removal-policy";
-
-const REMOVE_CONFIRM =
-  "Remove this file? This deletes the uploaded file and any analysis derived only from it.";
 
 type UploadedDocumentRecord = {
   id: string;
@@ -42,6 +42,11 @@ type UploadItem = {
   status?: string;
 };
 
+type ToastState = {
+  tone: "success" | "error";
+  message: string;
+} | null;
+
 function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -55,6 +60,7 @@ function statusTone(status: string | undefined): string {
     case "PROCESSING":
     case "EXTRACTED":
     case "ANALYZING":
+    case "DELETING":
       return "text-amber-300";
     case "PROCESSED":
       return "text-emerald-300";
@@ -72,10 +78,12 @@ function analysisLabel(status: string | undefined): string {
     case "QUEUED":
       return "Queued";
     case "PROCESSING":
-    case "EXTRACTED":
       return "Extracting";
+    case "EXTRACTED":
     case "ANALYZING":
       return "Analyzing";
+    case "DELETING":
+      return "Deleting";
     case "PROCESSED":
       return "Complete";
     case "FAILED":
@@ -91,6 +99,15 @@ function actionsForDocument(doc: UploadedDocumentRecord): ManualUploadRowAction[
   return visibleManualUploadActions({
     status: doc.status,
     updated_at: doc.updatedAt ?? doc.createdAt,
+    lease_expires_at: doc.leaseExpiresAt ?? null,
+    locked_at: doc.lockedAt ?? null,
+    processing_started_at: doc.processingStartedAt ?? null,
+  });
+}
+
+function isDocRemovalBlocked(doc: UploadedDocumentRecord): boolean {
+  return isRemovalBlocked({
+    status: doc.status,
     lease_expires_at: doc.leaseExpiresAt ?? null,
     locked_at: doc.lockedAt ?? null,
     processing_started_at: doc.processingStartedAt ?? null,
@@ -137,6 +154,7 @@ export function DocumentUploadPanel({
   const [recent, setRecent] =
     useState<UploadedDocumentRecord[]>(initialDocuments);
   const [listError, setListError] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastState>(null);
   const [actionPendingId, setActionPendingId] = useState<string | null>(null);
   const [retryPending, setRetryPending] = useState(false);
   const [, startTransition] = useTransition();
@@ -146,6 +164,12 @@ export function DocumentUploadPanel({
       i.phase === "uploading" ||
       i.phase === "enqueueing",
   );
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   const refreshList = useCallback(async () => {
     try {
@@ -198,43 +222,86 @@ export function DocumentUploadPanel({
   );
 
   const removeDocument = useCallback(
-    async (documentId: string) => {
-      if (!window.confirm(REMOVE_CONFIRM)) return;
-      setActionPendingId(documentId);
+    async (doc: UploadedDocumentRecord) => {
+      if (!window.confirm(removeConfirmMessage(doc.status))) return;
+      setActionPendingId(doc.id);
       setListError(null);
+      // Optimistic remove — row disappears without waiting for a full list refresh.
+      setRecent((prev) => prev.filter((row) => row.id !== doc.id));
       try {
-        const res = await fetch(`/api/documents/${documentId}`, {
+        const res = await fetch(`/api/documents/${doc.id}`, {
           method: "DELETE",
         });
         const data = (await res.json()) as {
           error?: string;
           removed?: boolean;
+          alreadyGone?: boolean;
           cleanupRequired?: boolean;
           orphanedStoragePath?: string | null;
+          rebuildFailed?: boolean;
         };
+        if (res.status === 404) {
+          // Idempotent — document already gone.
+          setToast({ tone: "success", message: "File removed." });
+          return;
+        }
         if (!res.ok && res.status !== 207) {
-          setListError(data.error ?? "Remove failed.");
+          // Restore row on failure.
+          setRecent((prev) =>
+            prev.some((row) => row.id === doc.id) ? prev : [doc, ...prev],
+          );
+          const message =
+            res.status === 409 && data.error === "Processing in progress"
+              ? PROCESSING_IN_PROGRESS_LABEL
+              : data.error ?? "Remove failed.";
+          setToast({ tone: "error", message });
+          setListError(message);
           return;
         }
         if (data.cleanupRequired || data.orphanedStoragePath) {
           const repair = await fetch(
-            `/api/documents/${documentId}?repair=1`,
+            `/api/documents/${doc.id}?repair=1`,
             { method: "DELETE" },
           );
+          if (repair.status === 404) {
+            setToast({ tone: "success", message: "File removed." });
+            return;
+          }
           if (!repair.ok && repair.status !== 207) {
-            setListError(
-              "File partially removed. Use Repair from settings or retry Remove.",
+            setRecent((prev) =>
+              prev.some((row) => row.id === doc.id) ? prev : [doc, ...prev],
             );
+            let repairMessage =
+              "File partially removed. Retry Remove to finish cleanup.";
+            try {
+              const repairBody = (await repair.json()) as { error?: string };
+              if (repairBody.error) repairMessage = repairBody.error;
+            } catch {
+              /* keep default */
+            }
+            setToast({ tone: "error", message: repairMessage });
+            setListError(repairMessage);
+            return;
           }
         }
-        await refreshList();
+        setToast({
+          tone: "success",
+          message:
+            doc.status === "PROCESSED" || doc.status === "DELETING"
+              ? "File removed and company analysis rebuilt."
+              : "File removed.",
+        });
       } catch {
+        setRecent((prev) =>
+          prev.some((row) => row.id === doc.id) ? prev : [doc, ...prev],
+        );
+        setToast({ tone: "error", message: "Remove failed." });
         setListError("Remove failed.");
       } finally {
         setActionPendingId(null);
       }
     },
-    [refreshList],
+    [],
   );
 
   const cancelProcessing = useCallback(
@@ -508,6 +575,18 @@ export function DocumentUploadPanel({
             </button>
           </div>
         </div>
+        {toast ? (
+          <p
+            role="status"
+            className={`rounded-lg px-3 py-2 text-sm ${
+              toast.tone === "success"
+                ? "bg-emerald-950/50 text-emerald-300"
+                : "bg-red-950/40 text-red-300"
+            }`}
+          >
+            {toast.message}
+          </p>
+        ) : null}
         {listError ? (
           <p className="text-sm text-red-400">{listError}</p>
         ) : recent.length === 0 ? (
@@ -519,6 +598,7 @@ export function DocumentUploadPanel({
             {recent.map((doc) => {
               const actions = actionsForDocument(doc);
               const pending = actionPendingId === doc.id;
+              const blocked = isDocRemovalBlocked(doc);
               return (
                 <li
                   key={doc.id}
@@ -562,11 +642,18 @@ export function DocumentUploadPanel({
                       <button
                         type="button"
                         disabled={pending}
-                        onClick={() => void removeDocument(doc.id)}
+                        onClick={() => void removeDocument(doc)}
                         className="text-xs font-medium text-red-300 transition hover:text-red-200 disabled:opacity-60"
                       >
-                        Remove
+                        {pending ? "Deleting…" : "Remove"}
                       </button>
+                    ) : blocked ? (
+                      <span
+                        className="text-xs text-zinc-500"
+                        title={PROCESSING_IN_PROGRESS_LABEL}
+                      >
+                        {PROCESSING_IN_PROGRESS_LABEL}
+                      </span>
                     ) : null}
                     <span
                       className={`text-[11px] font-medium uppercase tracking-wide ${statusTone(doc.status)}`}

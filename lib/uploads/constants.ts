@@ -46,6 +46,7 @@ export const UPLOAD_DOCUMENT_STATUSES = [
   "ANALYZING",
   "PROCESSED",
   "FAILED",
+  "DELETING",
 ] as const;
 
 export type UploadDocumentStatus = (typeof UPLOAD_DOCUMENT_STATUSES)[number];
@@ -61,6 +62,23 @@ export const IN_FLIGHT_UPLOAD_STATUSES: UploadDocumentStatus[] = [
   "PROCESSING",
   "EXTRACTED",
   "ANALYZING",
+  "DELETING",
+];
+
+/** Statuses where removal is blocked while a lease is active. */
+export const REMOVAL_BLOCKED_STATUSES: UploadDocumentStatus[] = [
+  "PROCESSING",
+  "ANALYZING",
+];
+
+/** Removable without waiting for lease expiry (when not actively processing). */
+export const REMOVABLE_DOCUMENT_STATUSES: UploadDocumentStatus[] = [
+  "UPLOADED",
+  "QUEUED",
+  "EXTRACTED",
+  "FAILED",
+  "PROCESSED",
+  "DELETING",
 ];
 
 /**
@@ -121,6 +139,7 @@ export type UploadProgressLabel =
   | "Queued"
   | "Extracting"
   | "Analyzing"
+  | "Deleting"
   | "Complete"
   | "Failed";
 
@@ -139,6 +158,8 @@ export function progressLabelForStatus(
       return "Analyzing";
     case "PROCESSED":
       return "Complete";
+    case "DELETING":
+      return "Deleting";
     case "FAILED":
       return "Failed";
     default:

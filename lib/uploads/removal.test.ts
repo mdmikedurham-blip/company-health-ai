@@ -1,12 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  canRemoveDocument,
-  canRetryQueuedDocument,
-  isActivelyProcessing,
-  visibleManualUploadActions,
-} from "./removal-policy";
-import { removeManualUploadDocument } from "./removal";
-import { cancelManualUploadProcessing } from "./cancel";
 
 vi.mock("@/lib/supabase/repository", () => ({
   deleteEvidenceByIds: vi.fn().mockResolvedValue(undefined),
@@ -18,6 +10,20 @@ vi.mock("@/lib/supabase/repository", () => ({
   upsertCompanyRisks: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("./company-analysis", () => ({
+  rebuildCompanyIntelligenceUnderLock: vi.fn().mockResolvedValue({
+    rebuilt: true,
+    deferred: false,
+  }),
+}));
+
+vi.mock("./stale-recovery", () => ({
+  recoverAbandonedManualUploadJobs: vi.fn().mockResolvedValue({
+    requeuedProcessingIds: [],
+    staleExtractedIds: [],
+  }),
+}));
+
 import {
   deleteEvidenceByIds,
   deleteFindingsByIds,
@@ -25,12 +31,28 @@ import {
   listFindings,
   listRisks,
 } from "@/lib/supabase/repository";
+import { rebuildCompanyIntelligenceUnderLock } from "./company-analysis";
+import { recoverAbandonedManualUploadJobs } from "./stale-recovery";
+import {
+  canRemoveDocument,
+  canRetryQueuedDocument,
+  isActivelyProcessing,
+  isRemovalBlocked,
+  removeConfirmMessage,
+  REMOVE_CONFIRM_PROCESSED,
+  REMOVE_CONFIRM_UNPROCESSED,
+  visibleManualUploadActions,
+} from "./removal-policy";
+import { removeManualUploadDocument } from "./removal";
+import { cancelManualUploadProcessing } from "./cancel";
 
 const deleteEvidenceByIdsMock = vi.mocked(deleteEvidenceByIds);
 const deleteFindingsByIdsMock = vi.mocked(deleteFindingsByIds);
 const deleteRisksByIdsMock = vi.mocked(deleteRisksByIds);
 const listFindingsMock = vi.mocked(listFindings);
 const listRisksMock = vi.mocked(listRisks);
+const rebuildMock = vi.mocked(rebuildCompanyIntelligenceUnderLock);
+const recoverMock = vi.mocked(recoverAbandonedManualUploadJobs);
 
 type DocRow = {
   id: string;
@@ -42,6 +64,8 @@ type DocRow = {
   locked_at?: string | null;
   processing_started_at?: string | null;
   updated_at?: string | null;
+  last_stage?: string | null;
+  error_message?: string | null;
   metadata?: Record<string, unknown> | null;
 };
 
@@ -110,27 +134,32 @@ function createRemovalClient(opts: {
       },
       update(payload: Record<string, unknown>) {
         const filters: Record<string, string> = {};
-        const chain = {
-          eq(col: string, val: string) {
-            filters[col] = val;
-            return chain;
-          },
-          in() {
-            return chain;
-          },
-          then(
-            resolve: (v: { error: null }) => void,
-            reject?: (e: unknown) => void,
-          ) {
-            return Promise.resolve()
-              .then(() => {
-                const doc = matchDoc(filters);
-                if (doc) Object.assign(doc, payload);
-                return { error: null };
-              })
-              .then(resolve, reject);
-          },
+        const chain: Record<string, unknown> = {};
+        chain.eq = (col: string, val: string) => {
+          filters[col] = val;
+          return chain;
         };
+        chain.in = () => chain;
+        chain.select = () => chain;
+        chain.maybeSingle = async () => {
+          const doc = matchDoc(filters);
+          if (!doc) return { data: null, error: null };
+          if (filters.status && doc.status !== filters.status) {
+            return { data: null, error: null };
+          }
+          Object.assign(doc, payload);
+          return { data: { ...doc }, error: null };
+        };
+        chain.then = (
+          resolve: (v: { error: null }) => void,
+          reject?: (e: unknown) => void,
+        ) =>
+          Promise.resolve()
+            .then(async () => {
+              await (chain.maybeSingle as () => Promise<unknown>)();
+              return { error: null };
+            })
+            .then(resolve, reject);
         return chain;
       },
     };
@@ -206,13 +235,15 @@ function createRemovalClient(opts: {
 describe("removal-policy", () => {
   const now = new Date("2026-07-10T12:00:00.000Z");
 
-  it("allows remove for UPLOADED, QUEUED, FAILED", () => {
+  it("allows remove for UPLOADED, QUEUED, EXTRACTED, FAILED, PROCESSED", () => {
     expect(canRemoveDocument({ status: "UPLOADED" }, now)).toBe(true);
     expect(canRemoveDocument({ status: "QUEUED" }, now)).toBe(true);
+    expect(canRemoveDocument({ status: "EXTRACTED" }, now)).toBe(true);
     expect(canRemoveDocument({ status: "FAILED" }, now)).toBe(true);
+    expect(canRemoveDocument({ status: "PROCESSED" }, now)).toBe(true);
   });
 
-  it("blocks remove for active PROCESSING and PROCESSED", () => {
+  it("blocks remove for active PROCESSING and ANALYZING", () => {
     expect(
       canRemoveDocument(
         {
@@ -222,7 +253,24 @@ describe("removal-policy", () => {
         now,
       ),
     ).toBe(false);
-    expect(canRemoveDocument({ status: "PROCESSED" }, now)).toBe(false);
+    expect(
+      canRemoveDocument(
+        {
+          status: "ANALYZING",
+          lease_expires_at: "2026-07-10T12:05:00.000Z",
+        },
+        now,
+      ),
+    ).toBe(false);
+    expect(
+      isRemovalBlocked(
+        {
+          status: "PROCESSING",
+          lease_expires_at: "2026-07-10T12:05:00.000Z",
+        },
+        now,
+      ),
+    ).toBe(true);
     expect(
       isActivelyProcessing(
         {
@@ -262,6 +310,29 @@ describe("removal-policy", () => {
     ]);
   });
 
+  it("shows Remove (not Cancel) for fresh EXTRACTED", () => {
+    expect(
+      isActivelyProcessing(
+        {
+          status: "EXTRACTED",
+          lease_expires_at: null,
+          updated_at: "2026-07-10T11:59:50.000Z",
+        },
+        now,
+      ),
+    ).toBe(false);
+    expect(
+      visibleManualUploadActions(
+        {
+          status: "EXTRACTED",
+          lease_expires_at: null,
+          updated_at: "2026-07-10T11:59:50.000Z",
+        },
+        now,
+      ),
+    ).toEqual(["remove"]);
+  });
+
   it("shows Cancel only for active processing", () => {
     expect(
       visibleManualUploadActions(
@@ -295,10 +366,12 @@ describe("removal-policy", () => {
     ).toEqual(["remove"]);
   });
 
-  it("hides remove for PROCESSED", () => {
-    expect(visibleManualUploadActions({ status: "PROCESSED" }, now)).toEqual(
-      [],
-    );
+  it("shows Remove for PROCESSED and uses rebuilt confirm copy", () => {
+    expect(visibleManualUploadActions({ status: "PROCESSED" }, now)).toEqual([
+      "remove",
+    ]);
+    expect(removeConfirmMessage("PROCESSED")).toBe(REMOVE_CONFIRM_PROCESSED);
+    expect(removeConfirmMessage("QUEUED")).toBe(REMOVE_CONFIRM_UNPROCESSED);
   });
 });
 
@@ -307,9 +380,14 @@ describe("removeManualUploadDocument", () => {
     vi.clearAllMocks();
     listFindingsMock.mockResolvedValue([]);
     listRisksMock.mockResolvedValue([]);
+    rebuildMock.mockResolvedValue({ rebuilt: true, deferred: false });
+    recoverMock.mockResolvedValue({
+      requeuedProcessingIds: [],
+      staleExtractedIds: [],
+    });
   });
 
-  it("enforces tenant isolation — other company cannot see/remove", async () => {
+  it("enforces tenant isolation — other company gets 403", async () => {
     const docs = new Map<string, DocRow>([
       [
         "doc-1",
@@ -323,14 +401,29 @@ describe("removeManualUploadDocument", () => {
       ],
     ]);
     const client = createRemovalClient({ docs });
+    await expect(
+      removeManualUploadDocument({
+        client,
+        companyId: "co-1",
+        documentId: "doc-1",
+      }),
+    ).rejects.toMatchObject({
+      message: "Forbidden",
+      status: 403,
+    });
+    expect(docs.has("doc-1")).toBe(true);
+  });
+
+  it("returns alreadyGone for missing document (idempotent)", async () => {
+    const docs = new Map<string, DocRow>();
+    const client = createRemovalClient({ docs });
     const result = await removeManualUploadDocument({
       client,
       companyId: "co-1",
-      documentId: "doc-1",
+      documentId: "missing",
     });
     expect(result.alreadyGone).toBe(true);
     expect(result.removed).toBe(true);
-    expect(docs.has("doc-1")).toBe(true);
   });
 
   it("removes a queued file and storage object", async () => {
@@ -435,6 +528,72 @@ describe("removeManualUploadDocument", () => {
     expect(deleteRisksByIdsMock).toHaveBeenCalled();
   });
 
+  it("removes an EXTRACTED file without rebuild", async () => {
+    const docs = new Map<string, DocRow>([
+      [
+        "doc-x",
+        {
+          id: "doc-x",
+          company_id: "co-1",
+          connector_id: "manual-upload",
+          status: "EXTRACTED",
+          storage_path: "co-1/doc-x/a.txt",
+          lease_expires_at: null,
+          updated_at: new Date().toISOString(),
+        },
+      ],
+    ]);
+    const client = createRemovalClient({
+      docs,
+      evidence: [{ id: "doc-x", document_id: "doc-x" }],
+    });
+    const result = await removeManualUploadDocument({
+      client,
+      companyId: "co-1",
+      documentId: "doc-x",
+    });
+    expect(result.removed).toBe(true);
+    expect(rebuildMock).not.toHaveBeenCalled();
+    expect(docs.has("doc-x")).toBe(false);
+  });
+
+  it("recovers stale PROCESSING lease before removal", async () => {
+    const docs = new Map<string, DocRow>([
+      [
+        "doc-stale",
+        {
+          id: "doc-stale",
+          company_id: "co-1",
+          connector_id: "manual-upload",
+          status: "PROCESSING",
+          storage_path: "co-1/doc-stale/a.txt",
+          lease_expires_at: new Date(Date.now() - 60_000).toISOString(),
+        },
+      ],
+    ]);
+    recoverMock.mockImplementation(async () => {
+      const row = docs.get("doc-stale");
+      if (row) {
+        row.status = "QUEUED";
+        row.lease_expires_at = null;
+        row.locked_at = null;
+      }
+      return {
+        requeuedProcessingIds: ["doc-stale"],
+        staleExtractedIds: [],
+      };
+    });
+    const client = createRemovalClient({ docs });
+    const result = await removeManualUploadDocument({
+      client,
+      companyId: "co-1",
+      documentId: "doc-stale",
+    });
+    expect(recoverMock).toHaveBeenCalled();
+    expect(result.removed).toBe(true);
+    expect(docs.has("doc-stale")).toBe(false);
+  });
+
   it("protects actively processing documents", async () => {
     const docs = new Map<string, DocRow>([
       [
@@ -457,10 +616,92 @@ describe("removeManualUploadDocument", () => {
         documentId: "doc-p",
       }),
     ).rejects.toMatchObject({
-      message: expect.stringContaining("actively processing"),
+      message: "Processing in progress",
       status: 409,
     });
     expect(docs.has("doc-p")).toBe(true);
+  });
+
+  it("removes PROCESSED docs and rebuilds company analysis under lock", async () => {
+    const docs = new Map<string, DocRow>([
+      [
+        "doc-done",
+        {
+          id: "doc-done",
+          company_id: "co-1",
+          connector_id: "manual-upload",
+          status: "PROCESSED",
+          storage_path: "co-1/doc-done/a.pdf",
+        },
+      ],
+    ]);
+    const storageRemove = vi.fn().mockResolvedValue({ error: null });
+    const client = createRemovalClient({
+      docs,
+      storageRemove,
+      evidence: [{ id: "doc-done", document_id: "doc-done" }],
+    });
+
+    const callOrder: string[] = [];
+    deleteEvidenceByIdsMock.mockImplementation(async () => {
+      callOrder.push("evidence");
+    });
+    rebuildMock.mockImplementation(async () => {
+      callOrder.push("rebuild");
+      return { rebuilt: true, deferred: false };
+    });
+
+    const result = await removeManualUploadDocument({
+      client,
+      companyId: "co-1",
+      documentId: "doc-done",
+    });
+
+    expect(result.removed).toBe(true);
+    expect(result.rebuiltAnalysis).toBe(true);
+    expect(callOrder).toEqual(["evidence", "rebuild"]);
+    expect(rebuildMock).toHaveBeenCalledWith(
+      expect.objectContaining({ companyId: "co-1" }),
+    );
+    expect(storageRemove).toHaveBeenCalledWith(["co-1/doc-done/a.pdf"]);
+    expect(docs.has("doc-done")).toBe(false);
+  });
+
+  it("keeps DELETING row and surfaces recoverable error when rebuild fails", async () => {
+    rebuildMock.mockResolvedValueOnce({
+      rebuilt: false,
+      deferred: false,
+      errorMessage: "timeline insert failed",
+    });
+    const docs = new Map<string, DocRow>([
+      [
+        "doc-rb",
+        {
+          id: "doc-rb",
+          company_id: "co-1",
+          connector_id: "manual-upload",
+          status: "PROCESSED",
+          storage_path: "co-1/doc-rb/a.pdf",
+        },
+      ],
+    ]);
+    const client = createRemovalClient({ docs });
+
+    await expect(
+      removeManualUploadDocument({
+        client,
+        companyId: "co-1",
+        documentId: "doc-rb",
+      }),
+    ).rejects.toMatchObject({
+      message: "timeline insert failed",
+      status: 409,
+      rebuildFailed: true,
+    });
+
+    expect(docs.has("doc-rb")).toBe(true);
+    expect(docs.get("doc-rb")?.status).toBe("DELETING");
+    expect(docs.get("doc-rb")?.last_stage).toBe("removal_rebuild_failed");
   });
 
   it("is idempotent for repeated delete requests", async () => {
