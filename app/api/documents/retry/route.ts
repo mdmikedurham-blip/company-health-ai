@@ -18,6 +18,8 @@ export const maxDuration = 60;
  * POST /api/documents/retry
  * Body: { documentIds?: string[] }
  * Resets FAILED / stale jobs to QUEUED and awaits HTTP processing kickoff.
+ * When documentIds are provided, PROCESSED docs may also be requeued so
+ * extractor upgrades can re-run on already-complete files.
  * company_id is derived from authenticated membership only.
  */
 export async function POST(request: Request) {

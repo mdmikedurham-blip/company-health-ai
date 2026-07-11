@@ -625,7 +625,7 @@ export function DocumentUploadPanel({
                         onClick={() => void retryProcessing([doc.id])}
                         className="text-xs font-medium text-amber-300 transition hover:text-amber-200 disabled:opacity-60"
                       >
-                        Retry
+                        {doc.status === "PROCESSED" ? "Reprocess" : "Retry"}
                       </button>
                     ) : null}
                     {actions.includes("cancel") ? (

@@ -281,7 +281,10 @@ export async function markDocumentProcessed(input: {
   }
 }
 
-/** Reset FAILED or QUEUED / stale in-flight jobs to QUEUED for retry. */
+/** Reset FAILED or QUEUED / stale in-flight jobs to QUEUED for retry.
+ * Explicit documentIds may also include PROCESSED rows so extractor upgrades
+ * (e.g. financial XLSX facts) can re-run on already-complete files.
+ */
 export async function requeueDocumentJobs(input: {
   client: AppSupabaseClient;
   companyId: string;
@@ -291,6 +294,7 @@ export async function requeueDocumentJobs(input: {
   const staleBefore = new Date(
     now.getTime() - PROCESSING_STALE_MS,
   ).toISOString();
+  const explicitIds = Boolean(input.documentIds?.length);
 
   let query = input.client
     .from("documents")
@@ -311,6 +315,7 @@ export async function requeueDocumentJobs(input: {
   for (const row of rows ?? []) {
     const canRetry =
       row.status === "FAILED" ||
+      (explicitIds && row.status === "PROCESSED") ||
       (row.status === "QUEUED" &&
         now.getTime() - new Date(row.updated_at).getTime() >=
           QUEUED_RETRY_AFTER_MS) ||

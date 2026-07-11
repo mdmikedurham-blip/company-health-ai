@@ -366,8 +366,9 @@ describe("removal-policy", () => {
     ).toEqual(["remove"]);
   });
 
-  it("shows Remove for PROCESSED and uses rebuilt confirm copy", () => {
+  it("shows Retry|Remove for PROCESSED so extractor upgrades can re-run", () => {
     expect(visibleManualUploadActions({ status: "PROCESSED" }, now)).toEqual([
+      "retry",
       "remove",
     ]);
     expect(removeConfirmMessage("PROCESSED")).toBe(REMOVE_CONFIRM_PROCESSED);

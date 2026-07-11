@@ -168,6 +168,59 @@ describe("requeueDocumentJobs", () => {
     expect(ids).toEqual(["failed-1", "queued-stale"]);
   });
 
+  it("requeues PROCESSED only when documentIds are explicit", async () => {
+    const now = Date.now();
+    const rows = [
+      {
+        id: "done-1",
+        status: "PROCESSED",
+        lease_expires_at: null,
+        locked_at: null,
+        processing_started_at: null,
+        updated_at: new Date(now).toISOString(),
+      },
+    ];
+
+    const update = vi.fn().mockReturnValue({
+      eq: vi.fn().mockReturnValue({
+        in: vi.fn().mockResolvedValue({ error: null }),
+      }),
+    });
+
+    const from = vi.fn().mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            in: vi.fn().mockResolvedValue({ data: rows, error: null }),
+          }),
+        }),
+      }),
+      update,
+    });
+
+    const withoutIds = await requeueDocumentJobs({
+      client: mockClient({
+        from: vi.fn().mockReturnValue({
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              eq: vi.fn().mockResolvedValue({ data: rows, error: null }),
+            }),
+          }),
+          update,
+        }),
+      }),
+      companyId: "co-1",
+    });
+    expect(withoutIds).toEqual([]);
+
+    const withIds = await requeueDocumentJobs({
+      client: mockClient({ from }),
+      companyId: "co-1",
+      documentIds: ["done-1"],
+    });
+    expect(withIds).toEqual(["done-1"]);
+  });
+
   it("requeues stale PROCESSING after lease expiry", async () => {
     const stale = new Date(Date.now() - 10 * 60 * 1000).toISOString();
     const rows = [
