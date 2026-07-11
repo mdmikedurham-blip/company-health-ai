@@ -29,4 +29,8 @@ export interface Recommendation {
   /** Ranking score used for ordering (higher = more urgent). */
   priorityScore: number;
   findingIds: FindingId[];
+  /** Phase 5 explainability links. */
+  questionIds?: string[];
+  conceptIds?: string[];
+  missingEvidence?: string[];
 }

@@ -34,6 +34,11 @@ export type DashboardProvenance = {
   score_method: ScoreMethod;
   confidence_method: ConfidenceMethod;
   source: DashboardDataSource;
+  /** Phase 6 — assessment snapshot metadata for every widget. */
+  coverage_ratio?: number | null;
+  confidence?: number | null;
+  analysis_version?: string | null;
+  assessment_goal?: string | null;
 };
 
 export type DashboardMetric = {

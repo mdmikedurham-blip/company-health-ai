@@ -11,6 +11,12 @@
  */
 
 import type {
+  DiligenceQuestionAnswer,
+  QuestionCoverageReport,
+} from "@/lib/domain/diligence-question";
+import type { AssessmentGoalId } from "@/lib/domain/assessment-goal";
+import type { BusinessConcept } from "@/lib/domain/business-concept";
+import type {
   Evidence,
   Finding,
   HealthDimension,
@@ -25,11 +31,6 @@ import type {
   CompanyLifecycleStage,
   ConfirmedClassificationOverrides,
 } from "@/lib/domain/company-classification";
-import type { AssessmentGoalId } from "@/lib/domain/assessment-goal";
-import type {
-  DiligenceQuestionAnswer,
-  QuestionCoverageReport,
-} from "@/lib/domain/diligence-question";
 import { classifyCompanyFromEvidence } from "@/lib/classification";
 import {
   answerDiligenceQuestions,
@@ -95,6 +96,8 @@ export interface InsightEngineOutput {
   questionAnswers: DiligenceQuestionAnswer[];
   questionCoverage: QuestionCoverageReport;
   prioritizedQuestionIds: string[];
+  /** Phase 5 — business concepts between evidence and questions. */
+  businessConcepts: BusinessConcept[];
 }
 
 export function resolveAsOf(asOf?: Date | string): Date {
@@ -147,8 +150,12 @@ export function runInsightEngine(input: InsightEngineInput): InsightEngineOutput
   // Stage 1: Evidence → Insights (retained for timeline / doctor context)
   const insights = analyzeEvidence(rawEvidence);
 
-  // Stage 2: Evidence → Diligence Question Answers (canonical)
-  const { answers: questionAnswers, evaluations } = answerDiligenceQuestions({
+  // Stage 2: Evidence → Business Concepts → Diligence Question Answers
+  const {
+    answers: questionAnswers,
+    evaluations,
+    concepts: businessConcepts,
+  } = answerDiligenceQuestions({
     companyId: input.companyId,
     evidence: rawEvidence,
     stage,
@@ -244,5 +251,6 @@ export function runInsightEngine(input: InsightEngineInput): InsightEngineOutput
     questionAnswers,
     questionCoverage,
     prioritizedQuestionIds,
+    businessConcepts,
   };
 }

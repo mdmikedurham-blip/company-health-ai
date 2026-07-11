@@ -35,6 +35,7 @@ export type Database = {
           created_by: string | null;
           created_at: string;
           updated_at: string;
+          current_snapshot_id: string | null;
         };
         Insert: {
           id?: string;
@@ -47,6 +48,7 @@ export type Database = {
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
+          current_snapshot_id?: string | null;
         };
         Update: {
           id?: string;
@@ -59,6 +61,7 @@ export type Database = {
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
+          current_snapshot_id?: string | null;
         };
         Relationships: [
           {
@@ -399,6 +402,81 @@ export type Database = {
           },
         ];
       };
+      company_business_concepts: {
+        Row: {
+          id: string;
+          company_id: string;
+          snapshot_id: string | null;
+          concept_id: string;
+          state: string;
+          confidence: number;
+          coverage: number;
+          supporting_evidence_ids: string[];
+          supporting_fact_keys: string[];
+          supporting_fact_ids: string[];
+          supporting_document_ids: string[];
+          contradicting_evidence_ids: string[];
+          contradicting_fact_keys: string[];
+          reasoning: string;
+          fact_values: Record<string, unknown>;
+          last_updated: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          snapshot_id?: string | null;
+          concept_id: string;
+          state?: string;
+          confidence?: number;
+          coverage?: number;
+          supporting_evidence_ids?: string[];
+          supporting_fact_keys?: string[];
+          supporting_fact_ids?: string[];
+          supporting_document_ids?: string[];
+          contradicting_evidence_ids?: string[];
+          contradicting_fact_keys?: string[];
+          reasoning?: string;
+          fact_values?: Record<string, unknown>;
+          last_updated?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          snapshot_id?: string | null;
+          concept_id?: string;
+          state?: string;
+          confidence?: number;
+          coverage?: number;
+          supporting_evidence_ids?: string[];
+          supporting_fact_keys?: string[];
+          supporting_fact_ids?: string[];
+          supporting_document_ids?: string[];
+          contradicting_evidence_ids?: string[];
+          contradicting_fact_keys?: string[];
+          reasoning?: string;
+          fact_values?: Record<string, unknown>;
+          last_updated?: string;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "company_business_concepts_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "company_business_concepts_snapshot_id_fkey";
+            columns: ["snapshot_id"];
+            isOneToOne: false;
+            referencedRelation: "analysis_snapshots";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       company_members: {
         Row: {
           id: string;
@@ -451,6 +529,21 @@ export type Database = {
           as_of: string;
           created_at: string;
           updated_at: string;
+          publish_kind: string;
+          published_at: string | null;
+          superseded_at: string | null;
+          superseded_by: string | null;
+          parent_snapshot_id: string | null;
+          assessment_goal: string | null;
+          company_stage: string | null;
+          analysis_version: string | null;
+          extraction_version: string | null;
+          evidence_version: string | null;
+          document_versions: Json;
+          generated_by: string | null;
+          confidence: number | null;
+          coverage_ratio: number | null;
+          overall_health_available: boolean;
         };
         Insert: {
           id?: string;
@@ -461,6 +554,21 @@ export type Database = {
           as_of?: string;
           created_at?: string;
           updated_at?: string;
+          publish_kind?: string;
+          published_at?: string | null;
+          superseded_at?: string | null;
+          superseded_by?: string | null;
+          parent_snapshot_id?: string | null;
+          assessment_goal?: string | null;
+          company_stage?: string | null;
+          analysis_version?: string | null;
+          extraction_version?: string | null;
+          evidence_version?: string | null;
+          document_versions?: Json;
+          generated_by?: string | null;
+          confidence?: number | null;
+          coverage_ratio?: number | null;
+          overall_health_available?: boolean;
         };
         Update: {
           id?: string;
@@ -471,6 +579,21 @@ export type Database = {
           as_of?: string;
           created_at?: string;
           updated_at?: string;
+          publish_kind?: string;
+          published_at?: string | null;
+          superseded_at?: string | null;
+          superseded_by?: string | null;
+          parent_snapshot_id?: string | null;
+          assessment_goal?: string | null;
+          company_stage?: string | null;
+          analysis_version?: string | null;
+          extraction_version?: string | null;
+          evidence_version?: string | null;
+          document_versions?: Json;
+          generated_by?: string | null;
+          confidence?: number | null;
+          coverage_ratio?: number | null;
+          overall_health_available?: boolean;
         };
         Relationships: [
           {

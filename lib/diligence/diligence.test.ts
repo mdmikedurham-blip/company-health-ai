@@ -75,7 +75,7 @@ describe("question answering", () => {
 
     const growth = answers.find((a) => a.questionId === "q-fin-revenue-growing");
     expect(growth?.state).toBe("INSUFFICIENT_EVIDENCE");
-    expect(growth?.reasoning).toMatch(/No revenueGrowthRate/);
+    expect(growth?.reasoning).toMatch(/No revenueGrowth/);
   });
 
   it("keeps unsupported questions unsupported without hallucination", () => {

@@ -1,10 +1,12 @@
 /**
- * Diligence answer engine — Evidence → Question Answers.
- * Never fabricates: missing facts → INSUFFICIENT_EVIDENCE or UNKNOWN.
+ * Diligence answer engine — Concepts → Question Answers.
+ * Phase 5: questions evaluate Business Concepts, not documents directly.
+ * Never fabricates: missing concept facts → INSUFFICIENT_EVIDENCE or UNKNOWN.
  */
 
 import type { Evidence } from "@/lib/domain";
 import type { AssessmentGoalId } from "@/lib/domain/assessment-goal";
+import type { BusinessConcept } from "@/lib/domain/business-concept";
 import type { CompanyLifecycleStage } from "@/lib/domain/company-classification";
 import type {
   DiligenceAnswerState,
@@ -13,6 +15,9 @@ import type {
   QuestionImportance,
   QuestionStageLevel,
 } from "@/lib/domain/diligence-question";
+import {
+  aggregateBusinessConcepts,
+} from "@/lib/concepts/aggregate";
 import {
   CONCENTRATION_HIGH,
   CONCENTRATION_MEDIUM,
@@ -31,6 +36,7 @@ import {
   formatPercent,
 } from "@/lib/intelligence/rules";
 import { DILIGENCE_QUESTION_CATALOG } from "./catalog";
+import { conceptsForQuestion } from "./question-concepts";
 
 export type AnswerEvaluation = {
   state: DiligenceAnswerState;
@@ -38,8 +44,18 @@ export type AnswerEvaluation = {
   supportingEvidenceIds: string[];
   missingEvidence: string[];
   reasoning: string;
+  conceptIds?: string[];
   /** When set, emit a finding via FINDING_POLICY for this answer. */
   findingRuleId?: RuleId;
+};
+
+type ConceptFactItem = {
+  id: string;
+  reliability: number;
+  facts: Record<string, string | number | boolean | string[] | null>;
+  summary: string;
+  evidenceIds: string[];
+  conceptId: string;
 };
 
 const IMPORTANCE_WEIGHT: Record<QuestionImportance, number> = {
@@ -69,23 +85,54 @@ export function effectiveImportanceFor(
   return Math.round(base * mult * 1000) / 1000;
 }
 
-function collectFacts(evidence: Evidence[]) {
-  return evidence.map((e) => ({
-    id: e.id,
-    reliability: e.reliability,
-    facts: e.extractedFacts,
-    summary: `${e.title} ${e.contentSummary}`.toLowerCase(),
-  }));
+/**
+ * Project concepts into fact items for evaluators.
+ * Questions only see concepts they evaluate — never raw document bags.
+ */
+function collectFactsFromConcepts(
+  concepts: BusinessConcept[],
+  conceptIds: string[],
+): ConceptFactItem[] {
+  const allowed = new Set(conceptIds);
+  return concepts
+    .filter(
+      (c) =>
+        allowed.has(c.conceptId) &&
+        (c.supportingFactKeys.length > 0 ||
+          Object.keys(c.factValues).length > 0),
+    )
+    .map((c) => ({
+      id: c.supportingEvidenceIds[0] ?? `concept:${c.conceptId}`,
+      reliability: c.confidence,
+      facts: c.factValues,
+      summary: `${c.label} ${c.reasoning}`.toLowerCase(),
+      evidenceIds: [
+        ...new Set([
+          ...c.supportingEvidenceIds,
+          ...c.contradictingEvidenceIds,
+        ]),
+      ],
+      conceptId: c.conceptId,
+    }));
 }
 
-function bestEvidenceIds(
-  items: { id: string; reliability: number }[],
-  limit = 3,
-): string[] {
-  return [...items]
-    .sort((a, b) => b.reliability - a.reliability)
-    .slice(0, limit)
-    .map((i) => i.id);
+function bestEvidenceIds(items: ConceptFactItem[], limit = 3): string[] {
+  const ranked = [...items].sort((a, b) => b.reliability - a.reliability);
+  const ids: string[] = [];
+  for (const item of ranked) {
+    for (const eid of item.evidenceIds) {
+      if (!ids.includes(eid)) ids.push(eid);
+      if (ids.length >= limit) return ids;
+    }
+    if (
+      !item.id.startsWith("concept:") &&
+      !ids.includes(item.id) &&
+      ids.length < limit
+    ) {
+      ids.push(item.id);
+    }
+  }
+  return ids;
 }
 
 function meanReliability(items: { reliability: number }[]): number {
@@ -95,15 +142,18 @@ function meanReliability(items: { reliability: number }[]): number {
   );
 }
 
-function textHas(items: ReturnType<typeof collectFacts>, patterns: RegExp[]) {
+function textHas(items: ConceptFactItem[], patterns: RegExp[]) {
   return items.filter((i) => patterns.some((p) => p.test(i.summary)));
 }
 
 function evaluateQuestion(
   question: DiligenceQuestionDefinition,
-  evidence: Evidence[],
+  concepts: BusinessConcept[],
   stageLevel: QuestionStageLevel,
 ): AnswerEvaluation {
+  const conceptIds =
+    question.evaluatesConceptIds ?? conceptsForQuestion(question.id);
+
   if (stageLevel === "not_applicable") {
     return {
       state: "NOT_APPLICABLE",
@@ -111,69 +161,97 @@ function evaluateQuestion(
       supportingEvidenceIds: [],
       missingEvidence: [],
       reasoning: "Not applicable for the current lifecycle stage.",
+      conceptIds,
     };
   }
 
-  const items = collectFacts(evidence);
+  const items = collectFactsFromConcepts(concepts, conceptIds);
   if (items.length === 0) {
     return {
       state: "INSUFFICIENT_EVIDENCE",
       confidence: 0,
       supportingEvidenceIds: [],
       missingEvidence: question.requiredEvidenceTypes,
-      reasoning: "No evidence available to answer this question.",
+      reasoning:
+        conceptIds.length > 0
+          ? `No concept facts available for ${conceptIds.join(", ")}.`
+          : "No concept facts available to answer this question.",
+      conceptIds,
     };
   }
 
+  let evaluation: AnswerEvaluation;
   switch (question.id) {
     case "q-fin-fund-operations":
-      return evalFundOperations(items, question);
+      evaluation = evalFundOperations(items, question);
+      break;
     case "q-fin-runway-sufficient":
-      return evalRunway(items, question);
+      evaluation = evalRunway(items, question);
+      break;
     case "q-fin-revenue-growing":
-      return evalRevenueGrowth(items, question);
+      evaluation = evalRevenueGrowth(items, question);
+      break;
     case "q-fin-recurring-healthy":
-      return evalRecurring(items, question);
+      evaluation = evalRecurring(items, question);
+      break;
     case "q-fin-concentration-financial":
     case "q-cust-concentration":
-      return evalConcentration(items, question);
+      evaluation = evalConcentration(items, question);
+      break;
     case "q-gov-board-approvals":
     case "q-gov-equity-issuances":
-      return evalBoardApprovals(items, question);
+      evaluation = evalBoardApprovals(items, question);
+      break;
     case "q-gov-cadence":
-      return evalGovernanceCadence(items, question);
+      evaluation = evalGovernanceCadence(items, question);
+      break;
     case "q-gov-cap-table":
-      return evalCapTable(items, question);
+      evaluation = evalCapTable(items, question);
+      break;
     case "q-legal-ip-assignments":
-      return evalIpAssignments(items, question);
+      evaluation = evalIpAssignments(items, question);
+      break;
     case "q-legal-employment-agreements":
-      return evalEmploymentAgreements(items, question);
+      evaluation = evalEmploymentAgreements(items, question);
+      break;
     case "q-legal-customer-contracts":
-      return evalCustomerContracts(items, question);
+      evaluation = evalCustomerContracts(items, question);
+      break;
     case "q-cust-churn":
-      return evalChurn(items, question);
+      evaluation = evalChurn(items, question);
+      break;
     case "q-cust-nrr":
-      return evalNrr(items, question);
+      evaluation = evalNrr(items, question);
+      break;
     case "q-sec-policies":
-      return evalSecurityPolicies(items, question);
+      evaluation = evalSecurityPolicies(items, question);
+      break;
     case "q-sec-incident-response":
-      return evalIncidentResponse(items, question);
+      evaluation = evalIncidentResponse(items, question);
+      break;
     case "q-sec-critical-controls":
-      return evalSecurityControls(items, question);
+      evaluation = evalSecurityControls(items, question);
+      break;
     case "q-ops-kpi-monitoring":
-      return evalKpiMonitoring(items, question);
+      evaluation = evalKpiMonitoring(items, question);
+      break;
     case "q-ops-process-ownership":
-      return evalProcessOwnership(items, question);
+      evaluation = evalProcessOwnership(items, question);
+      break;
     case "q-ops-financial-controls":
-      return evalFinancialControls(items, question);
+      evaluation = evalFinancialControls(items, question);
+      break;
     case "q-people-key-person":
-      return evalKeyPerson(items, question);
+      evaluation = evalKeyPerson(items, question);
+      break;
     case "q-people-attrition":
-      return evalAttrition(items, question);
+      evaluation = evalAttrition(items, question);
+      break;
     case "q-people-org-clarity":
-      return evalOrgClarity(items, question);
+      evaluation = evalOrgClarity(items, question);
+      break;
     default:
-      return {
+      evaluation = {
         state: "UNKNOWN",
         confidence: 0,
         supportingEvidenceIds: [],
@@ -182,10 +260,12 @@ function evaluateQuestion(
           "No deterministic evaluator is registered for this question.",
       };
   }
+
+  return { ...evaluation, conceptIds };
 }
 
 function evalFundOperations(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const financialCounts = items.map((i) => {
@@ -244,7 +324,7 @@ function evalFundOperations(
 }
 
 function evalRunway(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const withRunway = items.filter((i) => asNumber(i.facts.cashRunwayMonths) != null);
@@ -300,10 +380,14 @@ function evalRunway(
 }
 
 function evalRevenueGrowth(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
-  const withGrowth = items.filter((i) => asNumber(i.facts.revenueGrowthRate) != null);
+  const withGrowth = items.filter(
+    (i) =>
+      asNumber(i.facts.revenueGrowthRate) != null ||
+      asNumber(i.facts.revenueGrowth) != null,
+  );
   if (withGrowth.length === 0) {
     // Do not invent growth from narrative alone.
     return {
@@ -311,10 +395,12 @@ function evalRevenueGrowth(
       confidence: 0,
       supportingEvidenceIds: [],
       missingEvidence: question.requiredEvidenceTypes,
-      reasoning: "No revenueGrowthRate fact found in evidence.",
+      reasoning: "No revenueGrowth fact found in concepts.",
     };
   }
-  const growth = asNumber(withGrowth[0]!.facts.revenueGrowthRate)!;
+  const growth =
+    asNumber(withGrowth[0]!.facts.revenueGrowthRate) ??
+    asNumber(withGrowth[0]!.facts.revenueGrowth)!;
   const ids = bestEvidenceIds(withGrowth);
   const conf = meanReliability(withGrowth);
   if (growth > 0) {
@@ -336,7 +422,7 @@ function evalRevenueGrowth(
 }
 
 function evalRecurring(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const withRecurring = items.filter(
@@ -374,7 +460,7 @@ function evalRecurring(
 }
 
 function evalConcentration(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const withConc = items.filter(
@@ -422,7 +508,7 @@ function evalConcentration(
 }
 
 function evalBoardApprovals(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const missingBoard = items.filter((i) => {
@@ -488,7 +574,7 @@ function evalBoardApprovals(
 }
 
 function evalGovernanceCadence(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const cadence = items.filter(
@@ -525,7 +611,7 @@ function evalGovernanceCadence(
 }
 
 function evalCapTable(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const caps = items.filter(
@@ -563,7 +649,7 @@ function evalCapTable(
 }
 
 function evalIpAssignments(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const withGap = items.filter((i) => {
@@ -602,7 +688,7 @@ function evalIpAssignments(
 }
 
 function evalEmploymentAgreements(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const present = items.filter(
@@ -630,7 +716,7 @@ function evalEmploymentAgreements(
 }
 
 function evalCustomerContracts(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const contracts = items.filter(
@@ -668,7 +754,7 @@ function evalCustomerContracts(
 }
 
 function evalChurn(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const withChurn = items.filter(
@@ -695,7 +781,7 @@ function evalChurn(
 }
 
 function evalNrr(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const withNrr = items.filter((i) => asRatio(i.facts.netRevenueRetention) != null);
@@ -731,7 +817,7 @@ function evalNrr(
 }
 
 function evalSecurityPolicies(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const policies = items.filter(
@@ -756,7 +842,7 @@ function evalSecurityPolicies(
 }
 
 function evalIncidentResponse(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const ir = items.filter(
@@ -781,7 +867,7 @@ function evalIncidentResponse(
 }
 
 function evalSecurityControls(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const controlHits = items.filter((i) => {
@@ -832,7 +918,7 @@ function evalSecurityControls(
 }
 
 function evalKpiMonitoring(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const kpis = items.filter(
@@ -859,7 +945,7 @@ function evalKpiMonitoring(
 }
 
 function evalProcessOwnership(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const owned = items.filter(
@@ -884,7 +970,7 @@ function evalProcessOwnership(
 }
 
 function evalFinancialControls(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const controls = items.filter(
@@ -909,7 +995,7 @@ function evalFinancialControls(
 }
 
 function evalKeyPerson(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const withRisk = items.filter((i) => {
@@ -948,7 +1034,7 @@ function evalKeyPerson(
 }
 
 function evalAttrition(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const withAttr = items.filter(
@@ -986,7 +1072,7 @@ function evalAttrition(
 }
 
 function evalOrgClarity(
-  items: ReturnType<typeof collectFacts>,
+  items: ConceptFactItem[],
   question: DiligenceQuestionDefinition,
 ): AnswerEvaluation {
   const org = items.filter(
@@ -1014,6 +1100,7 @@ function evalOrgClarity(
 
 /**
  * Answer the full catalog for a company. Deterministic for same inputs.
+ * Pipeline: Evidence → Concepts → Question Answers.
  */
 export function answerDiligenceQuestions(input: {
   companyId: string;
@@ -1023,18 +1110,29 @@ export function answerDiligenceQuestions(input: {
   snapshotId?: string | null;
   asOf?: string;
   catalog?: DiligenceQuestionDefinition[];
+  /** Pre-aggregated concepts; when omitted, built from evidence. */
+  concepts?: BusinessConcept[];
 }): {
   answers: DiligenceQuestionAnswer[];
   evaluations: Map<string, AnswerEvaluation>;
+  concepts: BusinessConcept[];
 } {
   const catalog = input.catalog ?? DILIGENCE_QUESTION_CATALOG;
   const asOf = input.asOf ?? new Date().toISOString();
+  const concepts =
+    input.concepts ??
+    aggregateBusinessConcepts({
+      companyId: input.companyId,
+      evidence: input.evidence,
+      snapshotId: input.snapshotId,
+      asOf,
+    });
   const evaluations = new Map<string, AnswerEvaluation>();
   const answers: DiligenceQuestionAnswer[] = [];
 
   for (const question of catalog) {
     const stageLevel = stageLevelForQuestion(question, input.stage);
-    const evaluation = evaluateQuestion(question, input.evidence, stageLevel);
+    const evaluation = evaluateQuestion(question, concepts, stageLevel);
     evaluations.set(question.id, evaluation);
     answers.push({
       questionId: question.id,
@@ -1051,10 +1149,11 @@ export function answerDiligenceQuestions(input: {
         question,
         input.assessmentGoal,
       ),
+      conceptIds: evaluation.conceptIds ?? conceptsForQuestion(question.id),
     });
   }
 
-  return { answers, evaluations };
+  return { answers, evaluations, concepts };
 }
 
 /**

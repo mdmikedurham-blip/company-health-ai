@@ -39,4 +39,6 @@ export interface CompanyHealthSnapshot {
   /** Phase 4 — optional until all assemblers populate it. */
   questionAnswers?: DiligenceQuestionAnswer[];
   questionCoverage?: QuestionCoverageReport;
+  /** Phase 5 — business concepts. */
+  businessConcepts?: import("./business-concept").BusinessConcept[];
 }

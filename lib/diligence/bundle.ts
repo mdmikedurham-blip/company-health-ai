@@ -16,8 +16,10 @@ export function buildDiligenceBundle(input: {
   assessmentGoal?: AssessmentGoalId | null;
   snapshotId?: string | null;
   asOf?: string;
-}): DiligenceQuestionBundle {
-  const { answers } = answerDiligenceQuestions(input);
+}): DiligenceQuestionBundle & {
+  concepts: import("@/lib/domain/business-concept").BusinessConcept[];
+} {
+  const { answers, concepts } = answerDiligenceQuestions(input);
   const coverage = computeQuestionCoverage({
     companyId: input.companyId,
     answers,
@@ -33,5 +35,6 @@ export function buildDiligenceBundle(input: {
       answers,
       input.assessmentGoal,
     ),
+    concepts,
   };
 }

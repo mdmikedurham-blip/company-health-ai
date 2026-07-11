@@ -79,6 +79,8 @@ export type DiligenceQuestionDefinition = {
   goalImportance?: Partial<Record<AssessmentGoalId, number>>;
   requiredEvidenceTypes: string[];
   optionalEvidenceTypes: string[];
+  /** Phase 5 — concepts this question evaluates (not documents). */
+  evaluatesConceptIds?: string[];
   recommendationTemplate?: RecommendationTemplate;
 };
 
@@ -96,6 +98,8 @@ export type DiligenceQuestionAnswer = {
   stageLevel: QuestionStageLevel;
   /** Effective importance after goal weighting (ordering only). */
   effectiveImportance: number;
+  /** Concepts evaluated for this answer. */
+  conceptIds?: string[];
 };
 
 export type QuestionCoverageReport = {

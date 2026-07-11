@@ -296,6 +296,7 @@ export async function analyzeAndPersistIncremental(
     classificationStage: engine.classificationStage,
     questionAnswers: engine.questionAnswers,
     questionCoverage: engine.questionCoverage,
+    businessConcepts: engine.businessConcepts,
   };
 }
 

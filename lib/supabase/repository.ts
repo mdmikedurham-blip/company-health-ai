@@ -62,6 +62,8 @@ export type PersistEngineResultInput = {
   asOf?: string;
   /** Phase 4 diligence answers (optional until migration 016). */
   questionAnswers?: import("@/lib/domain/diligence-question").DiligenceQuestionAnswer[];
+  /** Phase 5 business concepts (optional until migration 017). */
+  businessConcepts?: import("@/lib/domain/business-concept").BusinessConcept[];
   snapshotId?: string | null;
 };
 
@@ -599,6 +601,20 @@ export async function persistEngineResult(
       });
     } catch {
       // Migration 016 may not be applied yet.
+    }
+  }
+
+  if (input.businessConcepts) {
+    try {
+      const { replaceCompanyBusinessConcepts } = await import("@/lib/concepts");
+      await replaceCompanyBusinessConcepts({
+        client,
+        companyId,
+        concepts: input.businessConcepts,
+        snapshotId: input.snapshotId ?? null,
+      });
+    } catch {
+      // Migration 017 may not be applied yet.
     }
   }
 }
