@@ -115,6 +115,167 @@ export type Database = {
           },
         ];
       };
+      doctor_conversations: {
+        Row: {
+          id: string;
+          company_id: string;
+          snapshot_id: string | null;
+          assessment_goal: string | null;
+          company_stage: string | null;
+          status: string;
+          current_topic: string | null;
+          current_investigation_id: string | null;
+          current_hypothesis: string | null;
+          confidence: number;
+          unanswered_questions: Json;
+          requested_evidence: Json;
+          completed_investigation_ids: string[];
+          conversation_history: Json;
+          recently_learned: Json;
+          top_observation: string | null;
+          next_action: Json | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          snapshot_id?: string | null;
+          assessment_goal?: string | null;
+          company_stage?: string | null;
+          status?: string;
+          current_topic?: string | null;
+          current_investigation_id?: string | null;
+          current_hypothesis?: string | null;
+          confidence?: number;
+          unanswered_questions?: Json;
+          requested_evidence?: Json;
+          completed_investigation_ids?: string[];
+          conversation_history?: Json;
+          recently_learned?: Json;
+          top_observation?: string | null;
+          next_action?: Json | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          snapshot_id?: string | null;
+          assessment_goal?: string | null;
+          company_stage?: string | null;
+          status?: string;
+          current_topic?: string | null;
+          current_investigation_id?: string | null;
+          current_hypothesis?: string | null;
+          confidence?: number;
+          unanswered_questions?: Json;
+          requested_evidence?: Json;
+          completed_investigation_ids?: string[];
+          conversation_history?: Json;
+          recently_learned?: Json;
+          top_observation?: string | null;
+          next_action?: Json | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "doctor_conversations_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      doctor_investigations: {
+        Row: {
+          id: string;
+          conversation_id: string;
+          company_id: string;
+          template_id: string;
+          title: string;
+          business_question: string;
+          hypotheses: Json;
+          required_evidence: Json;
+          confidence: number;
+          blocking_unknowns: Json;
+          status: string;
+          priority: number;
+          current_question: string | null;
+          evidence_request: Json | null;
+          recommendation: Json | null;
+          explainability: Json;
+          snapshot_id: string | null;
+          opened_at: string;
+          completed_at: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          conversation_id: string;
+          company_id: string;
+          template_id: string;
+          title: string;
+          business_question: string;
+          hypotheses?: Json;
+          required_evidence?: Json;
+          confidence?: number;
+          blocking_unknowns?: Json;
+          status?: string;
+          priority?: number;
+          current_question?: string | null;
+          evidence_request?: Json | null;
+          recommendation?: Json | null;
+          explainability?: Json;
+          snapshot_id?: string | null;
+          opened_at?: string;
+          completed_at?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          conversation_id?: string;
+          company_id?: string;
+          template_id?: string;
+          title?: string;
+          business_question?: string;
+          hypotheses?: Json;
+          required_evidence?: Json;
+          confidence?: number;
+          blocking_unknowns?: Json;
+          status?: string;
+          priority?: number;
+          current_question?: string | null;
+          evidence_request?: Json | null;
+          recommendation?: Json | null;
+          explainability?: Json;
+          snapshot_id?: string | null;
+          opened_at?: string;
+          completed_at?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "doctor_investigations_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "doctor_investigations_conversation_id_fkey";
+            columns: ["conversation_id"];
+            isOneToOne: false;
+            referencedRelation: "doctor_conversations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       company_classifications: {
         Row: {
           id: string;

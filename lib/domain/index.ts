@@ -116,6 +116,15 @@ export {
   PLAYBOOK_ENGINE_VERSION,
 } from "./playbook";
 export type {
+  DoctorConversation,
+  DoctorInvestigation,
+  DoctorHomeView,
+  DoctorEvidenceRequest,
+  DoctorNextAction,
+  DoctorInvestigationTemplateId,
+} from "./doctor-conversation";
+
+export type {
   CompanyDNA,
   BoardMember,
   ConnectedSystem,
