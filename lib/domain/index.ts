@@ -64,6 +64,22 @@ export {
   DEFAULT_ASSESSMENT_GOAL,
 } from "./assessment-goal";
 export type {
+  DiligenceAnswerState,
+  DiligenceDimensionId,
+  DiligenceQuestionAnswer,
+  DiligenceQuestionDefinition,
+  DiligenceQuestionBundle,
+  DiligenceQuestionId,
+  QuestionCoverageReport,
+  QuestionImportance,
+  QuestionStageLevel,
+  RecommendationTemplate,
+} from "./diligence-question";
+export {
+  DILIGENCE_ANSWER_STATES,
+  DILIGENCE_DIMENSION_IDS,
+} from "./diligence-question";
+export type {
   CompanyDNA,
   BoardMember,
   ConnectedSystem,

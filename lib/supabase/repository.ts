@@ -60,6 +60,9 @@ export type PersistEngineResultInput = {
   scoreChange?: ScoreChangeExplanation | null;
   timelineEvents: TimelineEvent[];
   asOf?: string;
+  /** Phase 4 diligence answers (optional until migration 016). */
+  questionAnswers?: import("@/lib/domain/diligence-question").DiligenceQuestionAnswer[];
+  snapshotId?: string | null;
 };
 
 async function assertOk<T>(
@@ -584,6 +587,20 @@ export async function persistEngineResult(
     input.scoreChange,
     input.asOf,
   );
+
+  if (input.questionAnswers) {
+    try {
+      const { replaceCompanyQuestionAnswers } = await import("@/lib/diligence");
+      await replaceCompanyQuestionAnswers({
+        client,
+        companyId,
+        answers: input.questionAnswers,
+        snapshotId: input.snapshotId ?? null,
+      });
+    } catch {
+      // Migration 016 may not be applied yet.
+    }
+  }
 }
 
 // ─── Connector credentials ───────────────────────────────────────────────────

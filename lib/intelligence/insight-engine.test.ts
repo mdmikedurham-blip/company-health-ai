@@ -716,7 +716,17 @@ describe("full Acme connector corpus", () => {
     expect(result.findings.some((f) => f.id === "finding-key-person")).toBe(true);
     expect(result.findings.some((f) => f.id === "finding-recurring-revenue")).toBe(true);
     expect(result.findings.some((f) => f.id === "finding-nrr")).toBe(false);
-    expect(result.recommendations.length).toBe(result.risks.length);
+    expect(result.recommendations.length).toBeGreaterThan(0);
+    expect(result.questionAnswers.length).toBeGreaterThanOrEqual(20);
+    expect(result.questionCoverage.applicable).toBeGreaterThan(0);
+    // Recommendations come from contradicted/insufficient questions.
+    expect(
+      result.recommendations.every(
+        (r) =>
+          r.rationale.includes("CONTRADICTED") ||
+          r.rationale.includes("INSUFFICIENT"),
+      ),
+    ).toBe(true);
   });
 });
 

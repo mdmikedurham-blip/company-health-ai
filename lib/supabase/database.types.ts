@@ -336,6 +336,69 @@ export type Database = {
         };
         Relationships: [];
       };
+      question_answers: {
+        Row: {
+          id: string;
+          company_id: string;
+          snapshot_id: string | null;
+          question_id: string;
+          answer_state: string;
+          confidence: number;
+          supporting_evidence_ids: string[];
+          missing_evidence: string[];
+          reasoning: string;
+          stage_level: string;
+          effective_importance: number;
+          last_updated: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          company_id: string;
+          snapshot_id?: string | null;
+          question_id: string;
+          answer_state: string;
+          confidence?: number;
+          supporting_evidence_ids?: string[];
+          missing_evidence?: string[];
+          reasoning?: string;
+          stage_level?: string;
+          effective_importance?: number;
+          last_updated?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          company_id?: string;
+          snapshot_id?: string | null;
+          question_id?: string;
+          answer_state?: string;
+          confidence?: number;
+          supporting_evidence_ids?: string[];
+          missing_evidence?: string[];
+          reasoning?: string;
+          stage_level?: string;
+          effective_importance?: number;
+          last_updated?: string;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "question_answers_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "question_answers_snapshot_id_fkey";
+            columns: ["snapshot_id"];
+            isOneToOne: false;
+            referencedRelation: "analysis_snapshots";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       company_members: {
         Row: {
           id: string;
