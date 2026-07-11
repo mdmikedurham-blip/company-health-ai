@@ -18,6 +18,14 @@ import {
   hasEnoughFinancialFacts,
   mergeFinancialFactsInto,
 } from "../extraction/financial-facts";
+import {
+  hasEnoughGovernanceFacts,
+  mergeGovernanceFactsInto,
+} from "../extraction/governance-facts";
+import {
+  isLowQualityPdfText,
+  looksLikeBinaryOrPdfJunk,
+} from "../extraction/text-quality";
 import { extractEvidence } from "../evidence-extraction/extract-evidence";
 import type { EvidenceExtractionResult } from "../evidence-extraction/types";
 import type { EvidenceCandidate, RawDocument } from "./types";
@@ -102,8 +110,10 @@ function inferTypedFacts(
   }
 
   // Spreadsheet structure → typed financial metrics (no inference of missing values).
-  const merged = mergeFinancialFactsInto(facts, extracted);
-  return merged.facts;
+  const financial = mergeFinancialFactsInto(facts, extracted);
+  // Board minutes / consents → typed governance facts (no score from presence alone).
+  const governance = mergeGovernanceFactsInto(financial.facts, extracted);
+  return governance.facts;
 }
 
 function resolveDimensionId(
@@ -124,6 +134,10 @@ function resolveDimensionId(
   // classification leaned toward Revenue Quality / General.
   if (financialCore || hasEnoughFinancialFacts(facts)) {
     return "dim-financial";
+  }
+
+  if (hasEnoughGovernanceFacts(facts)) {
+    return "dim-governance";
   }
 
   return (
@@ -164,21 +178,37 @@ export function toEvidenceCandidate(
   const firstIso = extraction.dates.find((d) => d.iso)?.iso;
   const proposedId = options?.evidenceId ?? defaultEvidenceId(raw);
 
+  const rawSummaryCandidate =
+    extraction.sourceQuotes[0]?.text ||
+    raw.rawSummary ||
+    extracted.text.slice(0, 500) ||
+    `Evidence from ${raw.title}`;
+  const junkSummary =
+    looksLikeBinaryOrPdfJunk(rawSummaryCandidate) ||
+    isLowQualityPdfText(rawSummaryCandidate);
+  const contentSummary = junkSummary
+    ? `${extraction.evidenceType} document processed; readable extract unavailable (PDF object streams suppressed).`
+    : rawSummaryCandidate;
+
+  const lowQuality =
+    junkSummary ||
+    extracted.metadata.extractionQuality === "failed" ||
+    extracted.metadata.extractionQuality === "low";
+  const confidence = lowQuality
+    ? Math.min(extraction.confidence, 25)
+    : extraction.confidence;
+
   return {
     proposedId,
     sourceSystem: raw.sourceSystem,
     sourceType: extraction.evidenceType,
     title: raw.title || extracted.title,
-    contentSummary:
-      extraction.sourceQuotes[0]?.text ||
-      raw.rawSummary ||
-      extracted.text.slice(0, 500) ||
-      `Evidence from ${raw.title}`,
+    contentSummary,
     dimensionId,
     dimension: dimensionName(dimensionId),
     occurredAt: firstIso ?? raw.modifiedAt ?? raw.syncedAt,
     collectedAt: raw.syncedAt,
-    confidence: extraction.confidence,
+    confidence,
     facts,
     rawDocument: {
       externalId: raw.externalId,

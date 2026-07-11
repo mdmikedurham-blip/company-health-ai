@@ -200,10 +200,16 @@ describe("PPTX extraction", () => {
 });
 
 describe("PDF extraction failure", () => {
-  it("fails when binary PDF yields no printable text", () => {
+  it("fails when binary PDF yields no extractable text", () => {
     const garbage = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7]);
     expect(() => extractPdf("empty.pdf", garbage)).toThrow(
-      /no extractable text/i,
+      /no extractable text|object streams/i,
     );
+  });
+
+  it("fails when printable runs are PDF object streams", () => {
+    const junk =
+      "52 0 obj\n<< /Type /Catalog /Pages 1 0 R >>\nendobj\n53 0 obj\n<< /Length 4 >>stream\n\x00\x01\x02\x03\nendstream\nendobj\n";
+    expect(() => extractPdf("noise.pdf", junk)).toThrow(/object streams/i);
   });
 });

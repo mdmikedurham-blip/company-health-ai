@@ -73,7 +73,8 @@ export type RuleId =
   | "mfa"
   | "low-attrition"
   | "key-person"
-  | "financial-metrics";
+  | "financial-metrics"
+  | "governance-metrics";
 
 export interface FindingPolicy {
   findingId: string;
@@ -194,6 +195,14 @@ export const FINDING_POLICY: Record<RuleId, FindingPolicy> = {
     findingId: "finding-financial-metrics",
     title: "Financial metrics from source documents",
     dimensionId: "dim-financial",
+    direction: "neutral",
+    materiality: 5,
+    scoreImpact: 0,
+  },
+  "governance-metrics": {
+    findingId: "finding-governance-metrics",
+    title: "Governance actions from board documents",
+    dimensionId: "dim-governance",
     direction: "neutral",
     materiality: 5,
     scoreImpact: 0,

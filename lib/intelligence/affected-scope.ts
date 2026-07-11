@@ -42,6 +42,19 @@ export const RULE_FACT_KEYS: Record<RuleId, (keyof ExtractedFacts | string)[]> =
     "cashRunwayMonths",
     "debt",
   ],
+  "governance-metrics": [
+    "boardApprovalsDocumented",
+    "directorElectionsDocumented",
+    "financingApprovalsDocumented",
+    "optionGrantsApproved",
+    "optionGrantsMissingBoardApproval",
+    "corporateActionsDocumented",
+    "writtenConsentDocumented",
+    "governanceCadenceDocumented",
+    "materialActionsMissingBoardApproval",
+    "boardMeetingDate",
+    "approvedItems",
+  ],
 };
 
 /** Finding → risk id (negative findings only). */

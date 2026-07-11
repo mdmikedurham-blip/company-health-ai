@@ -93,3 +93,17 @@ export type {
   FinancialFactKey,
   FinancialMetricObservation,
 } from "./financial-facts";
+export {
+  GOVERNANCE_FACT_KEYS,
+  MIN_GOVERNANCE_FACTS_TO_SCORE,
+  countGovernanceFacts,
+  extractGovernanceFactsFromText,
+  hasEnoughGovernanceFacts,
+  mergeGovernanceFactsInto,
+} from "./governance-facts";
+export type { GovernanceFactKey } from "./governance-facts";
+export {
+  isLowQualityPdfText,
+  looksLikeBinaryOrPdfJunk,
+  pdfSyntaxLineRatio,
+} from "./text-quality";
