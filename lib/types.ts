@@ -39,22 +39,20 @@ export type {
 } from "@/lib/domain";
 
 /** Evidence explorer list view projection */
-export interface EvidenceRecordView {
-  id: string;
-  sourceSystem: string;
-  documentName: string;
-  confidence: number;
-  dimension: string;
-  lastReviewed: string;
-  summary: string;
-  linkedRisks: string[];
-  linkedInsights: string[];
-}
+export type { EvidenceExplorerRecord as EvidenceRecordView } from "@/lib/application/evidence-explorer-model";
+export type { ProvenanceRecord } from "@/lib/application/provenance";
 
+export type {
+  ExplorerGraphNode,
+  ExplorerGraphEdge,
+  ExplorerNodeKind,
+} from "@/lib/application/evidence-explorer-model";
+
+/** @deprecated Prefer ExplorerGraphNode from evidence-explorer-model. */
 export interface EvidenceGraphNode {
   id: string;
   label: string;
-  type: "document" | "dimension" | "risk" | "insight";
+  type: "document" | "dimension" | "risk" | "insight" | "finding" | "recommendation" | "fact" | "cluster";
   x: number;
   y: number;
 }
