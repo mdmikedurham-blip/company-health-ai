@@ -113,7 +113,7 @@ function resolveSheets(entries: ZipEntry[]): SheetRef[] {
   for (const m of workbook.matchAll(
     /<sheet\b[^>]*name="([^"]+)"[^>]*(?:r:id|rId)="([^"]+)"[^>]*\/>|<sheet\b[^>]*(?:r:id|rId)="([^"]+)"[^>]*name="([^"]+)"[^>]*\/>/g,
   )) {
-    const name = m[1] ?? m[4] ?? "Sheet";
+    const name = decodeXml(m[1] ?? m[4] ?? "Sheet");
     const rid = m[2] ?? m[3];
     if (!rid) continue;
     let target = ridToTarget.get(rid) ?? `worksheets/sheet${sheets.length + 1}.xml`;

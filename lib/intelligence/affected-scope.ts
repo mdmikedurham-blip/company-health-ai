@@ -31,6 +31,17 @@ export const RULE_FACT_KEYS: Record<RuleId, (keyof ExtractedFacts | string)[]> =
   mfa: ["mfaCoverage"],
   "low-attrition": ["voluntaryAttritionRate"],
   "key-person": ["singleOwnerCriticalFunctions"],
+  "financial-metrics": [
+    "revenue",
+    "revenueGrowth",
+    "grossMargin",
+    "ebitda",
+    "operatingIncome",
+    "cashBalance",
+    "burnRateMonthly",
+    "cashRunwayMonths",
+    "debt",
+  ],
 };
 
 /** Finding → risk id (negative findings only). */

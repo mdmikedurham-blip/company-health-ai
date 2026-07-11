@@ -76,7 +76,7 @@ export function HealthDimensionRow({
       <span
         className={`hidden w-20 shrink-0 rounded-full border px-2 py-0.5 text-center text-[10px] font-medium lg:inline-block ${config.badge}`}
       >
-        {showScore ? config.label : "No evidence"}
+        {showScore ? config.label : "Insufficient"}
       </span>
     </>
   );

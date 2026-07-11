@@ -79,3 +79,17 @@ export { extractPdf } from "./formats/pdf";
 export { extractPptx } from "./formats/pptx";
 export { extractTxt } from "./formats/txt";
 export { extractXlsx } from "./formats/xlsx";
+export {
+  FINANCIAL_FACT_KEYS,
+  MIN_FINANCIAL_FACTS_TO_SCORE,
+  countFinancialFacts,
+  extractFinancialObservations,
+  hasEnoughFinancialFacts,
+  mergeFinancialFactsInto,
+  missingFinancialFactKeys,
+} from "./financial-facts";
+export type {
+  FinancialBasis,
+  FinancialFactKey,
+  FinancialMetricObservation,
+} from "./financial-facts";
