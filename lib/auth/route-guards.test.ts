@@ -34,16 +34,26 @@ describe("protected route redirects", () => {
     expect(isProtectedPath("/signup")).toBe(false);
     expect(isProtectedPath("/forgot-password")).toBe(false);
     expect(isProtectedPath("/reset-password")).toBe(false);
+    expect(isProtectedPath("/auth/update-password")).toBe(false);
     expect(isProtectedPath("/auth/callback")).toBe(false);
     expect(isProtectedPath("/api/doctor")).toBe(false);
     expect(isAuthPath("/login")).toBe(true);
     expect(isAuthPath("/reset-password")).toBe(true);
+    expect(isAuthPath("/auth/update-password")).toBe(true);
   });
 
   it("allows password reset while authenticated", () => {
     expect(
       resolveAuthRedirect({
         pathname: "/reset-password",
+        isAuthenticated: true,
+        hasCompany: true,
+        authEnabled: true,
+      }),
+    ).toEqual({ type: "allow" });
+    expect(
+      resolveAuthRedirect({
+        pathname: "/auth/update-password",
         isAuthenticated: true,
         hasCompany: true,
         authEnabled: true,

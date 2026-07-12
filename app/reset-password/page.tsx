@@ -1,5 +1,6 @@
-import { ResetPasswordForm } from "@/components/auth/ResetPasswordForm";
+import { redirect } from "next/navigation";
 
+/** Legacy path — recovery emails now target /auth/update-password. */
 export default function ResetPasswordPage() {
-  return <ResetPasswordForm />;
+  redirect("/auth/update-password");
 }

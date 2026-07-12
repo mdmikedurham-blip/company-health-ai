@@ -102,6 +102,63 @@ export function sanitizeAuthError(message: string | undefined | null): string {
   return "Something went wrong. Please try again.";
 }
 
+export type AuthErrorCategory =
+  | "redirect_configuration"
+  | "rate_limited"
+  | "provider_error"
+  | "invalid_request";
+
+/**
+ * Categorize Supabase Auth errors for UI without leaking internals.
+ */
+export function categorizeAuthError(
+  message: string | undefined | null,
+): AuthErrorCategory {
+  if (!message) return "provider_error";
+  const lower = message.toLowerCase();
+
+  if (
+    lower.includes("redirect") ||
+    lower.includes("not allowed") ||
+    lower.includes("allow list") ||
+    lower.includes("allowlist") ||
+    lower.includes("site url") ||
+    lower.includes("redirect_uri") ||
+    lower.includes("redirect uri")
+  ) {
+    return "redirect_configuration";
+  }
+  if (lower.includes("rate limit") || lower.includes("too many")) {
+    return "rate_limited";
+  }
+  if (
+    lower.includes("invalid") ||
+    lower.includes("validation") ||
+    lower.includes("unable to validate") ||
+    lower.includes("email address") ||
+    lower.includes("bad request")
+  ) {
+    return "invalid_request";
+  }
+  return "provider_error";
+}
+
+export function authErrorCategoryMessage(
+  category: AuthErrorCategory,
+): string {
+  switch (category) {
+    case "redirect_configuration":
+      return "Password reset redirect is misconfigured. Please try again later or contact support.";
+    case "rate_limited":
+      return "Too many attempts. Please wait and try again.";
+    case "invalid_request":
+      return "Check the email address and try again.";
+    case "provider_error":
+    default:
+      return "Could not start password reset. Please try again.";
+  }
+}
+
 export function safeRedirectPath(
   next: string | null | undefined,
   fallback = "/dashboard",

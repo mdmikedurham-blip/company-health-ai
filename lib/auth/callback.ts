@@ -61,10 +61,10 @@ export async function resolveAuthCallback(
     return { path: "/login?error=session_failed" };
   }
 
-  // Password recovery must land on the reset form even if the user already
+  // Password recovery must land on the update form even if the user already
   // has a company membership.
-  if (next === "/reset-password") {
-    return { path: "/reset-password" };
+  if (next === "/reset-password" || next === "/auth/update-password") {
+    return { path: "/auth/update-password" };
   }
 
   let membership: { hasCompany: boolean; error: boolean };
