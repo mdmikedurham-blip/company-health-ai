@@ -239,6 +239,7 @@ export async function askDoctor(
     };
   }
 
+  // Structured financial facts alone are enough to proceed (findings optional).
   const retrieval = retrieveRelevantContext(snapshot, classified, {
     explainRiskId: request.explainRiskId,
   });
