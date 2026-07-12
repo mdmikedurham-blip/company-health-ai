@@ -25,7 +25,8 @@ export function toEvidenceCitation(
 
 /**
  * Build a compact, citation-ready context pack for the LLM.
- * Only includes retrieved entities — never the full snapshot.
+ * Includes retrieved entities plus structured facts / concepts / answers
+ * from the current published snapshot — findings are not required.
  */
 export function buildDoctorContext(
   snapshot: CompanyHealthSnapshot,
@@ -95,7 +96,20 @@ export function buildDoctorContext(
       description: item.description,
       type: item.type,
     })),
+    structuredFacts: retrieval.structuredFacts,
+    questionAnswers: (snapshot.questionAnswers ?? []).slice(0, 12).map((a) => ({
+      questionId: a.questionId,
+      status: a.state,
+      answerSummary: a.reasoning || null,
+      confidence: a.confidence,
+    })),
+    businessConcepts: (snapshot.businessConcepts ?? []).slice(0, 12).map((c) => ({
+      conceptId: c.conceptId,
+      state: c.state,
+      summary: c.reasoning || null,
+    })),
     insufficientEvidence:
       retrieval.insufficientEvidence || query.intent === "unsupported",
+    snapshotId: retrieval.snapshotId,
   };
 }

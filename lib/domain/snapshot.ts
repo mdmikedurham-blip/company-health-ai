@@ -41,4 +41,6 @@ export interface CompanyHealthSnapshot {
   questionCoverage?: QuestionCoverageReport;
   /** Phase 5 — business concepts. */
   businessConcepts?: import("./business-concept").BusinessConcept[];
+  /** Published assessment snapshot id when assembled from a pack. */
+  assessmentSnapshotId?: string | null;
 }

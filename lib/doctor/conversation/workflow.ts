@@ -16,6 +16,14 @@ import type {
 } from "@/lib/domain/doctor-conversation";
 import { DEFAULT_ASSESSMENT_GOAL } from "@/lib/domain/assessment-goal";
 import {
+  collectPresentEvidenceTokens,
+  evidenceRequestSatisfied,
+} from "../evidence-aliases";
+import {
+  diagnoseFinancials,
+  MIN_PRIMARY_INVESTIGATION_CONFIDENCE,
+} from "../financial-diagnosis";
+import {
   DOCTOR_INVESTIGATION_CATALOG,
   getInvestigationTemplate,
 } from "../investigations/catalog";
@@ -29,24 +37,41 @@ function stageOk(
 }
 
 function presentEvidenceTypes(snapshot: CompanyHealthSnapshot): Set<string> {
-  const types = new Set<string>();
-  for (const e of snapshot.evidence) {
-    types.add(e.sourceType);
-    const meta = e.metadata?.evidenceType;
-    if (typeof meta === "string") types.add(meta);
-    for (const key of Object.keys(e.extractedFacts ?? {})) {
-      types.add(key);
-    }
-  }
-  return types;
+  return collectPresentEvidenceTokens(snapshot);
 }
 
 function evidenceSatisfied(
   request: DoctorEvidenceRequest,
   present: Set<string>,
+  evidence: CompanyHealthSnapshot["evidence"],
 ): boolean {
-  if (request.evidenceTypes.length === 0) return false;
-  return request.evidenceTypes.some((t) => present.has(t));
+  return evidenceRequestSatisfied(request.evidenceTypes, present, evidence);
+}
+
+function seedConfidenceFromFacts(
+  templateId: string,
+  snapshot: CompanyHealthSnapshot,
+): number {
+  const diagnosis = diagnoseFinancials(snapshot);
+  const issue = diagnosis.issues.find((i) => {
+    if (templateId === "inv-runway-shortening") {
+      return i.id.startsWith("fin-runway") || i.id === "fin-implied-runway";
+    }
+    if (templateId === "inv-revenue-slowing") {
+      return i.id === "fin-revenue-decline";
+    }
+    if (templateId === "inv-customer-concentration") {
+      return i.id === "fin-concentration";
+    }
+    if (templateId === "inv-cash-declining") {
+      return i.factKeys.includes("cashBalance") || i.factKeys.includes("burnRateMonthly");
+    }
+    return false;
+  });
+  if (issue) return issue.confidence;
+  // Facts present for this theme but no material issue — low hypothesis only.
+  if (diagnosis.facts.length > 0) return 20;
+  return 15;
 }
 
 function scoreTemplate(
@@ -76,11 +101,40 @@ function scoreTemplate(
   // Prefer gaps: if required evidence missing, boost priority.
   const present = presentEvidenceTypes(snapshot);
   const missing = template.requiredEvidence.some(
-    (r) => !evidenceSatisfied(r, present),
+    (r) => !evidenceSatisfied(r, present, snapshot.evidence),
   );
   const gapBoost = missing ? 12 : -5;
 
-  return template.basePriority * goalW + signal + gapBoost;
+  // When financial facts show no material issue for this theme, demote hard
+  // so Doctor does not manufacture a primary investigation.
+  const diagnosis = diagnoseFinancials(snapshot);
+  let factAdjust = 0;
+  if (diagnosis.facts.length > 0) {
+    const relatedIssue = diagnosis.issues.find((i) => {
+      if (template.id === "inv-runway-shortening") {
+        return i.id.startsWith("fin-runway") || i.id === "fin-implied-runway";
+      }
+      if (template.id === "inv-revenue-slowing") {
+        return i.id === "fin-revenue-decline";
+      }
+      if (template.id === "inv-customer-concentration") {
+        return i.id === "fin-concentration";
+      }
+      return false;
+    });
+    if (relatedIssue) {
+      factAdjust = relatedIssue.confidence >= 70 ? 25 : 10;
+    } else if (
+      template.id === "inv-runway-shortening" ||
+      template.id === "inv-revenue-slowing" ||
+      template.id === "inv-cash-declining"
+    ) {
+      // Facts already cover this theme with no material problem — do not open.
+      return -1;
+    }
+  }
+
+  return template.basePriority * goalW + signal + gapBoost + factAdjust;
 }
 
 export function selectNextInvestigationTemplate(input: {
@@ -112,6 +166,7 @@ export function buildTopObservation(
   snapshot: CompanyHealthSnapshot,
   goal: AssessmentGoalId,
 ): string {
+  const diagnosis = diagnoseFinancials(snapshot);
   const topRisk = [...snapshot.risks].sort((a, b) => {
     const sev = { high: 3, medium: 2, low: 1 } as const;
     return (sev[b.severity] ?? 0) - (sev[a.severity] ?? 0);
@@ -122,7 +177,16 @@ export function buildTopObservation(
       ? "I do not yet have enough scored dimensions for a full health number."
       : `Overall health is ${snapshot.healthScore.score} (${snapshot.healthScore.status}).`;
 
-  if (topRisk) {
+  if (diagnosis.primaryIssue) {
+    return `${scoreLine} ${diagnosis.primaryIssue.summary}`;
+  }
+
+  if (diagnosis.facts.length > 0 && diagnosis.noMaterialIssue) {
+    const uncertainty = diagnosis.unknowns[0] ?? "forecast vs actual tracking";
+    return `${scoreLine} I reviewed the available financial data and did not identify a high-confidence critical issue. Next largest uncertainty: ${uncertainty}.`;
+  }
+
+  if (topRisk && (topRisk.confidence ?? 50) >= MIN_PRIMARY_INVESTIGATION_CONFIDENCE) {
     return `${scoreLine} Strongest signal: ${topRisk.title} — ${topRisk.summary || topRisk.whyItMatters}`;
   }
 
@@ -149,10 +213,26 @@ export function advanceInvestigation(input: {
   const learned: DoctorLearnedItem[] = [];
   const now = new Date().toISOString();
 
+  if (inv.confidence < MIN_PRIMARY_INVESTIGATION_CONFIDENCE) {
+    inv.confidence = Math.max(
+      inv.confidence,
+      seedConfidenceFromFacts(inv.templateId, input.snapshot),
+    );
+  }
+
+  const frameHypothesis = (text: string) =>
+    inv.confidence < MIN_PRIMARY_INVESTIGATION_CONFIDENCE
+      ? `Possible issue to investigate: ${text}`
+      : text;
+
   // If requested evidence arrived, learn and advance to recommend.
   if (
     inv.evidenceRequest &&
-    evidenceSatisfied(inv.evidenceRequest, present)
+    evidenceSatisfied(
+      inv.evidenceRequest,
+      present,
+      input.snapshot.evidence,
+    )
   ) {
     learned.push({
       id: `learn-${inv.id}-${Date.now()}`,
@@ -167,11 +247,10 @@ export function advanceInvestigation(input: {
       ...inv.recommendation!,
       evidenceIds: input.snapshot.evidence
         .filter((e) =>
-          inv.evidenceRequest!.evidenceTypes.some(
-            (t) =>
-              e.sourceType === t ||
-              e.metadata?.evidenceType === t ||
-              t in (e.extractedFacts ?? {}),
+          evidenceRequestSatisfied(
+            inv.evidenceRequest!.evidenceTypes,
+            collectPresentEvidenceTokens({ evidence: [e] }),
+            [e],
           ),
         )
         .map((e) => e.id)
@@ -216,8 +295,8 @@ export function advanceInvestigation(input: {
       learned,
       phase: "ask",
       mentorMessage: [
-        `Investigation: ${inv.title}.`,
-        `Hypothesis: ${inv.hypotheses[0] ?? "needs validation"}.`,
+        frameHypothesis(inv.title),
+        `Hypothesis: ${inv.hypotheses[0] ?? "needs validation"} (confidence ${Math.round(inv.confidence)}%).`,
         `One question: ${inv.currentQuestion}`,
       ].join(" "),
       requestedEvidence: [],
@@ -228,8 +307,9 @@ export function advanceInvestigation(input: {
   // After the question is posed, request exactly one evidence item (if needed).
   const template = getInvestigationTemplate(inv.templateId);
   const nextReq =
-    template?.requiredEvidence.find((r) => !evidenceSatisfied(r, present)) ??
-    null;
+    template?.requiredEvidence.find(
+      (r) => !evidenceSatisfied(r, present, input.snapshot.evidence),
+    ) ?? null;
 
   if (nextReq) {
     inv.status = "awaiting_evidence";
@@ -245,7 +325,7 @@ export function advanceInvestigation(input: {
       learned,
       phase: "request_evidence",
       mentorMessage: [
-        `I think ${inv.hypotheses[0] ?? "this risk may be material"}.`,
+        frameHypothesis(inv.hypotheses[0] ?? "this risk may be material"),
         `Can you upload ${nextReq.label}${connect}?`,
         `Why: ${nextReq.why}`,
         `Expected insight: ${nextReq.expectedInsight}`,

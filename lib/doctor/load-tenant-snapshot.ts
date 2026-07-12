@@ -195,6 +195,7 @@ export async function loadTenantDoctorSnapshot(input: {
       questionAnswers: pack.questionAnswers,
       questionCoverage: pack.questionCoverage ?? undefined,
       businessConcepts: pack.businessConcepts,
+      assessmentSnapshotId: current?.snapshotId ?? pack.snapshotId ?? null,
     };
   }
 

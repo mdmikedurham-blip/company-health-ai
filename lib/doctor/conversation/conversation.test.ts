@@ -78,7 +78,7 @@ describe("Doctor Conversation Engine", () => {
     expect(enterprise?.id).toBe("inv-security-readiness");
   });
 
-  it("does not duplicate evidence requests for types already present", () => {
+  it("does not duplicate evidence requests when cashRunwayMonths is already present", () => {
     const template = DOCTOR_INVESTIGATION_CATALOG.find(
       (t) => t.id === "inv-runway-shortening",
     )!;
@@ -89,8 +89,14 @@ describe("Doctor Conversation Engine", () => {
           idx === 0
             ? {
                 ...e,
-                sourceType: "cash_runway",
-                metadata: { ...e.metadata, evidenceType: "cash_runway" },
+                sourceType: "financial",
+                metadata: { ...e.metadata, evidenceType: "financial" },
+                extractedFacts: {
+                  ...e.extractedFacts,
+                  cashRunwayMonths: 14,
+                  burnRateMonthly: 100_000,
+                  cashBalance: 1_400_000,
+                },
               }
             : e,
         ),

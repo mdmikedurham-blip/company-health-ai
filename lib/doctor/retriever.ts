@@ -7,6 +7,7 @@ import type {
   Risk,
   TimelineEvent,
 } from "@/lib/domain";
+import { collectStructuredFinancialFacts } from "./financial-diagnosis";
 import type { ClassifiedQuery, RankedItem, RetrievalResult } from "./types";
 
 /** Minimum score for an item to be considered relevant. */
@@ -393,6 +394,18 @@ function intentTerms(query: ClassifiedQuery): string[] {
     case "health":
       extras.push("health", "score", "dimension");
       break;
+    case "financial":
+      extras.push(
+        "revenue",
+        "runway",
+        "burn",
+        "cash",
+        "margin",
+        "ebitda",
+        "growth",
+        "financial",
+      );
+      break;
     default:
       break;
   }
@@ -417,8 +430,10 @@ export function retrieveRelevantContext(
       recommendations: [],
       dimensions: [],
       timeline: [],
+      structuredFacts: [],
       insufficientEvidence: true,
       topScore: 0,
+      snapshotId: snapshot.assessmentSnapshotId ?? null,
     };
   }
 
@@ -466,6 +481,51 @@ export function retrieveRelevantContext(
     requireDistinctive && query.intent === "general",
   );
 
+  const structuredFacts = collectStructuredFinancialFacts(snapshot).map((f) => ({
+    key: f.key,
+    value: f.value,
+    evidenceId: f.evidenceId,
+    evidenceTitle: f.evidenceTitle,
+    worksheet: f.worksheet,
+    period: f.period,
+  }));
+
+  // Always surface financial evidence that carries structured facts for
+  // diagnosis / risk / financial intents — findings are not required.
+  const financialIntents = new Set([
+    "risks",
+    "financial",
+    "fundraising",
+    "recommendations",
+    "health",
+  ]);
+  if (financialIntents.has(query.intent) && structuredFacts.length > 0) {
+    const factEvidenceIds = new Set(structuredFacts.map((f) => f.evidenceId));
+    for (const e of snapshot.evidence) {
+      if (!factEvidenceIds.has(e.id)) continue;
+      if (evidence.some((r) => r.item.id === e.id)) continue;
+      evidence.push({
+        item: e,
+        score: RELEVANCE_FLOOR + 3,
+        matchedTerms: ["structured-financial-facts"],
+      });
+    }
+    if (
+      query.dimensionHints.includes("dim-financial") ||
+      query.intent === "financial" ||
+      query.intent === "risks"
+    ) {
+      const finDim = snapshot.dimensions.find((d) => d.id === "dim-financial");
+      if (finDim && !dimensions.some((d) => d.item.id === finDim.id)) {
+        dimensions.push({
+          item: finDim,
+          score: RELEVANCE_FLOOR + 2,
+          matchedTerms: ["financial-dimension-fallback"],
+        });
+      }
+    }
+  }
+
   // Intent-specific fallbacks: ensure core entities surface for known intents
   if (query.intent === "risks" && risks.length === 0) {
     const fallback = [...snapshot.risks]
@@ -506,10 +566,14 @@ export function retrieveRelevantContext(
   ].map((r) => r.score);
 
   const topScore = allScores.length > 0 ? Math.max(...allScores) : 0;
+  const factsSupportIntent =
+    financialIntents.has(query.intent) ||
+    query.dimensionHints.includes("dim-financial");
   const hasMaterialSupport =
     evidence.length > 0 ||
     findings.length > 0 ||
     risks.length > 0 ||
+    (factsSupportIntent && structuredFacts.length > 0) ||
     (query.intent === "health" && dimensions.length > 0);
 
   return {
@@ -519,7 +583,15 @@ export function retrieveRelevantContext(
     recommendations,
     dimensions,
     timeline,
-    insufficientEvidence: !hasMaterialSupport || topScore < RELEVANCE_FLOOR,
-    topScore,
+    structuredFacts: factsSupportIntent ? structuredFacts : [],
+    insufficientEvidence:
+      !hasMaterialSupport ||
+      (topScore < RELEVANCE_FLOOR &&
+        !(factsSupportIntent && structuredFacts.length > 0)),
+    topScore:
+      factsSupportIntent && structuredFacts.length > 0
+        ? Math.max(topScore, RELEVANCE_FLOOR + 1)
+        : topScore,
+    snapshotId: snapshot.assessmentSnapshotId ?? null,
   };
 }

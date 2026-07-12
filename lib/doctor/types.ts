@@ -18,6 +18,7 @@ export type DoctorQueryIntent =
   | "evidence"
   | "health"
   | "recommendations"
+  | "financial"
   | "general"
   | "unsupported";
 
@@ -45,9 +46,20 @@ export interface RetrievalResult {
   recommendations: RankedItem<Recommendation>[];
   dimensions: RankedItem<HealthDimension>[];
   timeline: RankedItem<TimelineEvent>[];
-  /** True when no entity scored above the relevance floor. */
+  /** Structured financial facts from evidence (no finding required). */
+  structuredFacts: Array<{
+    key: string;
+    value: number;
+    evidenceId: string;
+    evidenceTitle: string;
+    worksheet: string | null;
+    period: string | null;
+  }>;
+  /** True when no entity scored above the relevance floor and no structured facts. */
   insufficientEvidence: boolean;
   topScore: number;
+  /** Published assessment snapshot id when loaded from pack. */
+  snapshotId: string | null;
 }
 
 export interface DoctorEvidenceCitation {
@@ -158,7 +170,28 @@ export interface DoctorContext {
     description: string;
     type: string;
   }>;
+  /** Structured financial facts — Doctor may answer from these without findings. */
+  structuredFacts: Array<{
+    key: string;
+    value: number;
+    evidenceId: string;
+    evidenceTitle: string;
+    worksheet: string | null;
+    period: string | null;
+  }>;
+  questionAnswers: Array<{
+    questionId: string;
+    status: string;
+    answerSummary: string | null;
+    confidence: number;
+  }>;
+  businessConcepts: Array<{
+    conceptId: string;
+    state: string;
+    summary: string | null;
+  }>;
   insufficientEvidence: boolean;
+  snapshotId: string | null;
 }
 
 export interface DoctorAskRequest {

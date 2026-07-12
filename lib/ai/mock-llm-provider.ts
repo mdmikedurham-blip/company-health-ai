@@ -1,4 +1,4 @@
-import type { RiskSeverity } from "@/lib/domain";
+import type { RiskSeverity, Evidence } from "@/lib/domain";
 import type { LLMProvider } from "./llm-provider";
 import type {
   DoctorActionRef,
@@ -8,6 +8,10 @@ import type {
   DoctorFindingRef,
   DoctorRiskRef,
 } from "@/lib/doctor/types";
+import {
+  composeFinancialAnswer,
+  diagnoseFinancials,
+} from "@/lib/doctor/financial-diagnosis";
 
 function cite(id: string): string {
   return `[${id}]`;
@@ -71,7 +75,123 @@ function collectEvidenceIds(context: DoctorContext): string[] {
     rec.evidenceIds.forEach((id) => ids.add(id));
   }
   for (const d of context.dimensions) d.evidenceIds.forEach((id) => ids.add(id));
+  for (const f of context.structuredFacts ?? []) ids.add(f.evidenceId);
   return [...ids];
+}
+
+function citationsForIds(
+  context: DoctorContext,
+  evidenceIds: string[],
+): DoctorEvidenceCitation[] {
+  const wanted = new Set(evidenceIds);
+  const fromEvidence = citationsFromContext(context).filter((c) =>
+    wanted.has(c.id),
+  );
+  if (fromEvidence.length > 0) return fromEvidence;
+  return (context.structuredFacts ?? [])
+    .filter((f) => wanted.has(f.evidenceId))
+    .map((f) => ({
+      id: f.evidenceId,
+      label: f.evidenceTitle,
+      sourceSystem: "Manual Upload",
+      title: f.evidenceTitle,
+      href: `/evidence?id=${encodeURIComponent(f.evidenceId)}`,
+    }));
+}
+
+function evidenceRowsFromContext(context: DoctorContext): Evidence[] {
+  if (context.evidence.length > 0) {
+    return context.evidence.map((e) => ({
+      id: e.id,
+      sourceSystem: e.sourceSystem,
+      sourceType: "financial",
+      title: e.title,
+      contentSummary: e.contentSummary,
+      extractedFacts: e.extractedFacts,
+      dimensionIds: ["dim-financial"],
+      dimensionId: "dim-financial",
+      dimension: e.dimension,
+      occurredAt: "",
+      collectedAt: "",
+      reliability: e.reliability,
+      metadata: { evidenceType: "financial" },
+      citation: { label: e.title },
+      findingIds: [],
+      linkedRiskIds: [],
+    }));
+  }
+
+  const byId = new Map<string, Evidence>();
+  for (const f of context.structuredFacts ?? []) {
+    const existing = byId.get(f.evidenceId);
+    const facts = {
+      ...(existing?.extractedFacts ?? {}),
+      [f.key]: f.value,
+      ...(f.worksheet ? { [`${f.key}Worksheet`]: f.worksheet } : {}),
+      ...(f.period ? { [`${f.key}Period`]: f.period } : {}),
+    };
+    byId.set(f.evidenceId, {
+      id: f.evidenceId,
+      sourceSystem: "Manual Upload",
+      sourceType: "financial",
+      title: f.evidenceTitle,
+      contentSummary: "Structured financial workbook facts",
+      extractedFacts: facts,
+      dimensionIds: ["dim-financial"],
+      dimensionId: "dim-financial",
+      dimension: "Financial",
+      occurredAt: "",
+      collectedAt: "",
+      reliability: 85,
+      metadata: { evidenceType: "financial" },
+      citation: { label: f.evidenceTitle },
+      findingIds: [],
+      linkedRiskIds: [],
+    });
+  }
+  return [...byId.values()];
+}
+
+function answerFromStructuredFacts(context: DoctorContext): DoctorAnswer | null {
+  const evidence = evidenceRowsFromContext(context);
+  if (evidence.length === 0) return null;
+
+  const diagnosis = diagnoseFinancials(
+    { evidence, assessmentSnapshotId: context.snapshotId },
+    { snapshotId: context.snapshotId },
+  );
+
+  if (diagnosis.facts.length === 0) return null;
+
+  const composed = composeFinancialAnswer({
+    companyName: context.companyName,
+    question: context.question,
+    diagnosis,
+    preferRiskFraming: true,
+  });
+
+  return {
+    answer: composed.answer,
+    summary: composed.summary,
+    riskLevel: composed.riskLevel,
+    confidence: composed.confidence,
+    evidenceCitations: citationsForIds(context, composed.evidenceIds),
+    relevantFindings: findingRefs(context),
+    relevantRisks: riskRefs(context),
+    recommendedActions: composed.nextAction
+      ? [
+          {
+            id: "fin-next",
+            title: composed.nextAction,
+            priority: "high",
+          },
+        ]
+      : actionRefs(context),
+    limitations: [
+      "Answer grounded in structured financial facts from the current published snapshot.",
+    ],
+    insufficientEvidence: composed.insufficientEvidence,
+  };
 }
 
 function insufficientAnswer(context: DoctorContext, reason: string): DoctorAnswer {
@@ -86,7 +206,7 @@ function insufficientAnswer(context: DoctorContext, reason: string): DoctorAnswe
     relevantRisks: [],
     recommendedActions: [],
     limitations: [
-      "No relevant evidence, findings, or risks were retrieved for this question.",
+      "No relevant evidence, findings, risks, or structured financial facts were retrieved for this question.",
       "Company Doctor only answers from connected company systems — it will not invent sources.",
     ],
     insufficientEvidence: true,
@@ -205,6 +325,8 @@ function answerConcentration(context: DoctorContext): DoctorAnswer {
 
 function answerRisks(context: DoctorContext): DoctorAnswer {
   if (context.risks.length === 0) {
+    const fromFacts = answerFromStructuredFacts(context);
+    if (fromFacts) return fromFacts;
     return insufficientAnswer(
       context,
       "No risks were retrieved from the current Insight Engine snapshot.",
@@ -241,6 +363,16 @@ function answerRisks(context: DoctorContext): DoctorAnswer {
     ],
     insufficientEvidence: false,
   };
+}
+
+function answerFinancial(context: DoctorContext): DoctorAnswer {
+  const fromFacts = answerFromStructuredFacts(context);
+  if (fromFacts) return fromFacts;
+  if (context.evidence.length > 0) return answerEvidence(context);
+  return insufficientAnswer(
+    context,
+    "I could not find structured financial facts in the current snapshot.",
+  );
 }
 
 function answerFundraising(context: DoctorContext): DoctorAnswer {
@@ -383,6 +515,17 @@ function answerEvidence(context: DoctorContext): DoctorAnswer {
 }
 
 function answerGeneral(context: DoctorContext): DoctorAnswer {
+  const financialCue =
+    /\b(runway|burn|cash|revenue|margin|ebitda|financial|growth|churn)\b/i.test(
+      context.question,
+    ) || context.structuredFacts.length > 0 &&
+      context.intent === "financial";
+
+  if (financialCue && context.structuredFacts.length > 0) {
+    const fromFacts = answerFromStructuredFacts(context);
+    if (fromFacts) return fromFacts;
+  }
+
   if (context.insufficientEvidence || collectEvidenceIds(context).length === 0) {
     return insufficientAnswer(
       context,
@@ -412,6 +555,20 @@ export class MockLLMProvider implements LLMProvider {
       return answerUnsupported(context);
     }
 
+    // Structured financial facts can answer financial/risk questions even when
+    // keyword retrieval is thin — not for unrelated general questions.
+    if (
+      context.insufficientEvidence &&
+      (context.structuredFacts?.length ?? 0) > 0 &&
+      (context.intent === "financial" ||
+        context.intent === "risks" ||
+        context.intent === "fundraising" ||
+        context.intent === "recommendations")
+    ) {
+      const fromFacts = answerFromStructuredFacts(context);
+      if (fromFacts) return fromFacts;
+    }
+
     if (context.insufficientEvidence) {
       return insufficientAnswer(
         context,
@@ -426,6 +583,8 @@ export class MockLLMProvider implements LLMProvider {
         return answerConcentration(context);
       case "risks":
         return answerRisks(context);
+      case "financial":
+        return answerFinancial(context);
       case "fundraising":
         return answerFundraising(context);
       case "board_update":
