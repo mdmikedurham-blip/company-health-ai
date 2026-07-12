@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "corpus:generate": "npx tsx company-factory/regression/cli-generate.ts",
+    "corpus:validate": "npx tsx company-factory/regression/cli-validate.ts",
+    "corpus:evaluate": "npx tsx company-factory/regression/cli-evaluate.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",
