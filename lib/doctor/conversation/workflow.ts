@@ -27,6 +27,63 @@ import {
   DOCTOR_INVESTIGATION_CATALOG,
   getInvestigationTemplate,
 } from "../investigations/catalog";
+import {
+  buildNavigatorFromEvidence,
+  formatUsdRange,
+} from "@/lib/value-navigator";
+import type { ValueDriverKey } from "@/lib/domain/value-navigator";
+
+/** Map Doctor investigations → Value Navigator drivers for EV prioritization. */
+const INVESTIGATION_VALUE_DRIVER: Partial<
+  Record<string, ValueDriverKey>
+> = {
+  "inv-customer-concentration": "customer-concentration",
+  "inv-runway-shortening": "cash-runway",
+  "inv-cash-declining": "cash-runway",
+  "inv-revenue-slowing": "revenue-growth",
+  "inv-governance-gaps": "governance",
+  "inv-security-readiness": "soc2",
+  "inv-product-execution": "product-execution",
+  "inv-hiring-too-quickly": "leadership",
+};
+function enrichEvidenceRequestWithValue(input: {
+  request: DoctorEvidenceRequest;
+  snapshot: CompanyHealthSnapshot;
+  goal?: AssessmentGoalId;
+  templateId: string;
+}): DoctorEvidenceRequest {
+  const goal = input.goal ?? DEFAULT_ASSESSMENT_GOAL;
+  const view = buildNavigatorFromEvidence({
+    companyId: input.snapshot.company.id,
+    snapshotId: input.snapshot.assessmentSnapshotId ?? null,
+    assessmentGoal: goal,
+    evidence: input.snapshot.evidence,
+  });
+  const driverKey = INVESTIGATION_VALUE_DRIVER[input.templateId];
+  const driver = driverKey
+    ? view.navigator.drivers.find((d) => d.key === driverKey)
+    : view.navigator.drivers[0];
+  if (!driver) {
+    return {
+      ...input.request,
+      estimatedTime:
+        input.request.estimatedEffort === "low"
+          ? "15–30 minutes"
+          : input.request.estimatedEffort === "high"
+            ? "2–4 hours"
+            : "30–90 minutes",
+    };
+  }
+  return {
+    ...input.request,
+    why: driver.businessRationale || input.request.why,
+    expectedValueImpactLabel: formatUsdRange(driver.estimatedValueImpact),
+    expectedConfidenceIncrease: Math.round(
+      10 + (100 - driver.confidence) * 0.12,
+    ),
+    estimatedTime: driver.estimatedTime,
+  };
+}
 
 function stageOk(
   stages: CompanyLifecycleStage[],
@@ -134,7 +191,26 @@ function scoreTemplate(
     }
   }
 
-  return template.basePriority * goalW + signal + gapBoost + factAdjust;
+  // Phase 10 — boost by expected enterprise value creation (not health alone).
+  let valueBoost = 0;
+  const driverKey = INVESTIGATION_VALUE_DRIVER[template.id];
+  if (driverKey) {
+    const view = buildNavigatorFromEvidence({
+      companyId: snapshot.company.id,
+      snapshotId: snapshot.assessmentSnapshotId ?? null,
+      assessmentGoal: goal,
+      evidence: snapshot.evidence,
+    });
+    const rank = view.navigator.drivers.findIndex((d) => d.key === driverKey);
+    if (rank === 0) valueBoost = 35;
+    else if (rank === 1) valueBoost = 22;
+    else if (rank === 2) valueBoost = 12;
+    else if (rank >= 0) valueBoost = 5;
+  }
+
+  return (
+    template.basePriority * goalW + signal + gapBoost + factAdjust + valueBoost
+  );
 }
 
 export function selectNextInvestigationTemplate(input: {
@@ -312,26 +388,38 @@ export function advanceInvestigation(input: {
     ) ?? null;
 
   if (nextReq) {
+    const enriched = enrichEvidenceRequestWithValue({
+      request: nextReq,
+      snapshot: input.snapshot,
+      goal: (input.investigation as { assessmentGoal?: AssessmentGoalId })
+        .assessmentGoal,
+      templateId: inv.templateId,
+    });
     inv.status = "awaiting_evidence";
-    inv.evidenceRequest = nextReq;
+    inv.evidenceRequest = enriched;
     inv.blockingUnknowns = [
-      `Need ${nextReq.label} to raise confidence on: ${inv.businessQuestion}`,
+      `Need ${enriched.label} to raise confidence on: ${inv.businessQuestion}`,
     ];
-    const connect = nextReq.connectAlternative
-      ? ` OR ${nextReq.connectAlternative}`
+    const connect = enriched.connectAlternative
+      ? ` OR ${enriched.connectAlternative}`
       : "";
+    const valueLine = enriched.expectedValueImpactLabel
+      ? `Expected value impact: ${enriched.expectedValueImpactLabel}. Expected confidence increase: ~${enriched.expectedConfidenceIncrease ?? 0}%.`
+      : null;
     return {
       investigation: inv,
       learned,
       phase: "request_evidence",
       mentorMessage: [
         frameHypothesis(inv.hypotheses[0] ?? "this risk may be material"),
-        `Can you upload ${nextReq.label}${connect}?`,
-        `Why: ${nextReq.why}`,
-        `Expected insight: ${nextReq.expectedInsight}`,
-        `Estimated effort: ${nextReq.estimatedEffort}.`,
-      ].join(" "),
-      requestedEvidence: [nextReq],
+        `I can estimate more accurately if you share ${enriched.label}${connect}.`,
+        `Why this matters: ${enriched.why}`,
+        valueLine,
+        `Estimated time: ${enriched.estimatedTime ?? enriched.estimatedEffort}.`,
+      ]
+        .filter(Boolean)
+        .join(" "),
+      requestedEvidence: [enriched],
       nextAction: null,
     };
   }

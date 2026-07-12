@@ -40,6 +40,10 @@ export type DoctorEvidenceRequest = {
   estimatedEffort: "low" | "medium" | "high";
   connectAlternative?: string;
   level: "required" | "recommended";
+  /** Phase 10 — value framing when requesting evidence. */
+  expectedValueImpactLabel?: string;
+  expectedConfidenceIncrease?: number;
+  estimatedTime?: string;
 };
 
 export type DoctorNextAction = {

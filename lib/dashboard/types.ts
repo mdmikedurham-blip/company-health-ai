@@ -13,6 +13,7 @@ import type {
 import type { AssessmentGoalDashboardContext } from "@/lib/domain/assessment-goal";
 import type { EvidenceCoverageReport } from "@/lib/domain/evidence-coverage";
 import type { PlaybookDashboardContext } from "@/lib/domain/playbook";
+import type { ValueNavigatorView } from "@/lib/domain/value-navigator";
 import type {
   ConfidenceMethod,
   DimensionCoverage,
@@ -56,6 +57,8 @@ export type TenantDashboardView = {
   assessmentGoal: AssessmentGoalDashboardContext;
   /** Phase 7 — playbook interpretation of the same evidence (optional until loaded). */
   playbook?: PlaybookDashboardContext | null;
+  /** Phase 10 — enterprise value navigator (primary executive surface). */
+  valueNavigator?: ValueNavigatorView | null;
   /** Stage-aware diligence completeness — shown before health. */
   evidenceCoverage: EvidenceCoverageReport | null;
   healthScore: HealthScore;
