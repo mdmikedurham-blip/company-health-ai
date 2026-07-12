@@ -26,21 +26,29 @@ import {
   validatePassword,
   validatePasswordConfirmation,
   validateTermsAccepted,
+  categorizeAuthError,
+  authErrorCategoryMessage,
+  type AuthErrorCategory,
 } from "@/lib/auth/validation";
 import { checkRateLimit } from "@/lib/auth/rate-limit";
+import {
+  PASSWORD_RESET_ACCEPTED_MESSAGE,
+  passwordResetRedirectTo,
+  resolveSiteOrigin,
+  PASSWORD_UPDATE_SUCCESS_PATH,
+} from "@/lib/auth/site-url";
 
 export type AuthActionResult = {
   ok: boolean;
   error?: string;
+  errorCategory?: AuthErrorCategory;
+  /** True when a password-reset request was accepted (not proof of delivery). */
+  accepted?: boolean;
+  message?: string;
 };
 
 function siteOrigin(): string {
-  return (
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    (process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : "http://localhost:3000")
-  );
+  return resolveSiteOrigin();
 }
 
 export async function signUpAction(formData: FormData): Promise<AuthActionResult> {
@@ -142,19 +150,43 @@ export async function forgotPasswordAction(
   const emailCheck = validateEmail(email);
   if (!emailCheck.ok) return emailCheck;
 
+  const limit = await checkRateLimit("auth.forgot_password", email.toLowerCase());
+  if (!limit.allowed) {
+    return {
+      ok: false,
+      error: authErrorCategoryMessage("rate_limited"),
+      errorCategory: "rate_limited",
+    };
+  }
+
   const supabase = await createServerSupabaseClient();
-  const origin = siteOrigin();
+  const redirectTo = passwordResetRedirectTo();
 
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${origin}/auth/callback?next=/reset-password`,
+    redirectTo,
   });
 
   if (error) {
-    return { ok: false, error: sanitizeAuthError(error.message) };
+    console.error("[auth.forgot_password] resetPasswordForEmail failed", {
+      message: error.message,
+      status: error.status,
+      name: error.name,
+      redirectTo,
+    });
+    const errorCategory = categorizeAuthError(error.message);
+    return {
+      ok: false,
+      error: authErrorCategoryMessage(errorCategory),
+      errorCategory,
+    };
   }
 
-  // Always succeed to avoid email enumeration.
-  return { ok: true };
+  // Accepted by Auth — not proof an email was delivered or that the user exists.
+  return {
+    ok: true,
+    accepted: true,
+    message: PASSWORD_RESET_ACCEPTED_MESSAGE,
+  };
 }
 
 export async function resetPasswordAction(
@@ -189,7 +221,7 @@ export async function resetPasswordAction(
     return { ok: false, error: sanitizeAuthError(error.message) };
   }
 
-  redirect("/login?reset=1");
+  redirect(PASSWORD_UPDATE_SUCCESS_PATH);
 }
 
 export async function signInWithGoogleAction(

@@ -27,8 +27,10 @@ export async function GET(request: Request) {
     if (!error && data.user) {
       await ensureProfileForUser(data.user);
 
-      if (next === "/reset-password") {
-        return NextResponse.redirect(new URL("/reset-password", url.origin));
+      if (next === "/reset-password" || next === "/auth/update-password") {
+        return NextResponse.redirect(
+          new URL("/auth/update-password", url.origin),
+        );
       }
 
       const memberships = await listMembershipsForUser(data.user.id);

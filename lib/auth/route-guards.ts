@@ -25,6 +25,7 @@ export const AUTH_PATH_PREFIXES = [
   "/forgot-password",
   "/reset-password",
   "/auth/callback",
+  "/auth/update-password",
 ] as const;
 
 export function normalizePathname(pathname: string): string {
@@ -105,7 +106,8 @@ export function resolveAuthRedirect(
   if (
     isAuthPath(path) &&
     path !== "/auth/callback" &&
-    path !== "/reset-password"
+    path !== "/reset-password" &&
+    path !== "/auth/update-password"
   ) {
     return {
       type: "redirect",

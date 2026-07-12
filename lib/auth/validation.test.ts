@@ -57,6 +57,18 @@ describe("auth form validation", () => {
     expect(sanitizeAuthError("relation does not exist")).toMatch(/Something went wrong/i);
   });
 
+  it("categorizes auth errors without leaking internals", async () => {
+    const { categorizeAuthError, authErrorCategoryMessage } = await import(
+      "./validation"
+    );
+    expect(categorizeAuthError("Redirect URL not allowed")).toBe(
+      "redirect_configuration",
+    );
+    expect(authErrorCategoryMessage("provider_error")).not.toMatch(
+      /stack|supabase|secret/i,
+    );
+  });
+
   it("only allows same-origin relative redirects", () => {
     expect(safeRedirectPath("/dashboard")).toBe("/dashboard");
     expect(safeRedirectPath("//evil.com")).toBe("/dashboard");
@@ -94,6 +106,19 @@ describe("protected route redirects", () => {
     expect(isPublicPath("/")).toBe(true);
     expect(isPublicPath("/demo")).toBe(true);
     expect(isProtectedPath("/demo")).toBe(false);
+  });
+
+  it("treats update-password as an auth path that stays reachable while logged in", () => {
+    expect(isAuthPath("/auth/update-password")).toBe(true);
+    expect(isProtectedPath("/auth/update-password")).toBe(false);
+    expect(
+      resolveAuthRedirect({
+        pathname: "/auth/update-password",
+        isAuthenticated: true,
+        hasCompany: true,
+        authEnabled: true,
+      }),
+    ).toEqual({ type: "allow" });
   });
 
   it("treats reset-password as an auth path that stays reachable while logged in", () => {

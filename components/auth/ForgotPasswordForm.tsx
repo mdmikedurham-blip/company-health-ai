@@ -12,6 +12,7 @@ import {
   forgotPasswordAction,
   type AuthActionResult,
 } from "@/lib/auth/actions";
+import { PASSWORD_RESET_ACCEPTED_MESSAGE } from "@/lib/auth/site-url";
 
 type State = AuthActionResult & { submitted?: boolean };
 
@@ -26,6 +27,9 @@ export function ForgotPasswordForm() {
     initial,
   );
 
+  const acceptedMessage =
+    state.message?.trim() || PASSWORD_RESET_ACCEPTED_MESSAGE;
+
   return (
     <AuthShell
       title="Reset password"
@@ -39,7 +43,7 @@ export function ForgotPasswordForm() {
       <form action={formAction} className="space-y-4">
         {state.submitted && state.ok ? (
           <p className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300">
-            If an account exists for that email, a reset link is on the way.
+            {acceptedMessage}
           </p>
         ) : null}
         <AuthError message={state.ok ? null : state.error} />
