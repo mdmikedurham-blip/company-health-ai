@@ -40,3 +40,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Company Factory generated corpus (regenerate via npm run corpus:generate)
+/company-factory/corpus/
