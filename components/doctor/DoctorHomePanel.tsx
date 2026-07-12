@@ -129,12 +129,25 @@ export function DoctorHomePanel({
                 Requested evidence
               </p>
               <p className="mt-1 text-sm font-medium text-zinc-100">{req.label}</p>
-              <p className="mt-1 text-xs text-zinc-400">Why: {req.why}</p>
               <p className="mt-1 text-xs text-zinc-400">
-                Expected: {req.expectedInsight}
+                Why this matters: {req.why}
               </p>
+              {req.expectedValueImpactLabel ? (
+                <p className="mt-1 text-xs text-zinc-400">
+                  Expected value impact: {req.expectedValueImpactLabel}
+                </p>
+              ) : null}
+              {req.expectedConfidenceIncrease != null ? (
+                <p className="mt-1 text-xs text-zinc-400">
+                  Expected confidence increase: ~{req.expectedConfidenceIncrease}%
+                </p>
+              ) : (
+                <p className="mt-1 text-xs text-zinc-400">
+                  Expected: {req.expectedInsight}
+                </p>
+              )}
               <p className="mt-1 text-xs text-zinc-500">
-                Effort: {req.estimatedEffort}
+                Estimated time: {req.estimatedTime ?? req.estimatedEffort}
                 {req.connectAlternative
                   ? ` · or ${req.connectAlternative}`
                   : ""}
@@ -143,7 +156,7 @@ export function DoctorHomePanel({
                 href="/upload"
                 className="mt-2 inline-block text-xs font-medium text-amber-300 hover:text-amber-200"
               >
-                Upload documents
+                Share evidence
               </a>
             </div>
           ) : null}

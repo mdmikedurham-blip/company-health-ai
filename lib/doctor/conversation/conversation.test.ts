@@ -38,17 +38,33 @@ describe("Doctor Conversation Engine", () => {
     expect(idea?.id).not.toBe("inv-board-approvals");
     expect(idea?.id).not.toBe("inv-governance-gaps");
 
-    const growth = selectNextInvestigationTemplate({
+    // Without financial value signals, board-readiness elevates governance/board work.
+    const boardPreferred = selectNextInvestigationTemplate({
+      goal: "board-readiness",
+      stage: "Growth",
+      snapshot: {
+        ...companySnapshot,
+        risks: [],
+        findings: [],
+        evidence: [],
+      },
+      completedTemplateIds: [],
+    });
+    expect(
+      boardPreferred?.id === "inv-governance-gaps" ||
+        boardPreferred?.id === "inv-board-approvals" ||
+        (boardPreferred?.goalWeights["board-readiness"] ?? 0) >= 1.2,
+    ).toBe(true);
+
+    // Phase 10: with rich financial evidence, highest expected value creation may
+    // outrank board paperwork (e.g. concentration > documentation).
+    const growthWithFacts = selectNextInvestigationTemplate({
       goal: "board-readiness",
       stage: "Growth",
       snapshot: companySnapshot,
       completedTemplateIds: [],
     });
-    expect(
-      growth?.id === "inv-governance-gaps" ||
-        growth?.id === "inv-board-approvals" ||
-        (growth?.goalWeights["board-readiness"] ?? 0) >= 1.2,
-    ).toBe(true);
+    expect(growthWithFacts).not.toBeNull();
   });
 
   it("assessment goal reprioritizes investigations", () => {

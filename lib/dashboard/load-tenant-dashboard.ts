@@ -34,6 +34,12 @@ import { getCompanyClassification } from "@/lib/classification/persist";
 import { computeEvidenceCoverage } from "@/lib/coverage";
 import { MANUAL_UPLOAD_CONNECTOR_ID } from "@/lib/uploads/constants";
 import {
+  buildNavigatorFromEvidence,
+  emptyValueNavigator,
+} from "@/lib/value-navigator";
+import type { AssessmentGoalId } from "@/lib/domain/assessment-goal";
+import type { ValueNavigatorView } from "@/lib/domain/value-navigator";
+import {
   buildDimensionCoverage,
   deriveConfidenceMethod,
   deriveScoreMethod,
@@ -45,7 +51,6 @@ import type {
   DashboardProvenance,
   TenantDashboardView,
 } from "./types";
-
 function defaultAssessmentGoalContext(
   companyId: string,
 ): AssessmentGoalDashboardContext {
@@ -241,6 +246,25 @@ export function emptyTenantDashboard(input: {
     assessmentGoal:
       input.assessmentGoal ?? defaultAssessmentGoalContext(input.companyId),
     playbook: null,
+    valueNavigator: {
+      navigator: emptyValueNavigator(input.companyId),
+      scenarios: [],
+      timeline: [
+        {
+          label: "Current",
+          enterpriseValueMid: null,
+          coverage: null,
+          confidence: 0,
+          health: null,
+        },
+      ],
+      provenance: {
+        companyId: input.companyId,
+        snapshotId: null,
+        generatedAt: new Date().toISOString(),
+        valuationMethod: "rule-based",
+      },
+    } satisfies ValueNavigatorView,
     evidenceCoverage: null,
     healthScore,
     scoreChangeExplanation: emptyScoreChange(0),
@@ -560,6 +584,15 @@ export async function loadTenantDashboard(input: {
     assessment_goal: snapshotGoalId,
   };
 
+  const valueNavigator = buildNavigatorFromEvidence({
+    companyId,
+    snapshotId: currentSnapshotId,
+    assessmentGoal: assessmentGoal.goal as AssessmentGoalId,
+    evidence,
+    healthScore: healthScore.scoreAvailable ? healthScore.score : null,
+    coverage: coverageRatio != null ? coverageRatio * 100 : null,
+  });
+
   return {
     provenance,
     companyName,
@@ -573,6 +606,7 @@ export async function loadTenantDashboard(input: {
     }),
     assessmentGoal,
     playbook,
+    valueNavigator,
     evidenceCoverage,
     healthScore,
     scoreChangeExplanation,

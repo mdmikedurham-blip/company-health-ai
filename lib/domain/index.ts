@@ -170,6 +170,20 @@ export type { Risk, RiskCardView } from "./risk";
 export { toRiskCardView } from "./risk";
 export type { CompanyHealthSnapshot } from "./snapshot";
 export type { TimelineEvent } from "./timeline";
+export type {
+  CompanyValueNavigator,
+  MoneyRange,
+  ValuationEstimate,
+  ValuationEstimateInput,
+  ValuationMethodId,
+  ValuationProvider,
+  ValueAssumption,
+  ValueDriver,
+  ValueDriverKey,
+  ValueNavigatorView,
+  ValueScenario,
+  ValueScenarioKey,
+} from "./value-navigator";
 
 export {
   getDashboardMetrics,

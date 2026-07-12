@@ -8,6 +8,7 @@ import { AssessmentGoalCard } from "@/components/dashboard/AssessmentGoalCard";
 import { EvidenceCoveragePanel } from "@/components/dashboard/EvidenceCoveragePanel";
 import { NextBestActionsCard } from "@/components/dashboard/NextBestActionsCard";
 import { ScoreChangeCard } from "@/components/dashboard/ScoreChangeCard";
+import { ValueNavigatorPanel } from "@/components/dashboard/ValueNavigatorPanel";
 import { EvidenceCard } from "@/components/EvidenceCard";
 import { HealthDimensionRow } from "@/components/HealthDimensionRow";
 import { HealthScoreCard } from "@/components/HealthScoreCard";
@@ -20,6 +21,7 @@ export function DashboardContent({ view }: { view: TenantDashboardView }) {
   const {
     metrics: dashboardMetrics,
     assessmentGoal,
+    valueNavigator,
     evidenceCoverage,
     healthScore,
     scoreChangeExplanation,
@@ -36,6 +38,8 @@ export function DashboardContent({ view }: { view: TenantDashboardView }) {
   return (
     <div className="space-y-5">
       <AssessmentGoalCard assessmentGoal={assessmentGoal} />
+
+      <ValueNavigatorPanel view={valueNavigator} />
 
       {evidenceCoverage ? (
         <EvidenceCoveragePanel coverage={evidenceCoverage} />
