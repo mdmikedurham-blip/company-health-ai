@@ -1,11 +1,17 @@
 /**
- * Company Doctor Conversation Engine — Phase 8 domain types.
+ * Company Doctor Conversation Engine — Phase 8/11 domain types.
  * Mentor workflow: Observe → Diagnose → Ask ONE → Request ONE evidence → Recommend ONE.
  */
 
 import type { AssessmentGoalId } from "./assessment-goal";
 import type { CompanyLifecycleStage } from "./company-classification";
+import type {
+  DoctorAlternativePath,
+  DoctorWhatChanged,
+  EnterpriseValueEstimate,
+} from "./enterprise-value";
 import type { CompanyId } from "./primitives";
+import type { MoneyRange } from "./value-navigator";
 
 export type DoctorConversationStatus = "active" | "archived" | "closed";
 
@@ -40,10 +46,14 @@ export type DoctorEvidenceRequest = {
   estimatedEffort: "low" | "medium" | "high";
   connectAlternative?: string;
   level: "required" | "recommended";
-  /** Phase 10 — value framing when requesting evidence. */
+  /** Phase 10/11 — value framing when requesting evidence. */
   expectedValueImpactLabel?: string;
   expectedConfidenceIncrease?: number;
   estimatedTime?: string;
+  estimatedValueImpact?: MoneyRange | null;
+  questionsItMayAnswer?: string[];
+  connectorOrUploadType?: "upload" | "connector";
+  whyRanksAboveAlternatives?: string;
 };
 
 export type DoctorNextAction = {
@@ -56,6 +66,14 @@ export type DoctorNextAction = {
   questionIds?: string[];
   evidenceIds?: string[];
   documentIds?: string[];
+  whyItMatters?: string;
+  expectedInsight?: string;
+  estimatedEffort?: "low" | "medium" | "high";
+  estimatedConfidenceIncrease?: number;
+  estimatedValueImpact?: MoneyRange | null;
+  questionsItMayAnswer?: string[];
+  connectorOrUploadType?: "upload" | "connector";
+  whyRanksAboveAlternatives?: string;
 };
 
 export type DoctorConversationTurn = {
@@ -89,15 +107,27 @@ export type DoctorInvestigation = {
   templateId: DoctorInvestigationTemplateId | string;
   title: string;
   businessQuestion: string;
+  /** Phase 11 — what the system noticed. */
+  observation: string | null;
+  primaryHypothesis: string | null;
+  alternativeHypotheses: string[];
+  /** Legacy array — keep for templates; prefer primary + alternative. */
   hypotheses: string[];
   requiredEvidence: DoctorEvidenceRequest[];
+  supportingFactKeys: string[];
+  supportingEvidenceIds: string[];
   confidence: number;
+  /** 0–100 materiality. */
+  materiality: number | null;
+  expectedBusinessImpact: string | null;
   blockingUnknowns: string[];
   status: DoctorInvestigationStatus;
   priority: number;
   currentQuestion: string | null;
   evidenceRequest: DoctorEvidenceRequest | null;
   recommendation: DoctorNextAction | null;
+  estimatedConfidenceGain: number | null;
+  estimatedValueImpact: MoneyRange | null;
   explainability: DoctorInvestigationExplainability;
   snapshotId: string | null;
   openedAt: string;
@@ -134,7 +164,9 @@ export type DoctorHomeView = {
   currentInvestigation: DoctorInvestigation | null;
   topObservation: string;
   currentConfidence: number;
+  /** Exactly one primary next action (or null). */
   nextRecommendedAction: DoctorNextAction | null;
+  /** Exactly one evidence request when awaiting evidence. */
   requestedEvidence: DoctorEvidenceRequest[];
   recentlyLearned: DoctorLearnedItem[];
   completedInvestigations: DoctorInvestigation[];
@@ -147,6 +179,12 @@ export type DoctorHomeView = {
     | "analyze"
     | "recommend";
   mentorMessage: string;
+  /** Phase 11 — transparent enterprise value for Doctor page. */
+  enterpriseValue: EnterpriseValueEstimate | null;
+  /** ≤3 lower-priority alternatives. */
+  alternativePaths: DoctorAlternativePath[];
+  /** After re-analysis / evidence arrival. */
+  whatChanged: DoctorWhatChanged | null;
   provenance: {
     companyId: string;
     snapshotId: string | null;

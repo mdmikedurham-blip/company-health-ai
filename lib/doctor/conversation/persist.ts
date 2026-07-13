@@ -56,6 +56,15 @@ type InvestigationRow = {
   opened_at: string;
   completed_at: string | null;
   updated_at: string;
+  observation?: string | null;
+  primary_hypothesis?: string | null;
+  alternative_hypotheses?: unknown;
+  supporting_fact_keys?: string[] | null;
+  supporting_evidence_ids?: string[] | null;
+  materiality?: number | string | null;
+  expected_business_impact?: string | null;
+  estimated_confidence_gain?: number | string | null;
+  estimated_value_impact?: unknown;
 };
 
 function asArray<T>(value: unknown): T[] {
@@ -90,6 +99,7 @@ function rowToConversation(row: ConversationRow): DoctorConversation {
 }
 
 function rowToInvestigation(row: InvestigationRow): DoctorInvestigation {
+  const hypotheses = asArray<string>(row.hypotheses);
   return {
     id: row.id,
     conversationId: row.conversation_id,
@@ -97,9 +107,21 @@ function rowToInvestigation(row: InvestigationRow): DoctorInvestigation {
     templateId: row.template_id,
     title: row.title,
     businessQuestion: row.business_question,
-    hypotheses: asArray<string>(row.hypotheses),
+    observation: row.observation ?? null,
+    primaryHypothesis:
+      row.primary_hypothesis ?? hypotheses[0] ?? null,
+    alternativeHypotheses:
+      asArray<string>(row.alternative_hypotheses).length > 0
+        ? asArray<string>(row.alternative_hypotheses)
+        : hypotheses.slice(1),
+    hypotheses,
     requiredEvidence: asArray<DoctorEvidenceRequest>(row.required_evidence),
+    supportingFactKeys: row.supporting_fact_keys ?? [],
+    supportingEvidenceIds: row.supporting_evidence_ids ?? [],
     confidence: Number(row.confidence) || 0,
+    materiality:
+      row.materiality == null ? null : Number(row.materiality) || null,
+    expectedBusinessImpact: row.expected_business_impact ?? null,
     blockingUnknowns: asArray<string>(row.blocking_unknowns),
     status: row.status as DoctorInvestigation["status"],
     priority: Number(row.priority) || 0,
@@ -107,6 +129,13 @@ function rowToInvestigation(row: InvestigationRow): DoctorInvestigation {
     evidenceRequest:
       (row.evidence_request as DoctorEvidenceRequest | null) ?? null,
     recommendation: (row.recommendation as DoctorNextAction | null) ?? null,
+    estimatedConfidenceGain:
+      row.estimated_confidence_gain == null
+        ? null
+        : Number(row.estimated_confidence_gain) || null,
+    estimatedValueImpact:
+      (row.estimated_value_impact as DoctorInvestigation["estimatedValueImpact"]) ??
+      null,
     explainability: {
       findingIds: [],
       questionIds: [],
@@ -230,6 +259,8 @@ export async function upsertDoctorInvestigation(input: {
     updated_at: new Date().toISOString(),
   };
 
+  // Phase 11 investigation fields are enriched in-memory each cycle.
+  // Persist them only after migration 022 is reflected in generated DB types.
   const { data, error } = await input.client
     .from("doctor_investigations")
     .upsert(payload, { onConflict: "id" })
@@ -239,5 +270,17 @@ export async function upsertDoctorInvestigation(input: {
   if (error) {
     throw new Error(`upsertDoctorInvestigation: ${error.message}`);
   }
-  return rowToInvestigation(data as InvestigationRow);
+  const persisted = rowToInvestigation(data as InvestigationRow);
+  return {
+    ...persisted,
+    observation: i.observation,
+    primaryHypothesis: i.primaryHypothesis,
+    alternativeHypotheses: i.alternativeHypotheses,
+    supportingFactKeys: i.supportingFactKeys,
+    supportingEvidenceIds: i.supportingEvidenceIds,
+    materiality: i.materiality,
+    expectedBusinessImpact: i.expectedBusinessImpact,
+    estimatedConfidenceGain: i.estimatedConfidenceGain,
+    estimatedValueImpact: i.estimatedValueImpact,
+  };
 }
