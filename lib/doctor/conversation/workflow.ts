@@ -456,6 +456,9 @@ export function buildDoctorHomeView(input: {
   phase: DoctorHomeView["workflowPhase"];
   requestedEvidence: DoctorEvidenceRequest[];
   nextAction: DoctorNextAction | null;
+  enterpriseValue?: DoctorHomeView["enterpriseValue"];
+  alternativePaths?: DoctorHomeView["alternativePaths"];
+  whatChanged?: DoctorHomeView["whatChanged"];
 }): DoctorHomeView {
   const goal =
     (input.conversation.assessmentGoal as AssessmentGoalId) ||
@@ -464,18 +467,24 @@ export function buildDoctorHomeView(input: {
     input.conversation.topObservation ||
     buildTopObservation(input.snapshot, goal);
 
+  // Exactly one primary next action.
+  const primaryAction =
+    input.nextAction ?? input.conversation.nextAction ?? null;
+
   return {
     conversation: input.conversation,
     currentInvestigation: input.currentInvestigation,
     topObservation,
     currentConfidence: input.conversation.confidence,
-    nextRecommendedAction:
-      input.nextAction ?? input.conversation.nextAction,
-    requestedEvidence: input.requestedEvidence,
+    nextRecommendedAction: primaryAction,
+    requestedEvidence: input.requestedEvidence.slice(0, 1),
     recentlyLearned: input.conversation.recentlyLearned.slice(0, 8),
     completedInvestigations: input.completedInvestigations,
     workflowPhase: input.phase,
     mentorMessage: input.mentorMessage,
+    enterpriseValue: input.enterpriseValue ?? null,
+    alternativePaths: (input.alternativePaths ?? []).slice(0, 3),
+    whatChanged: input.whatChanged ?? null,
     provenance: {
       companyId: input.conversation.companyId,
       snapshotId: input.conversation.snapshotId,

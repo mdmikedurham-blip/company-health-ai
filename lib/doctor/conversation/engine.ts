@@ -28,6 +28,12 @@ import {
   buildTopObservation,
   selectNextInvestigationTemplate,
 } from "./workflow";
+import {
+  buildAlternativePaths,
+  buildWhatChanged,
+  enrichInvestigation,
+} from "./enrich-investigation";
+import { estimateTransparentEnterpriseValue } from "@/lib/enterprise-value";
 
 function emptyConversation(input: {
   companyId: string;
@@ -76,15 +82,24 @@ function openInvestigation(input: {
     templateId: input.template.id,
     title: input.template.title,
     businessQuestion: input.template.businessQuestion,
+    observation: null,
+    primaryHypothesis: input.template.hypotheses[0] ?? null,
+    alternativeHypotheses: input.template.hypotheses.slice(1),
     hypotheses: input.template.hypotheses,
     requiredEvidence: input.template.requiredEvidence,
+    supportingFactKeys: [],
+    supportingEvidenceIds: [],
     confidence: 15,
+    materiality: null,
+    expectedBusinessImpact: null,
     blockingUnknowns: [],
     status: "open",
     priority: input.priority,
     currentQuestion: input.template.highValueQuestion,
     evidenceRequest: null,
     recommendation: { ...input.template.recommendationTemplate },
+    estimatedConfidenceGain: null,
+    estimatedValueImpact: null,
     explainability: {
       findingIds: [],
       questionIds: [],
@@ -310,6 +325,52 @@ export async function loadDoctorHome(input: {
 
   const completed = investigations.filter((i) => i.status === "completed");
 
+  const confidenceBefore =
+    conversation.recentlyLearned.length > 0
+      ? Math.max(0, conversation.confidence - 10)
+      : null;
+
+  if (current) {
+    current = enrichInvestigation({
+      investigation: current,
+      snapshot,
+      goal,
+      observation,
+    });
+    if (requestedEvidence[0]) {
+      requestedEvidence = [current.evidenceRequest ?? requestedEvidence[0]].filter(
+        Boolean,
+      ) as typeof requestedEvidence;
+      // Enforce exactly one primary evidence request.
+      requestedEvidence = requestedEvidence.slice(0, 1);
+    }
+    if (nextAction && current.recommendation) {
+      nextAction = current.recommendation;
+    }
+  }
+
+  const enterpriseValue = estimateTransparentEnterpriseValue({
+    companyId: input.companyId,
+    snapshotId,
+    assessmentGoal: goal,
+    evidence: snapshot.evidence,
+  });
+
+  const alternativePaths = buildAlternativePaths({
+    snapshot,
+    goal,
+    activeTemplateId: current?.templateId ?? null,
+  });
+
+  const whatChanged = buildWhatChanged({
+    learned: conversation.recentlyLearned,
+    investigation: current,
+    confidenceBefore,
+    confidenceAfter: conversation.confidence,
+    enterpriseValue,
+    priorEnterpriseValueMid: null,
+  });
+
   return buildDoctorHomeView({
     conversation,
     currentInvestigation: current,
@@ -317,8 +378,11 @@ export async function loadDoctorHome(input: {
     snapshot,
     mentorMessage,
     phase,
-    requestedEvidence,
+    requestedEvidence: requestedEvidence.slice(0, 1),
     nextAction,
+    enterpriseValue,
+    alternativePaths,
+    whatChanged,
   });
 }
 
@@ -369,6 +433,12 @@ export function runDoctorCycleInMemory(input: {
   }
 
   if (!current) {
+    const enterpriseValue = estimateTransparentEnterpriseValue({
+      companyId: input.snapshot.company.id,
+      snapshotId: input.snapshot.assessmentSnapshotId ?? null,
+      assessmentGoal: goal,
+      evidence: input.snapshot.evidence,
+    });
     return buildDoctorHomeView({
       conversation,
       currentInvestigation: null,
@@ -378,6 +448,9 @@ export function runDoctorCycleInMemory(input: {
       phase: "observe",
       requestedEvidence: [],
       nextAction: null,
+      enterpriseValue,
+      alternativePaths: [],
+      whatChanged: null,
     });
   }
 
@@ -385,23 +458,53 @@ export function runDoctorCycleInMemory(input: {
     investigation: current,
     snapshot: input.snapshot,
   });
-  conversation.currentInvestigationId = advanced.investigation.id;
-  conversation.currentTopic = advanced.investigation.title;
-  conversation.currentHypothesis =
-    advanced.investigation.hypotheses[0] ?? null;
-  conversation.confidence = advanced.investigation.confidence;
-  conversation.requestedEvidence = advanced.requestedEvidence;
-  conversation.nextAction = advanced.nextAction;
+  const enriched = enrichInvestigation({
+    investigation: advanced.investigation,
+    snapshot: input.snapshot,
+    goal,
+    observation: conversation.topObservation!,
+  });
+  conversation.currentInvestigationId = enriched.id;
+  conversation.currentTopic = enriched.title;
+  conversation.currentHypothesis = enriched.primaryHypothesis;
+  conversation.confidence = enriched.confidence;
+  conversation.requestedEvidence = (
+    advanced.requestedEvidence[0]
+      ? [enriched.evidenceRequest ?? advanced.requestedEvidence[0]]
+      : []
+  ).filter(Boolean) as typeof advanced.requestedEvidence;
+  conversation.nextAction = enriched.recommendation ?? advanced.nextAction;
   conversation.recentlyLearned = advanced.learned;
+
+  const enterpriseValue = estimateTransparentEnterpriseValue({
+    companyId: input.snapshot.company.id,
+    snapshotId: input.snapshot.assessmentSnapshotId ?? null,
+    assessmentGoal: goal,
+    evidence: input.snapshot.evidence,
+  });
 
   return buildDoctorHomeView({
     conversation,
-    currentInvestigation: advanced.investigation,
+    currentInvestigation: enriched,
     completedInvestigations: [],
     snapshot: input.snapshot,
     mentorMessage: `${conversation.topObservation}\n\n${advanced.mentorMessage}`,
     phase: advanced.phase,
-    requestedEvidence: advanced.requestedEvidence,
-    nextAction: advanced.nextAction,
+    requestedEvidence: conversation.requestedEvidence.slice(0, 1),
+    nextAction: conversation.nextAction,
+    enterpriseValue,
+    alternativePaths: buildAlternativePaths({
+      snapshot: input.snapshot,
+      goal,
+      activeTemplateId: enriched.templateId,
+    }),
+    whatChanged: buildWhatChanged({
+      learned: advanced.learned,
+      investigation: enriched,
+      confidenceBefore: null,
+      confidenceAfter: enriched.confidence,
+      enterpriseValue,
+      priorEnterpriseValueMid: null,
+    }),
   });
 }
