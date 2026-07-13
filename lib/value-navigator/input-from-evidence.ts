@@ -20,20 +20,37 @@ function asNumber(value: unknown): number | null {
   return null;
 }
 
+const MONEY_KEYS = new Set<FinancialFactKey>([
+  "revenue",
+  "ebitda",
+  "operatingIncome",
+  "cashBalance",
+  "burnRateMonthly",
+  "debt",
+]);
+
 export function collectFinancialFactMap(
   evidence: Evidence[],
 ): Map<FinancialFactKey, number> {
   const map = new Map<FinancialFactKey, number>();
+  // Newest first so non-money keys take the latest observation.
   const ordered = [...evidence].sort((a, b) =>
     (b.collectedAt || "").localeCompare(a.collectedAt || ""),
   );
   for (const e of ordered) {
     const facts = e.extractedFacts ?? {};
     for (const key of FINANCIAL_FACT_KEYS) {
-      if (map.has(key)) continue;
       const value = asNumber(facts[key]);
       if (value === null) continue;
-      map.set(key, value);
+      const existing = map.get(key);
+      if (existing === undefined) {
+        map.set(key, value);
+        continue;
+      }
+      // Across documents, prefer larger |money| (e.g. ARR over Year-1 stub).
+      if (MONEY_KEYS.has(key) && Math.abs(value) > Math.abs(existing)) {
+        map.set(key, value);
+      }
     }
   }
   return map;

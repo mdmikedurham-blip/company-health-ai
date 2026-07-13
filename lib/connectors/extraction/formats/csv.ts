@@ -73,14 +73,17 @@ export function extractCsv(
 
   for (let i = 1; i < lines.length; i++) {
     const values = parseCsvLine(lines[i]!);
+    // Tab-separated metric row so financial-facts parser can read label→value.
+    // Also keep header:value lines for human-readable summaries / prose regex.
+    const tsv = values.join("\t");
     const pairs = headers.map((h, idx) => `${h}: ${values[idx] ?? ""}`);
     const order = i;
     sections.push({
       id: sectionId("csv", order),
       title: values[0] || `Row ${order}`,
-      text: pairs.join("\n"),
+      text: `${tsv}\n${pairs.join("\n")}`,
       order,
-      metadata: { row: order },
+      metadata: { row: order, sheet: "CSV" },
     });
   }
 
