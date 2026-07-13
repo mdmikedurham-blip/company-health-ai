@@ -177,18 +177,20 @@ export function progressLabelForStatus(
   ) {
     return "Reprocess failed — previous analysis retained";
   }
+  const reprocessing =
+    opts?.lastStage === "version_stale" ||
+    opts?.lastStage === "requeued_stale" ||
+    opts?.lastStage === "requeued";
   switch (status) {
     case "UPLOADED":
       return "Uploading";
     case "QUEUED":
-      return opts?.lastStage === "version_stale" ||
-        opts?.lastStage === "requeued_stale"
-        ? "Reprocessing"
-        : "Queued";
+      return reprocessing ? "Reprocessing" : "Queued";
     case "PROCESSING":
+      return reprocessing ? "Reprocessing" : "Extracting";
     case "EXTRACTED":
     case "ANALYZING":
-      return status === "PROCESSING" ? "Extracting" : "Analyzing";
+      return reprocessing ? "Reprocessing" : "Analyzing";
     case "STALE":
       return "Update available";
     case "PROCESSED":

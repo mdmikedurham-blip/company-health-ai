@@ -567,6 +567,7 @@ async function extractAndPersistEvidence(input: {
         typeof extracted.metadata.format === "string"
           ? extracted.metadata.format
           : undefined,
+      extractedFactCount: financialKeys.length,
       financialMetricCount:
         typeof facts.financialMetricCount === "number"
           ? facts.financialMetricCount
