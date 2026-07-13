@@ -144,17 +144,47 @@ async function refreshCompanyClassification(input: {
   const { valuationInputFromEvidence } = await import(
     "@/lib/value-navigator/input-from-evidence"
   );
+  const { FINANCIAL_FACT_KEYS } = await import(
+    "@/lib/connectors/extraction/financial-facts"
+  );
   const valuationInput = valuationInputFromEvidence({
     companyId: input.companyId,
     snapshotId: input.snapshotId,
     assessmentGoal: "run-the-company",
     evidence,
   });
+
+  // Per-document fact counts — CURRENT ≠ facts present.
+  for (const e of evidence) {
+    const facts = e.extractedFacts ?? {};
+    const keys = FINANCIAL_FACT_KEYS.filter(
+      (k) => typeof facts[k] === "number" && Number.isFinite(facts[k] as number),
+    );
+    logUploadProcessingEvent("company_analysis_stage", {
+      companyId: input.companyId,
+      documentId: e.id,
+      stage: "evidence_fact_count",
+      outcome: keys.length > 0 ? "facts_present" : "facts_empty",
+      extractedFactCount: keys.length,
+      financialKeys: keys.join(","),
+    });
+  }
+
   logUploadProcessingEvent("company_analysis_stage", {
     companyId: input.companyId,
     stage: "snapshot_fact_aggregation",
     outcome: "ok",
     evidenceCount: evidence.length,
+    snapshotFactCount: [
+      valuationInput.revenue,
+      valuationInput.ebitda,
+      valuationInput.cash,
+      valuationInput.cashRunwayMonths,
+      valuationInput.top3CustomerArrShare,
+      valuationInput.nrr,
+      valuationInput.grossMargin,
+      valuationInput.churnRate,
+    ].filter((v) => v != null && Number.isFinite(v)).length,
     revenue: valuationInput.revenue ?? undefined,
     ebitda: valuationInput.ebitda ?? undefined,
     cashBalance: valuationInput.cash ?? undefined,

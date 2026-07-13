@@ -47,6 +47,15 @@ export {
   isTerminalUploadStatus,
 } from "./claim";
 export {
+  reconcileSessionItems,
+  applySessionPollTimeouts,
+  shouldPollUploadLists,
+  shouldSkipReprocess,
+  isInFlightUploadStatus,
+  SESSION_POLL_TIMEOUT_MS,
+  SESSION_POLL_TIMEOUT_MESSAGE,
+} from "./session-reconcile";
+export {
   kickoffDocumentProcessing,
   kickoffDocumentProcessingBatch,
   PROCESSING_KICKOFF_TIMEOUT_MS,

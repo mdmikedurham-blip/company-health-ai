@@ -5,6 +5,7 @@ import {
   MANUAL_UPLOAD_ACCEPT,
   MANUAL_UPLOAD_FORMAT_LABELS,
   MAX_UPLOAD_BYTES,
+  progressLabelForStatus,
 } from "@/lib/uploads/constants";
 import {
   PROCESSING_IN_PROGRESS_LABEL,
@@ -13,6 +14,13 @@ import {
   visibleManualUploadActions,
   type ManualUploadRowAction,
 } from "@/lib/uploads/removal-policy";
+import {
+  applySessionPollTimeouts,
+  isInFlightUploadStatus,
+  reconcileSessionItems,
+  shouldPollUploadLists,
+  shouldSkipReprocess,
+} from "@/lib/uploads/session-reconcile";
 
 type UploadedDocumentRecord = {
   id: string;
@@ -43,8 +51,14 @@ type UploadItem = {
   progress: number;
   phase: "queued" | "signing" | "uploading" | "enqueueing" | "done" | "error";
   error?: string;
+  /** Immutable document UUID — identity for reconciliation (never filename). */
   documentId?: string;
   status?: string;
+  lastStage?: string | null;
+  reprocessErrorMessage?: string | null;
+  errorMessage?: string | null;
+  inFlightSinceMs?: number;
+  pollError?: string;
 };
 
 type ToastState = {
@@ -87,41 +101,15 @@ function statusTone(status: string | undefined, doc?: UploadedDocumentRecord): s
   }
 }
 
-function analysisLabel(doc: UploadedDocumentRecord | { status?: string; lastStage?: string | null; reprocessErrorMessage?: string | null }): string {
-  const status = doc.status;
-  if (
-    status === "PROCESSED" &&
-    (doc.reprocessErrorMessage || doc.lastStage === "reprocess_failed")
-  ) {
-    return "Reprocess failed — previous analysis retained";
-  }
-  const reprocessing =
-    doc.lastStage === "requeued_stale" ||
-    doc.lastStage === "version_stale" ||
-    doc.lastStage === "requeued";
-  switch (status) {
-    case "QUEUED":
-      return reprocessing ? "Reprocessing" : "Queued";
-    case "PROCESSING":
-      return reprocessing ? "Reprocessing" : "Extracting";
-    case "EXTRACTED":
-    case "ANALYZING":
-      return reprocessing ? "Reprocessing" : "Analyzing";
-    case "DELETING":
-      return "Deleting";
-    case "STALE":
-      return "Update available";
-    case "PROCESSED":
-      return "Current";
-    case "OCR_REQUIRED":
-      return "OCR required";
-    case "FAILED":
-      return "Failed";
-    case "UPLOADED":
-      return "Uploading";
-    default:
-      return "Pending";
-  }
+function analysisLabel(doc: {
+  status?: string;
+  lastStage?: string | null;
+  reprocessErrorMessage?: string | null;
+}): string {
+  return progressLabelForStatus(doc.status ?? "", {
+    lastStage: doc.lastStage,
+    reprocessErrorMessage: doc.reprocessErrorMessage,
+  });
 }
 
 function actionsForDocument(doc: UploadedDocumentRecord): ManualUploadRowAction[] {
@@ -179,6 +167,7 @@ export function DocumentUploadPanel({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  // Session-only — intentionally empty on page refresh (no localStorage).
   const [items, setItems] = useState<UploadItem[]>([]);
   const [recent, setRecent] =
     useState<UploadedDocumentRecord[]>(initialDocuments);
@@ -220,8 +209,16 @@ export function DocumentUploadPanel({
         setListError(data.error ?? "Could not load uploads.");
         return;
       }
+      const documents = data.documents ?? [];
+      const nowMs = Date.now();
       startTransition(() => {
-        setRecent(data.documents ?? []);
+        setRecent(documents);
+        setItems((prev) =>
+          applySessionPollTimeouts(
+            reconcileSessionItems(prev, documents, nowMs),
+            nowMs,
+          ),
+        );
         setListError(null);
       });
     } catch {
@@ -229,25 +226,37 @@ export function DocumentUploadPanel({
     }
   }, []);
 
-  // Poll while any document is in-flight so ANALYZING/EXTRACTED resolve without
-  // requiring a manual refresh (background waitUntil / coalesced analysis).
+  // Poll while Recent OR Session still has in-flight docs (documentId-based).
   useEffect(() => {
-    const inFlight = recent.some((d) =>
-      ["QUEUED", "PROCESSING", "EXTRACTED", "ANALYZING", "UPLOADED"].includes(
-        d.status,
-      ),
-    );
-    if (!inFlight) return;
+    const shouldPoll = shouldPollUploadLists({
+      recentStatuses: recent.map((d) => d.status),
+      sessionStatuses: items.map((i) => i.status),
+    });
+    if (!shouldPoll) return;
     const timer = window.setInterval(() => {
       void refreshList();
     }, 2500);
     return () => window.clearInterval(timer);
-  }, [recent, refreshList]);
+  }, [recent, items, refreshList]);
 
   const retryProcessing = useCallback(
     async (documentIds?: string[]) => {
       const singleId = documentIds?.length === 1 ? documentIds[0]! : null;
+
+      // Deduplicate: never enqueue a second job while already in-flight.
       if (singleId) {
+        const fromRecent = recent.find((d) => d.id === singleId);
+        const fromSession = items.find((i) => i.documentId === singleId);
+        const status = fromRecent?.status ?? fromSession?.status;
+        if (shouldSkipReprocess(status)) {
+          setToast({
+            tone: "success",
+            message: "Processing already in progress for this document.",
+          });
+          await refreshList();
+          return;
+        }
+        if (reprocessingDocumentId === singleId) return;
         setReprocessingDocumentId(singleId);
       } else {
         setRetryPending(true);
@@ -259,10 +268,39 @@ export function DocumentUploadPanel({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(documentIds?.length ? { documentIds } : {}),
         });
-        const data = (await res.json()) as { error?: string };
+        const data = (await res.json()) as {
+          error?: string;
+          requeued?: string[];
+        };
         if (!res.ok) {
           setListError(data.error ?? "Retry failed.");
           return;
+        }
+        if (singleId && (data.requeued?.length ?? 0) === 0) {
+          setToast({
+            tone: "success",
+            message: "Processing already in progress for this document.",
+          });
+        }
+        // Optimistic session status → QUEUED so UI does not stay on Current.
+        if (data.requeued?.length) {
+          const requeued = new Set(data.requeued);
+          const nowMs = Date.now();
+          setItems((prev) =>
+            prev.map((item) =>
+              item.documentId && requeued.has(item.documentId)
+                ? {
+                    ...item,
+                    status: "QUEUED",
+                    lastStage: "requeued",
+                    inFlightSinceMs: nowMs,
+                    pollError: undefined,
+                    reprocessErrorMessage: null,
+                    errorMessage: null,
+                  }
+                : item,
+            ),
+          );
         }
         await refreshList();
       } catch {
@@ -272,7 +310,7 @@ export function DocumentUploadPanel({
         setReprocessingDocumentId(null);
       }
     },
-    [refreshList],
+    [refreshList, recent, items, reprocessingDocumentId],
   );
 
   const upgradeOutdatedDocuments = useCallback(async () => {
@@ -314,8 +352,9 @@ export function DocumentUploadPanel({
       if (!window.confirm(removeConfirmMessage(doc.status))) return;
       setRemovingDocumentId(doc.id);
       setListError(null);
-      // Optimistic remove — row disappears without waiting for a full list refresh.
+      // Optimistic remove — authoritative identity is documentId.
       setRecent((prev) => prev.filter((row) => row.id !== doc.id));
+      setItems((prev) => prev.filter((row) => row.documentId !== doc.id));
       try {
         const res = await fetch(`/api/documents/${doc.id}`, {
           method: "DELETE",
@@ -329,12 +368,10 @@ export function DocumentUploadPanel({
           rebuildFailed?: boolean;
         };
         if (res.status === 404) {
-          // Idempotent — document already gone.
           setToast({ tone: "success", message: "File removed." });
           return;
         }
         if (!res.ok && res.status !== 207) {
-          // Restore row on failure.
           setRecent((prev) =>
             prev.some((row) => row.id === doc.id) ? prev : [doc, ...prev],
           );
@@ -472,11 +509,16 @@ export function DocumentUploadPanel({
 
         const analysisStatus =
           completeData.analysisStatus ?? completeData.status ?? "QUEUED";
+        const nowMs = Date.now();
 
         patch({
           phase: "done",
           status: analysisStatus,
           progress: 100,
+          inFlightSinceMs: isInFlightUploadStatus(analysisStatus)
+            ? nowMs
+            : undefined,
+          pollError: undefined,
         });
         await refreshList();
       } catch (err) {
@@ -495,7 +537,7 @@ export function DocumentUploadPanel({
       if (list.length === 0) return;
 
       const next: UploadItem[] = list.map((file) => ({
-        localId: `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2)}`,
+        localId: `${crypto.randomUUID()}`,
         file,
         progress: 0,
         phase: "queued" as const,
@@ -600,13 +642,33 @@ export function DocumentUploadPanel({
                           : item.phase === "enqueueing"
                             ? " · finishing upload"
                             : item.phase === "done"
-                              ? ` · upload complete · analysis: ${analysisLabel({ status: item.status })}`
+                              ? ` · upload complete · analysis: ${analysisLabel(item)}`
                               : item.phase === "error"
                                 ? ""
                                 : " · waiting"}
                     </p>
                     {item.error ? (
                       <p className="mt-1 text-xs text-red-400">{item.error}</p>
+                    ) : null}
+                    {item.pollError ? (
+                      <div className="mt-2 space-y-1">
+                        <p className="text-xs text-amber-300">{item.pollError}</p>
+                        {item.documentId ? (
+                          <button
+                            type="button"
+                            disabled={
+                              reprocessingDocumentId === item.documentId ||
+                              shouldSkipReprocess(item.status)
+                            }
+                            onClick={() =>
+                              void retryProcessing([item.documentId!])
+                            }
+                            className="text-xs font-medium text-amber-200 underline-offset-2 hover:underline disabled:opacity-60"
+                          >
+                            Retry processing
+                          </button>
+                        ) : null}
+                      </div>
                     ) : null}
                   </div>
                   <div className="shrink-0 text-right">
@@ -617,7 +679,7 @@ export function DocumentUploadPanel({
                       <div
                         className={`mt-1 text-[11px] font-medium uppercase tracking-wide ${statusTone(item.status)}`}
                       >
-                        {analysisLabel({ status: item.status })}
+                        {analysisLabel(item)}
                       </div>
                     ) : null}
                   </div>
@@ -703,9 +765,8 @@ export function DocumentUploadPanel({
               const removing = removingDocumentId === doc.id;
               const cancelling = cancellingDocumentId === doc.id;
               const blocked = isDocRemovalBlocked(doc);
-              // Safety: while one destructive/mutating action runs on this row,
-              // disable the sibling control without changing its label/style.
               const rowBusy = reprocessing || removing || cancelling;
+              const inFlight = shouldSkipReprocess(doc.status);
               return (
                 <li
                   key={doc.id}
@@ -733,7 +794,9 @@ export function DocumentUploadPanel({
                     {actions.includes("retry") ? (
                       <button
                         type="button"
-                        disabled={reprocessing || removing || cancelling}
+                        disabled={
+                          reprocessing || removing || cancelling || inFlight
+                        }
                         onClick={() => void retryProcessing([doc.id])}
                         className={`text-xs font-medium text-amber-300 transition hover:text-amber-200 disabled:cursor-not-allowed ${
                           reprocessing ? "opacity-60" : "disabled:opacity-100"
@@ -741,9 +804,11 @@ export function DocumentUploadPanel({
                       >
                         {reprocessing
                           ? "Reprocessing…"
-                          : doc.status === "PROCESSED"
-                            ? "Reprocess"
-                            : "Retry"}
+                          : inFlight
+                            ? "Processing…"
+                            : doc.status === "PROCESSED"
+                              ? "Reprocess"
+                              : "Retry"}
                       </button>
                     ) : null}
                     {actions.includes("cancel") ? (
