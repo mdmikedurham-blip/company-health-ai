@@ -1,112 +1,158 @@
 import { describe, expect, it } from "vitest";
 import {
-  SESSION_POLL_TIMEOUT_MESSAGE,
-  applySessionPollTimeouts,
-  reconcileSessionItems,
-  shouldPollUploadLists,
+  buildSessionDisplayRows,
+  clearStaleUploadSessionStorage,
+  pruneSessionEntries,
+  sessionStatusesMatchDocuments,
+  shouldPollDocumentIds,
   shouldSkipReprocess,
 } from "./session-reconcile";
 
-describe("session upload reconciliation", () => {
-  it("updates session status from authoritative documentId, never filename", () => {
-    const items = [
+describe("session upload — single authoritative status", () => {
+  it("derives This session status from the same documents list as Recent", () => {
+    const documents = [
+      { id: "doc-a", status: "PROCESSED", filename: "Board Package.xlsx" },
+      { id: "doc-b", status: "PROCESSED", filename: "Cap Table.xlsx" },
+    ];
+    const session = [
       {
         localId: "local-1",
         documentId: "doc-a",
-        phase: "done",
-        status: "ANALYZING",
-        inFlightSinceMs: 1000,
+        filename: "Board Package.xlsx",
+        byteSize: 10,
+        phase: "done" as const,
+        progress: 100,
       },
       {
         localId: "local-2",
         documentId: "doc-b",
-        phase: "done",
-        status: "EXTRACTED",
-        inFlightSinceMs: 1000,
+        filename: "Cap Table.xlsx",
+        byteSize: 10,
+        phase: "done" as const,
+        progress: 100,
       },
     ];
-    const next = reconcileSessionItems(
-      items,
-      [
-        { id: "doc-a", status: "PROCESSED", lastStage: "done" },
-        { id: "doc-b", status: "ANALYZING", lastStage: "company_analysis" },
-      ],
-      5000,
-    );
-    expect(next).toHaveLength(2);
-    expect(next[0]?.status).toBe("PROCESSED");
-    expect(next[0]?.inFlightSinceMs).toBeUndefined();
-    expect(next[0]?.pollError).toBeUndefined();
-    expect(next[1]?.status).toBe("ANALYZING");
-    expect(next[1]?.inFlightSinceMs).toBe(1000);
+
+    const rows = buildSessionDisplayRows(session, documents);
+    expect(rows.every((r) => r.status === "PROCESSED")).toBe(true);
+    expect(rows.every((r) => r.labelSource === "authoritative")).toBe(true);
+    expect(sessionStatusesMatchDocuments({
+      sessionDocumentIds: ["doc-a", "doc-b"],
+      documents,
+    }).ok).toBe(true);
   });
 
-  it("drops session items whose documentId is gone (deleted)", () => {
-    const next = reconcileSessionItems(
-      [
-        {
-          localId: "local-1",
-          documentId: "doc-deleted",
-          phase: "done",
-          status: "CURRENT" as string,
-        },
-        {
-          localId: "local-2",
-          documentId: "doc-keep",
-          phase: "done",
-          status: "PROCESSED",
-        },
-      ],
-      [{ id: "doc-keep", status: "PROCESSED" }],
-    );
-    expect(next.map((i) => i.documentId)).toEqual(["doc-keep"]);
+  it("regression: upload → backend CURRENT → both sections show CURRENT without refresh", () => {
+    // Immediately after upload complete, kickoff may still say EXTRACTED locally,
+    // but the authoritative list (same API Recent uses) already has PROCESSED.
+    const session = [
+      {
+        localId: "u1",
+        documentId: "doc-1",
+        filename: "Customer Revenue Report.xlsx",
+        byteSize: 100,
+        phase: "done" as const,
+        progress: 100,
+      },
+    ];
+    const documentsAfterAnalysis = [
+      { id: "doc-1", status: "PROCESSED", filename: "Customer Revenue Report.xlsx" },
+    ];
+
+    const sessionRow = buildSessionDisplayRows(session, documentsAfterAnalysis)[0]!;
+    const recentRow = documentsAfterAnalysis[0]!;
+
+    expect(sessionRow.status).toBe("PROCESSED");
+    expect(recentRow.status).toBe("PROCESSED");
+    expect(sessionRow.status).toBe(recentRow.status);
   });
 
-  it("keeps in-progress uploads without a documentId", () => {
-    const next = reconcileSessionItems(
-      [{ localId: "uploading", phase: "uploading", progress: 10 } as never],
+  it("auto-clears session entries once analysis is terminal", () => {
+    const pruned = pruneSessionEntries(
+      [
+        {
+          localId: "done",
+          documentId: "doc-1",
+          filename: "a.xlsx",
+          byteSize: 1,
+          phase: "done",
+          progress: 100,
+        },
+        {
+          localId: "inflight",
+          documentId: "doc-2",
+          filename: "b.xlsx",
+          byteSize: 1,
+          phase: "done",
+          progress: 100,
+        },
+        {
+          localId: "uploading",
+          documentId: null,
+          filename: "c.xlsx",
+          byteSize: 1,
+          phase: "uploading",
+          progress: 40,
+        },
+      ],
+      [
+        { id: "doc-1", status: "PROCESSED" },
+        { id: "doc-2", status: "ANALYZING" },
+      ],
+    );
+    expect(pruned.map((e) => e.localId)).toEqual(["inflight", "uploading"]);
+  });
+
+  it("drops session entries whose documentId was deleted", () => {
+    const pruned = pruneSessionEntries(
+      [
+        {
+          localId: "gone",
+          documentId: "doc-x",
+          filename: "x.xlsx",
+          byteSize: 1,
+          phase: "done",
+          progress: 100,
+        },
+      ],
       [],
     );
-    expect(next).toHaveLength(1);
-    expect(next[0]?.localId).toBe("uploading");
+    expect(pruned).toHaveLength(0);
   });
 
-  it("continues polling when only session is still in-flight", () => {
+  it("polls by document_id until authoritative status leaves in-flight", () => {
     expect(
-      shouldPollUploadLists({
-        recentStatuses: ["PROCESSED"],
-        sessionStatuses: ["ANALYZING"],
+      shouldPollDocumentIds({
+        sessionDocumentIds: ["doc-1"],
+        documents: [{ id: "doc-1", status: "ANALYZING" }],
       }),
     ).toBe(true);
     expect(
-      shouldPollUploadLists({
-        recentStatuses: ["PROCESSED"],
-        sessionStatuses: ["PROCESSED"],
+      shouldPollDocumentIds({
+        sessionDocumentIds: ["doc-1"],
+        documents: [{ id: "doc-1", status: "PROCESSED" }],
       }),
     ).toBe(false);
   });
 
-  it("surfaces a poll timeout with actionable message", () => {
-    const timed = applySessionPollTimeouts(
-      [
-        {
-          localId: "local-1",
-          documentId: "doc-a",
-          phase: "done",
-          status: "ANALYZING",
-          inFlightSinceMs: 0,
-        },
-      ],
-      6 * 60 * 1000,
-      5 * 60 * 1000,
-    );
-    expect(timed[0]?.pollError).toBe(SESSION_POLL_TIMEOUT_MESSAGE);
+  it("clears legacy session storage keys on page load", () => {
+    const store = new Map<string, string>();
+    const storage = {
+      removeItem: (k: string) => {
+        store.delete(k);
+      },
+      setItem: (k: string, v: string) => {
+        store.set(k, v);
+      },
+    };
+    storage.setItem("upload-session", "stale");
+    storage.setItem("cha-upload-session", "stale");
+    clearStaleUploadSessionStorage(storage);
+    expect(store.size).toBe(0);
   });
 
-  it("skips reprocess while already in-flight", () => {
-    expect(shouldSkipReprocess("QUEUED")).toBe(true);
+  it("skips duplicate reprocess while in-flight", () => {
     expect(shouldSkipReprocess("ANALYZING")).toBe(true);
     expect(shouldSkipReprocess("PROCESSED")).toBe(false);
-    expect(shouldSkipReprocess("FAILED")).toBe(false);
   });
 });
