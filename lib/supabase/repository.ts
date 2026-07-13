@@ -479,17 +479,68 @@ export async function replaceCompanyTimeline(
   companyId: string,
   events: TimelineEvent[],
 ): Promise<void> {
-  await assertNoError(
-    await client.from("timeline_events").delete().eq("company_id", companyId),
-    "replaceCompanyTimeline.delete",
-  );
-  if (events.length === 0) return;
-  await assertNoError(
-    await client
-      .from("timeline_events")
-      .insert(events.map((e) => timelineEventToInsert(companyId, e))),
-    "replaceCompanyTimeline.insert",
-  );
+  // Dedupe by stable PK and by event_key so a single batch never self-conflicts.
+  const byId = new Map<string, ReturnType<typeof timelineEventToInsert>>();
+  const byEventKey = new Map<string, string>();
+  for (const event of events) {
+    const row = timelineEventToInsert(companyId, event);
+    if (!row.id) continue;
+    if (row.event_key) {
+      const priorId = byEventKey.get(row.event_key);
+      if (priorId && priorId !== row.id) {
+        byId.delete(priorId);
+      }
+      byEventKey.set(row.event_key, row.id);
+    }
+    byId.set(row.id, row);
+  }
+  const rows = [...byId.values()];
+  const keepIds = rows.map((r) => r.id).filter(Boolean) as string[];
+
+  // Idempotent write path:
+  // 1) Upsert current set (survives concurrent reprocess / races on pkey)
+  // 2) Delete orphans for this company not in the new set
+  // Avoids wipe-then-insert races that throw timeline_events_pkey duplicates.
+  if (rows.length > 0) {
+    await assertNoError(
+      await client.from("timeline_events").upsert(rows, { onConflict: "id" }),
+      "replaceCompanyTimeline.upsert",
+    );
+  }
+
+  if (keepIds.length === 0) {
+    await assertNoError(
+      await client.from("timeline_events").delete().eq("company_id", companyId),
+      "replaceCompanyTimeline.delete_all",
+    );
+    return;
+  }
+
+  // Delete orphans in chunks to stay within PostgREST URL limits.
+  const { data: existing, error: listError } = await client
+    .from("timeline_events")
+    .select("id")
+    .eq("company_id", companyId);
+  if (listError) {
+    throw new Error(`replaceCompanyTimeline.list: ${listError.message}`);
+  }
+  const keep = new Set(keepIds);
+  const orphanIds = (existing ?? [])
+    .map((r) => r.id)
+    .filter((id): id is string => typeof id === "string" && !keep.has(id));
+
+  const CHUNK = 100;
+  for (let i = 0; i < orphanIds.length; i += CHUNK) {
+    const chunk = orphanIds.slice(i, i + CHUNK);
+    await assertNoError(
+      await client
+        .from("timeline_events")
+        .delete()
+        .eq("company_id", companyId)
+        .in("id", chunk),
+      "replaceCompanyTimeline.delete_orphans",
+    );
+  }
 }
 
 export async function listTimelineEvents(

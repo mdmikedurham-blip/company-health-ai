@@ -229,6 +229,21 @@ export function DocumentUploadPanel({
     }
   }, []);
 
+  // Poll while any document is in-flight so ANALYZING/EXTRACTED resolve without
+  // requiring a manual refresh (background waitUntil / coalesced analysis).
+  useEffect(() => {
+    const inFlight = recent.some((d) =>
+      ["QUEUED", "PROCESSING", "EXTRACTED", "ANALYZING", "UPLOADED"].includes(
+        d.status,
+      ),
+    );
+    if (!inFlight) return;
+    const timer = window.setInterval(() => {
+      void refreshList();
+    }, 2500);
+    return () => window.clearInterval(timer);
+  }, [recent, refreshList]);
+
   const retryProcessing = useCallback(
     async (documentIds?: string[]) => {
       const singleId = documentIds?.length === 1 ? documentIds[0]! : null;

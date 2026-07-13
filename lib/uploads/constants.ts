@@ -32,11 +32,21 @@ export const DOWNLOAD_TIMEOUT_MS = Math.min(
   2 * 60 * 1000,
 );
 
-/**
- * EXTRACTED docs older than this without progressing to ANALYZING/PROCESSED
- * are considered abandoned and re-enter company analysis.
- */
+/** EXTRACTED docs older than this without progressing are abandoned. */
 export const STALE_EXTRACTED_MS = 2 * 60 * 1000;
+
+/**
+ * ANALYZING docs older than this are treated as abandoned workers
+ * (e.g. waitUntil killed mid-analysis) and reset to EXTRACTED for retry.
+ */
+export const STALE_ANALYZING_MS = 90 * 1000;
+
+/** Soft wall-clock budget for a company analysis persist pass. */
+export const COMPANY_ANALYSIS_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.MANUAL_UPLOAD_ANALYSIS_TIMEOUT_MS ?? "");
+  if (Number.isFinite(raw) && raw >= 15_000 && raw <= 5 * 60_000) return raw;
+  return 45 * 1000;
+})();
 
 export const UPLOAD_DOCUMENT_STATUSES = [
   "UPLOADED",

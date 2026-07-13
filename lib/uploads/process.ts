@@ -143,6 +143,16 @@ export async function continueClaimedManualUpload(input: {
     }
 
     // Leave EXTRACTED; company analysis is serialized/coalesced.
+    logUploadProcessingEvent("pipeline_stage", {
+      documentId,
+      companyId,
+      stage: "extraction:done",
+      outcome: "ok",
+      status: "EXTRACTED",
+      evidenceId: extracted.evidenceId,
+    });
+
+    const analysisStarted = Date.now();
     const analysis = await runCompanyAnalysisPass({
       client: input.client,
       companyId,
@@ -151,6 +161,20 @@ export async function continueClaimedManualUpload(input: {
         process.env.VITEST === "true" || process.env.NODE_ENV === "test"
           ? 0
           : undefined,
+    });
+
+    logUploadProcessingEvent("pipeline_stage", {
+      documentId,
+      companyId,
+      stage: "company_analysis:done",
+      outcome: analysis.processed
+        ? "processed"
+        : analysis.deferred
+          ? "deferred"
+          : "pending",
+      status: analysis.processed ? "PROCESSED" : "EXTRACTED",
+      durationMs: Date.now() - analysisStarted,
+      analyzedCount: analysis.analyzedDocumentIds.length,
     });
 
     if (analysis.processed) {
@@ -640,7 +664,11 @@ export async function processQueuedManualUploads(input: {
   extracted: number;
   evidenceIds: string[];
   results: ProcessDocumentResult[];
-  recovered: { requeuedProcessing: number; staleExtracted: number };
+  recovered: {
+    requeuedProcessing: number;
+    staleExtracted: number;
+    recoveredAnalyzing: number;
+  };
 }> {
   const limit = input.limit ?? 20;
   const concurrency = input.extractionConcurrency ?? EXTRACTION_CONCURRENCY;
@@ -649,6 +677,15 @@ export async function processQueuedManualUploads(input: {
     client: input.client,
     companyId: input.companyId,
     limit,
+  });
+
+  logUploadProcessingEvent("pipeline_stage", {
+    companyId: input.companyId,
+    stage: "drain:recovery",
+    outcome: "ok",
+    requeuedProcessing: recovery.requeuedProcessingIds.length,
+    staleExtracted: recovery.staleExtractedIds.length,
+    recoveredAnalyzing: recovery.recoveredAnalyzingIds.length,
   });
 
   // Auto-enqueue version-stale PROCESSED docs (bounded batch).
@@ -777,6 +814,7 @@ export async function processQueuedManualUploads(input: {
     recovered: {
       requeuedProcessing: recovery.requeuedProcessingIds.length,
       staleExtracted: recovery.staleExtractedIds.length,
+      recoveredAnalyzing: recovery.recoveredAnalyzingIds.length,
     },
   };
 }

@@ -33,21 +33,26 @@ import {
   replaceCompanyTimeline,
 } from "@/lib/supabase/repository";
 import {
-  tryLockCompanyAnalysis,
-  unlockCompanyAnalysis,
-} from "./company-analysis-lock";
+  COMPANY_ANALYSIS_TIMEOUT_MS,
+  MANUAL_UPLOAD_CONNECTOR_ID,
+} from "./constants";
 import {
   markDocumentProcessed,
   updateDocumentStage,
 } from "./claim";
-import { MANUAL_UPLOAD_CONNECTOR_ID } from "./constants";
+import {
+  tryLockCompanyAnalysis,
+  unlockCompanyAnalysis,
+} from "./company-analysis-lock";
+import { logUploadProcessingEvent } from "./logging";
+import { createPipelineStageLogger } from "./pipeline-log";
+import { sleep, withRetry } from "./retry";
+import { evidenceIdForManualUpload } from "./removal-policy";
+import { withTimeout } from "./timeout";
 import {
   CURRENT_ANALYSIS_VERSION,
   CURRENT_EXTRACTION_VERSION,
 } from "./versions";
-import { logUploadProcessingEvent } from "./logging";
-import { sleep, withRetry } from "./retry";
-import { evidenceIdForManualUpload } from "./removal-policy";
 
 /** Wait for late-arriving EXTRACTED siblings before analyzing. */
 export const COMPANY_ANALYSIS_DEBOUNCE_MS = 750;
@@ -160,6 +165,11 @@ async function persistCompanyIntelligence(input: {
   const { client, companyId, documentIds } = input;
   const now = new Date().toISOString();
   const evidenceIds = documentIds.map((id) => evidenceIdForManualUpload(id));
+  const log = createPipelineStageLogger({
+    companyId,
+    documentId: documentIds[0],
+    eventPrefix: "company_analysis",
+  });
 
   const company =
     companyId === companyProfile.id
@@ -178,77 +188,88 @@ async function persistCompanyIntelligence(input: {
     companyId,
   ).catch(() => null);
 
-
-  const snapshot = await analyzeAndPersistIncremental({
-    company,
-    changedEvidenceIds: evidenceIds,
-    dimensionProfiles,
-    dna: dnaProfile,
-    reports: companyReports,
-    timelineSeed: companyTimelineSeed,
-    briefSeed: companyBriefSeed,
-    evidenceCatalog: buildSingleConnectorCatalog({
-      connectorId: MANUAL_UPLOAD_CONNECTOR_ID,
-      name: "Manual Upload",
-      system: "Manual Upload",
-      documentsAnalyzed: (processedCount ?? 0) + documentIds.length,
-      lastSynced: now,
-      lastFullScan: now,
-    }),
-    client,
-    confirmedOverrides: priorClassification?.confirmed,
-    classificationStage: priorClassification?.stage,
+  log.stage("persist:start", {
+    documentCount: documentIds.length,
   });
 
-  await withRetry(async () => {
-    await replaceCompanyRecommendations(
+  const snapshot = await log.timed("insight_engine", () =>
+    analyzeAndPersistIncremental({
+      company,
+      changedEvidenceIds: evidenceIds,
+      dimensionProfiles,
+      dna: dnaProfile,
+      reports: companyReports,
+      timelineSeed: companyTimelineSeed,
+      briefSeed: companyBriefSeed,
+      evidenceCatalog: buildSingleConnectorCatalog({
+        connectorId: MANUAL_UPLOAD_CONNECTOR_ID,
+        name: "Manual Upload",
+        system: "Manual Upload",
+        documentsAnalyzed: (processedCount ?? 0) + documentIds.length,
+        lastSynced: now,
+        lastFullScan: now,
+      }),
       client,
-      companyId,
-      snapshot.recommendations,
-    );
-  });
+      confirmedOverrides: priorClassification?.confirmed,
+      classificationStage: priorClassification?.stage,
+    }),
+  );
 
-  await withRetry(async () => {
-    await replaceCompanyTimeline(client, companyId, snapshot.timeline);
-  });
+  await log.timed("recommendations", () =>
+    withRetry(async () => {
+      await replaceCompanyRecommendations(
+        client,
+        companyId,
+        snapshot.recommendations,
+      );
+    }),
+  );
+
+  await log.timed("timeline", () =>
+    withRetry(async () => {
+      await replaceCompanyTimeline(client, companyId, snapshot.timeline);
+    }),
+  );
 
   let snapshotId: string | null = null;
   try {
-    const { getCompanyAssessmentGoal } = await import("@/lib/assessment-goals");
-    const { publishAssessmentSnapshot } = await import(
-      "@/lib/assessment-snapshots"
-    );
-    const goalRow = await getCompanyAssessmentGoal({
-      client,
-      companyId,
-    }).catch(() => null);
+    snapshotId = await log.timed("assessment_snapshot", async () => {
+      const { getCompanyAssessmentGoal } = await import("@/lib/assessment-goals");
+      const { publishAssessmentSnapshot } = await import(
+        "@/lib/assessment-snapshots"
+      );
+      const goalRow = await getCompanyAssessmentGoal({
+        client,
+        companyId,
+      }).catch(() => null);
 
-    const published = await publishAssessmentSnapshot({
-      client,
-      companyId,
-      assessmentGoal: goalRow?.goal ?? "run-the-company",
-      playbookVersion: (
-        await import("@/lib/domain/playbook")
-      ).PLAYBOOK_ENGINE_VERSION,
-      companyStage: snapshot.classificationStage,
-      generatedBy: "manual-upload",
-      documentVersions: documentIds.map((id) => ({
-        documentId: id,
-      })),
-      healthScore: snapshot.healthScore,
-      dimensions: snapshot.dimensions,
-      scoreChange: snapshot.scoreChange,
-      findings: snapshot.findings,
-      risks: snapshot.risks,
-      recommendations: snapshot.recommendations,
-      questionAnswers: snapshot.questionAnswers,
-      questionCoverage: snapshot.questionCoverage,
-      businessConcepts: snapshot.businessConcepts,
-      evidenceIds,
-      documentIds,
-      syncCurrentTables: true,
+      const published = await publishAssessmentSnapshot({
+        client,
+        companyId,
+        assessmentGoal: goalRow?.goal ?? "run-the-company",
+        playbookVersion: (
+          await import("@/lib/domain/playbook")
+        ).PLAYBOOK_ENGINE_VERSION,
+        companyStage: snapshot.classificationStage,
+        generatedBy: "manual-upload",
+        documentVersions: documentIds.map((id) => ({
+          documentId: id,
+        })),
+        healthScore: snapshot.healthScore,
+        dimensions: snapshot.dimensions,
+        scoreChange: snapshot.scoreChange,
+        findings: snapshot.findings,
+        risks: snapshot.risks,
+        recommendations: snapshot.recommendations,
+        questionAnswers: snapshot.questionAnswers,
+        questionCoverage: snapshot.questionCoverage,
+        businessConcepts: snapshot.businessConcepts,
+        evidenceIds,
+        documentIds,
+        syncCurrentTables: true,
+      });
+      return published.snapshotId;
     });
-    snapshotId = published.snapshotId;
   } catch (error) {
     // Fallback: legacy sparse snapshot insert if Phase 6 publish is unavailable.
     logUploadProcessingEvent("manual_upload_processing_kickoff", {
@@ -330,17 +351,17 @@ async function persistCompanyIntelligence(input: {
   }
 
   try {
-    await refreshCompanyClassification({
-      client,
-      companyId,
-      snapshotId,
-      scoredDimensionIds: snapshot.dimensions
-        .filter((d) => d.scored)
-        .map((d) => d.id),
-    });
+    await log.timed("classification", () =>
+      refreshCompanyClassification({
+        client,
+        companyId,
+        snapshotId,
+        scoredDimensionIds: snapshot.dimensions
+          .filter((d) => d.scored)
+          .map((d) => d.id),
+      }),
+    );
   } catch (error) {
-    // Classification is additive — never fail document processing if the
-    // table is missing (e.g. migration not applied) or the mock client lacks it.
     logUploadProcessingEvent("manual_upload_processing_kickoff", {
       documentId: documentIds[0] ?? "unknown",
       companyId,
@@ -351,6 +372,11 @@ async function persistCompanyIntelligence(input: {
         error instanceof Error ? error.message : "classification_refresh_failed",
     });
   }
+
+  log.stage("persist:done", {
+    snapshotId: snapshotId ?? undefined,
+    documentCount: documentIds.length,
+  });
 }
 
 /**
@@ -457,11 +483,15 @@ export async function runCompanyAnalysisPass(input: {
       }
 
       try {
-        await persistCompanyIntelligence({
-          client,
-          companyId,
-          documentIds: batchIds,
-        });
+        await withTimeout(
+          persistCompanyIntelligence({
+            client,
+            companyId,
+            documentIds: batchIds,
+          }),
+          COMPANY_ANALYSIS_TIMEOUT_MS,
+          "company_analysis_persist",
+        );
       } catch (error) {
         // Release ANALYZING → EXTRACTED so a later pass can retry; never leave orphans.
         for (const documentId of batchIds) {
@@ -478,6 +508,16 @@ export async function runCompanyAnalysisPass(input: {
             },
           });
         }
+        logUploadProcessingEvent("manual_upload_processing_kickoff", {
+          documentId: triggerDocumentId,
+          companyId,
+          stage: "company_analysis_persist",
+          outcome: "failed",
+          status: "EXTRACTED",
+          errorMessage:
+            error instanceof Error ? error.message : String(error),
+          batchSize: batchIds.length,
+        });
         throw error;
       }
 
