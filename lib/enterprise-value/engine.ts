@@ -354,14 +354,15 @@ export function estimateTransparentEnterpriseValue(input: {
     evidence: input.evidence,
   });
 
+  // Negative EBITDA still counts as present — do not treat it as missing.
   const hasUnlock =
     (valuationInput.revenue != null && valuationInput.revenue > 0) ||
-    (valuationInput.ebitda != null && valuationInput.ebitda > 0) ||
+    valuationInput.ebitda != null ||
     valuationInput.cash != null;
 
   if (!hasUnlock) {
     const unlock =
-      valuationInput.revenue == null
+      valuationInput.revenue == null || valuationInput.revenue <= 0
         ? "revenue"
         : valuationInput.ebitda == null
           ? "ebitda"

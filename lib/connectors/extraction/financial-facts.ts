@@ -23,6 +23,7 @@ export const FINANCIAL_FACT_KEYS = [
   "recurringRevenueShare",
   "netRevenueRetention",
   "churnRate",
+  "employeeCount",
 ] as const;
 
 export type FinancialFactKey = (typeof FINANCIAL_FACT_KEYS)[number];
@@ -59,6 +60,7 @@ const LABEL_RULES: LabelRule[] = [
       /\b(?:cash\s+)?runway(?:\s*\(months\))?$/i,
       /\bmonths?\s+of\s+(?:cash\s+)?runway$/i,
       /\brunway\s+months?$/i,
+      /\bapprox(?:imate(?:ly)?)?\s+(?:cash\s+)?runway$/i,
     ],
     kind: "months",
   },
@@ -67,6 +69,8 @@ const LABEL_RULES: LabelRule[] = [
     patterns: [
       /\b(?:net\s+)?(?:monthly\s+)?burn(?:\s+rate)?$/i,
       /\bcash\s+burn$/i,
+      /\bmonthly\s+cash\s+burn$/i,
+      /\bburn(?:\s+rate)?\s*\(\/?mo(?:nth)?\)?$/i,
     ],
     kind: "money",
   },
@@ -76,6 +80,7 @@ const LABEL_RULES: LabelRule[] = [
       /\bcash(?:\s+(?:&\s*)?equivalents)?(?:\s+balance)?$/i,
       /\bcash\s+on\s+hand$/i,
       /\bend(?:ing)?\s+cash$/i,
+      /\bcash\s+position$/i,
     ],
     kind: "money",
   },
@@ -91,7 +96,10 @@ const LABEL_RULES: LabelRule[] = [
   },
   {
     key: "ebitda",
-    patterns: [/\bebitda$/i, /\badjusted\s+ebitda$/i],
+    patterns: [
+      /\b(?:adjusted\s+)?ebitda$/i,
+      /\bnegative\s+ebitda$/i,
+    ],
     kind: "money",
   },
   {
@@ -135,6 +143,7 @@ const LABEL_RULES: LabelRule[] = [
       /\btop\s*3\s+customer(?:s)?(?:\s+arr)?(?:\s+share|\s*%|\s+concentration)?$/i,
       /\bcustomer\s+concentration$/i,
       /\barr\s+concentration$/i,
+      /\btop\s+customer(?:s)?\s+(?:concentration|share)$/i,
     ],
     kind: "ratio",
   },
@@ -144,9 +153,22 @@ const LABEL_RULES: LabelRule[] = [
     kind: "money",
   },
   {
+    key: "employeeCount",
+    patterns: [
+      /\bemployee(?:s)?\s+count$/i,
+      /\bheadcount$/i,
+      /\b(?:total\s+)?employees?$/i,
+      /\bftes?$/i,
+      /\bteam\s+size$/i,
+    ],
+    kind: "months", // count — store raw number, not money
+  },
+  {
     key: "revenue",
     patterns: [
-      /\b(?:total\s+)?(?:net\s+)?revenue$/i,
+      /\b(?:year\s*[12]|y[12]|fy\s*20\d{2})\s+(?:total\s+)?(?:net\s+)?revenue$/i,
+      /\b(?:total\s+)?(?:net\s+)?revenue(?:\s*\(year\s*[12]\))?$/i,
+      /\bannual\s+recurring\s+revenue$/i,
       /\barr$/i,
       /\bmrr$/i,
       /\bnet\s+sales$/i,
@@ -206,12 +228,25 @@ function parseNumericToken(raw: string): {
   let s = raw.replace(/\u00a0/g, " ").trim();
   if (!s || /^[-–—]$/.test(s)) return null;
 
+  // Strip approximation markers: ~, approx, approximately, about, c.
+  s = s
+    .replace(/^(?:~|≈|approx(?:imately)?|about|around|c\.|circa)\s*/i, "")
+    .trim();
+
   let currency: string | null = null;
   if (/^\$/.test(s) || /\bUSD\b/i.test(s)) currency = "USD";
   else if (/^€/.test(s) || /\bEUR\b/i.test(s)) currency = "EUR";
   else if (/^£/.test(s) || /\bGBP\b/i.test(s)) currency = "GBP";
 
   const hadPercent = /%/.test(s);
+
+  // "negative $2.38M" / "neg. 2.38M"
+  let neg = false;
+  if (/^negative\s+/i.test(s) || /^neg\.?\s+/i.test(s)) {
+    neg = true;
+    s = s.replace(/^neg(?:ative)?\.?\s+/i, "").trim();
+  }
+
   s = s
     .replace(/[$,€£]/g, "")
     .replace(/\b(USD|EUR|GBP)\b/gi, "")
@@ -219,8 +254,7 @@ function parseNumericToken(raw: string): {
     .replace(/,/g, "")
     .trim();
 
-  // Accounting negatives: (1234)
-  let neg = false;
+  // Accounting negatives: (1234) or (2.38M)
   if (/^\(.*\)$/.test(s)) {
     neg = true;
     s = s.slice(1, -1).trim();
@@ -229,6 +263,9 @@ function parseNumericToken(raw: string): {
     neg = true;
     s = s.replace(/^-/, "").trim();
   }
+
+  // Allow optional space before suffix: "2.8 M"
+  s = s.replace(/\s+/g, "");
 
   let multiplier = 1;
   if (/^[0-9.]+[kK]$/.test(s)) {
@@ -280,15 +317,49 @@ function coerceValue(
   };
 }
 
+function cellsFromRow(row: string): string[] {
+  const trimmed = row.trim();
+  if (!trimmed) return [];
+
+  // Preferred: tab-separated spreadsheet rows
+  if (trimmed.includes("\t")) {
+    return trimmed.split("\t").map((c) => c.trim());
+  }
+
+  // "Label: value" / "Label — value" in a single cell or prose line
+  const colon = /^([^:：]{1,80})[:：]\s*(.+)$/.exec(trimmed);
+  if (colon) {
+    return [colon[1]!.trim(), colon[2]!.trim()];
+  }
+
+  // CSV row without prior conversion: Metric,Value or Metric,Value,Period
+  if (trimmed.includes(",") && !trimmed.includes(":")) {
+    // Lightweight split — quoted fields handled upstream by extractCsv;
+    // here we only need Metric,Value for leftover CSV text blobs.
+    const parts = trimmed.split(",").map((p) => p.trim().replace(/^"|"$/g, ""));
+    if (parts.length >= 2) return parts;
+  }
+
+  return [trimmed];
+}
+
 function parseRowCells(
   cells: string[],
   worksheet: string | null,
   sheetContext: string,
 ): FinancialMetricObservation[] {
-  if (cells.length < 2) return [];
+  if (cells.length < 2) {
+    // Single cell may still be "ARR: $2.4M"
+    if (cells.length === 1 && /[:：]/.test(cells[0]!)) {
+      const again = cellsFromRow(cells[0]!);
+      if (again.length >= 2) {
+        return parseRowCells(again, worksheet, sheetContext);
+      }
+    }
+    return [];
+  }
   const out: FinancialMetricObservation[] = [];
 
-  // Prefer first non-empty cell as label, remaining as candidate values.
   const nonEmpty = cells.map((c) => c.trim()).filter((c) => c.length > 0);
   if (nonEmpty.length < 2) return [];
 
@@ -300,27 +371,41 @@ function parseRowCells(
   const basis = detectBasis(context);
   const period = detectPeriod(context);
 
+  const candidates: Array<{
+    parsed: { value: number; currency: string | null; hadPercent: boolean };
+    token: string;
+  }> = [];
+
   for (let i = 1; i < nonEmpty.length; i++) {
     const token = nonEmpty[i]!;
-    // Skip period-looking tokens that aren't numeric values
     if (PERIOD_RE.test(token) && !/[0-9]+(?:\.[0-9]+)?%?/.test(token.replace(/,/g, ""))) {
       continue;
     }
     const parsed = parseNumericToken(token);
     if (!parsed) continue;
-    const coerced = coerceValue(rule, parsed);
-    out.push({
-      key: rule.key,
-      value: coerced.value,
-      period,
-      worksheet,
-      basis,
-      currency: coerced.currency,
-      isRatio: coerced.isRatio,
-      sourceLabel: normalizeLabel(label),
-    });
-    break; // first numeric value wins for the row (no inference across columns)
+    candidates.push({ parsed, token });
   }
+
+  if (candidates.length === 0) return [];
+
+  // Multi-year columns: prefer the last numeric (most recent period).
+  const chosen =
+    candidates.length > 1 &&
+    (rule.kind === "money" || rule.kind === "ratio" || rule.kind === "growth")
+      ? candidates[candidates.length - 1]!
+      : candidates[0]!;
+
+  const coerced = coerceValue(rule, chosen.parsed);
+  out.push({
+    key: rule.key,
+    value: coerced.value,
+    period,
+    worksheet,
+    basis,
+    currency: coerced.currency,
+    isRatio: coerced.isRatio,
+    sourceLabel: normalizeLabel(label),
+  });
 
   return out;
 }
@@ -335,7 +420,7 @@ function parseSection(section: DocumentSection): FinancialMetricObservation[] {
   const observations: FinancialMetricObservation[] = [];
   for (const row of rows) {
     if (!row.trim() || row.trim() === "(empty sheet)") continue;
-    const cells = row.split("\t");
+    const cells = cellsFromRow(row);
     observations.push(...parseRowCells(cells, worksheet, sheetContext));
   }
   return observations;
@@ -343,7 +428,9 @@ function parseSection(section: DocumentSection): FinancialMetricObservation[] {
 
 /**
  * Prefer actuals over forecast when both exist for the same key.
- * Do not invent values — only choose among observed cells.
+ * For money metrics with multiple actual/unknown observations (e.g. Year 1 vs
+ * Year 2 revenue), prefer the largest absolute magnitude so ARR / latest year
+ * wins over an earlier stub year — never invent values.
  */
 export function selectCanonicalObservations(
   observations: FinancialMetricObservation[],
@@ -356,12 +443,25 @@ export function selectCanonicalObservations(
   }
 
   const selected: FinancialMetricObservation[] = [];
-  for (const [, list] of byKey) {
+  for (const [key, list] of byKey) {
     const actuals = list.filter((o) => o.basis === "actual");
     const unknowns = list.filter((o) => o.basis === "unknown");
     const forecasts = list.filter((o) => o.basis === "forecast");
-    const pick = actuals[0] ?? unknowns[0] ?? forecasts[0];
-    if (pick) selected.push(pick);
+    const pool = actuals.length
+      ? actuals
+      : unknowns.length
+        ? unknowns
+        : forecasts;
+    if (pool.length === 0) continue;
+
+    const rule = LABEL_RULES.find((r) => r.key === key);
+    let pick = pool[0]!;
+    if (rule?.kind === "money" && pool.length > 1) {
+      pick = pool.reduce((best, cur) =>
+        Math.abs(cur.value) >= Math.abs(best.value) ? cur : best,
+      );
+    }
+    selected.push(pick);
   }
   return selected;
 }
@@ -443,6 +543,21 @@ export function mergeFinancialFactsInto(
   if (observations.length > 0 || countFinancialFacts(next) > 0) {
     next.missingFinancialFields = missingRequired;
     next.financialFactsComplete = hasEnoughFinancialFacts(next);
+  }
+
+  // Stage log for production diagnosis — never includes file bytes.
+  if (typeof console !== "undefined" && console.info) {
+    console.info(
+      JSON.stringify({
+        event: "financial_facts_extract",
+        ts: new Date().toISOString(),
+        format: extracted.metadata.format ?? null,
+        observationCount: observations.length,
+        keys: observations.map((o) => o.key),
+        missingRequired,
+        title: extracted.title ?? null,
+      }),
+    );
   }
 
   return { facts: next, observations, missingRequired };

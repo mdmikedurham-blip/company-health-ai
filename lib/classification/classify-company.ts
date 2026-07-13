@@ -49,6 +49,8 @@ function hasFinancialFacts(evidence: Evidence[]): boolean {
       asNumber(e.extractedFacts.revenue) != null ||
       asNumber(e.extractedFacts.cashBalance) != null ||
       asNumber(e.extractedFacts.cashRunwayMonths) != null ||
+      asNumber(e.extractedFacts.ebitda) != null ||
+      asNumber(e.extractedFacts.burnRateMonthly) != null ||
       e.extractedFacts.financialFactsComplete === true,
   );
 }
@@ -195,15 +197,34 @@ function inferStage(input: {
   };
 }
 
-function inferEmployeeRange(blob: string): EmployeeCountRange {
-  const m = /\b(\d{1,4})\s+(?:employees?|ftes?|team\s+members?)\b/i.exec(blob);
-  if (!m?.[1]) return "unknown";
-  const n = Number(m[1]);
+function employeeCountFromEvidence(evidence: Evidence[]): number | null {
+  let best: number | null = null;
+  for (const e of evidence) {
+    const n = asNumber(e.extractedFacts.employeeCount);
+    if (n == null || n <= 0) continue;
+    if (best === null || n > best) best = n;
+  }
+  return best;
+}
+
+function employeeRangeFromCount(n: number): EmployeeCountRange {
   if (n <= 5) return "1-5";
   if (n <= 20) return "6-20";
   if (n <= 50) return "21-50";
   if (n <= 200) return "51-200";
   return "200-plus";
+}
+
+function inferEmployeeRange(
+  evidence: Evidence[],
+  blob: string,
+): EmployeeCountRange {
+  const fromFacts = employeeCountFromEvidence(evidence);
+  if (fromFacts != null) return employeeRangeFromCount(fromFacts);
+
+  const m = /\b(\d{1,4})\s+(?:employees?|ftes?|team\s+members?)\b/i.exec(blob);
+  if (!m?.[1]) return "unknown";
+  return employeeRangeFromCount(Number(m[1]));
 }
 
 function inferCustomerRange(evidence: Evidence[], blob: string): CustomerCountRange {
@@ -243,10 +264,19 @@ function detectDocumentClasses(evidence: Evidence[]): Set<DocumentClassId> {
     if (facts.financialFactsComplete === true || asNumber(facts.revenue) != null) {
       found.add("financial-statements");
     }
+    if (
+      asNumber(facts.ebitda) != null ||
+      asNumber(facts.cashBalance) != null ||
+      asNumber(facts.burnRateMonthly) != null
+    ) {
+      found.add("financial-statements");
+    }
     if (/\b(model|forecast|projection)\b/.test(t)) found.add("financial-model");
     if (
       asRatio(facts.top3CustomerArrShare) != null ||
       asRatio(facts.netRevenueRetention) != null ||
+      asRatio(facts.churnRate) != null ||
+      asRatio(facts.recurringRevenueShare) != null ||
       /\btraction|customers?\b/.test(t)
     ) {
       found.add("customer-traction");
@@ -366,7 +396,7 @@ export function classifyCompanyFromEvidence(input: {
   });
 
   const annualRevenueRange = revenueRangeFromAmount(revenue, hasFin);
-  const employeeCountRange = inferEmployeeRange(blob);
+  const employeeCountRange = inferEmployeeRange(evidence, blob);
   const customerCountRange = inferCustomerRange(evidence, blob);
   const fundingStatus = inferFunding(blob, outsideInvestors);
 

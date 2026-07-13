@@ -141,10 +141,39 @@ async function refreshCompanyClassification(input: {
 }): Promise<void> {
   const prior = await getCompanyClassification(input.client, input.companyId);
   const evidence = await listEvidence(input.client, input.companyId);
+  const { valuationInputFromEvidence } = await import(
+    "@/lib/value-navigator/input-from-evidence"
+  );
+  const valuationInput = valuationInputFromEvidence({
+    companyId: input.companyId,
+    snapshotId: input.snapshotId,
+    assessmentGoal: "run-the-company",
+    evidence,
+  });
+  logUploadProcessingEvent("company_analysis_stage", {
+    companyId: input.companyId,
+    stage: "snapshot_fact_aggregation",
+    outcome: "ok",
+    evidenceCount: evidence.length,
+    revenue: valuationInput.revenue ?? undefined,
+    ebitda: valuationInput.ebitda ?? undefined,
+    cashBalance: valuationInput.cash ?? undefined,
+    hasConcentration:
+      valuationInput.top3CustomerArrShare != null ? true : undefined,
+    hasNrr: valuationInput.nrr != null ? true : undefined,
+  });
   const result = classifyCompanyFromEvidence({
     evidence,
     confirmed: prior?.confirmed,
     scoredDimensionIds: input.scoredDimensionIds,
+  });
+  logUploadProcessingEvent("company_analysis_stage", {
+    companyId: input.companyId,
+    stage: "company_classification",
+    outcome: "ok",
+    annualRevenueRange: result.inferred.annualRevenueRange,
+    employeeCountRange: result.inferred.employeeCountRange,
+    lifecycleStage: result.stage,
   });
   await upsertCompanyClassificationFromResult({
     client: input.client,

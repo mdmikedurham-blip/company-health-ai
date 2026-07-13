@@ -536,6 +536,52 @@ async function extractAndPersistEvidence(input: {
       },
     };
 
+    const facts = evidence.extractedFacts ?? {};
+    const financialKeys = Array.isArray(facts.financialMetricKeys)
+      ? (facts.financialMetricKeys as string[])
+      : Object.keys(facts).filter(
+          (k) =>
+            typeof facts[k] === "number" &&
+            [
+              "revenue",
+              "ebitda",
+              "cashBalance",
+              "burnRateMonthly",
+              "cashRunwayMonths",
+              "employeeCount",
+              "top3CustomerArrShare",
+              "netRevenueRetention",
+              "grossMargin",
+            ].includes(k),
+        );
+
+    logUploadProcessingEvent("pipeline_stage", {
+      documentId,
+      companyId,
+      stage: "financial_facts:merged",
+      outcome:
+        financialKeys.length > 0
+          ? "facts_present"
+          : "facts_empty",
+      format:
+        typeof extracted.metadata.format === "string"
+          ? extracted.metadata.format
+          : undefined,
+      financialMetricCount:
+        typeof facts.financialMetricCount === "number"
+          ? facts.financialMetricCount
+          : financialKeys.length,
+      financialKeys: financialKeys.join(","),
+      revenue: typeof facts.revenue === "number" ? facts.revenue : undefined,
+      ebitda: typeof facts.ebitda === "number" ? facts.ebitda : undefined,
+      cashBalance:
+        typeof facts.cashBalance === "number" ? facts.cashBalance : undefined,
+      employeeCount:
+        typeof facts.employeeCount === "number"
+          ? facts.employeeCount
+          : undefined,
+    });
+
     logUploadProcessingEvent("manual_upload_processing_started", {
       documentId,
       companyId,
