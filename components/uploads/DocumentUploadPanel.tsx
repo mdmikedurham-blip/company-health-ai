@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MANUAL_UPLOAD_ACCEPT,
   MANUAL_UPLOAD_FORMAT_LABELS,
@@ -15,11 +15,14 @@ import {
   type ManualUploadRowAction,
 } from "@/lib/uploads/removal-policy";
 import {
-  applySessionPollTimeouts,
+  clearStaleUploadSessionStorage,
+  documentsById,
   isInFlightUploadStatus,
-  reconcileSessionItems,
-  shouldPollUploadLists,
+  pruneSessionEntries,
+  resolveSessionDocument,
+  shouldPollDocumentIds,
   shouldSkipReprocess,
+  type SessionUploadEntry,
 } from "@/lib/uploads/session-reconcile";
 
 type UploadedDocumentRecord = {
@@ -45,22 +48,6 @@ type UploadedDocumentRecord = {
   lastSuccessfulAnalysisVersion?: string | null;
 };
 
-type UploadItem = {
-  localId: string;
-  file: File;
-  progress: number;
-  phase: "queued" | "signing" | "uploading" | "enqueueing" | "done" | "error";
-  error?: string;
-  /** Immutable document UUID — identity for reconciliation (never filename). */
-  documentId?: string;
-  status?: string;
-  lastStage?: string | null;
-  reprocessErrorMessage?: string | null;
-  errorMessage?: string | null;
-  inFlightSinceMs?: number;
-  pollError?: string;
-};
-
 type ToastState = {
   tone: "success" | "error";
   message: string;
@@ -72,7 +59,10 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function statusTone(status: string | undefined, doc?: UploadedDocumentRecord): string {
+function statusTone(
+  status: string | undefined,
+  doc?: Pick<UploadedDocumentRecord, "reprocessErrorMessage" | "lastStage">,
+): string {
   if (
     status === "PROCESSED" &&
     (doc?.reprocessErrorMessage || doc?.lastStage === "reprocess_failed")
@@ -82,16 +72,14 @@ function statusTone(status: string | undefined, doc?: UploadedDocumentRecord): s
   switch (status) {
     case "QUEUED":
     case "STALE":
-      return "text-amber-300";
     case "PROCESSING":
     case "EXTRACTED":
     case "ANALYZING":
     case "DELETING":
+    case "OCR_REQUIRED":
       return "text-amber-300";
     case "PROCESSED":
       return "text-emerald-300";
-    case "OCR_REQUIRED":
-      return "text-amber-300";
     case "FAILED":
       return "text-red-300";
     case "UPLOADED":
@@ -131,6 +119,28 @@ function isDocRemovalBlocked(doc: UploadedDocumentRecord): boolean {
   });
 }
 
+function logStatusTransition(fields: {
+  documentId?: string | null;
+  uploadId?: string | null;
+  analysisJobId?: string | null;
+  status?: string | null;
+  previousStatus?: string | null;
+  source: string;
+}): void {
+  console.info(
+    JSON.stringify({
+      event: "upload_ui_status_transition",
+      ts: new Date().toISOString(),
+      document_id: fields.documentId ?? null,
+      upload_id: fields.uploadId ?? null,
+      analysis_job_id: fields.analysisJobId ?? null,
+      status: fields.status ?? null,
+      previous_status: fields.previousStatus ?? null,
+      source: fields.source,
+    }),
+  );
+}
+
 async function uploadFileWithProgress(
   signedUrl: string,
   file: File,
@@ -166,9 +176,11 @@ export function DocumentUploadPanel({
   initialDocuments?: UploadedDocumentRecord[];
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const statusLogRef = useRef<Map<string, string>>(new Map());
   const [dragOver, setDragOver] = useState(false);
-  // Session-only — intentionally empty on page refresh (no localStorage).
-  const [items, setItems] = useState<UploadItem[]>([]);
+  // Ephemeral upload progress only — never the analysis status of record.
+  // Empty on every page load (no localStorage hydration).
+  const [session, setSession] = useState<SessionUploadEntry[]>([]);
   const [recent, setRecent] =
     useState<UploadedDocumentRecord[]>(initialDocuments);
   const [listError, setListError] = useState<string | null>(null);
@@ -184,19 +196,57 @@ export function DocumentUploadPanel({
   >(null);
   const [upgradePending, setUpgradePending] = useState(false);
   const [retryPending, setRetryPending] = useState(false);
-  const [, startTransition] = useTransition();
-  const busy = items.some(
+
+  const docMap = useMemo(() => documentsById(recent), [recent]);
+
+  const busy = session.some(
     (i) =>
       i.phase === "signing" ||
       i.phase === "uploading" ||
       i.phase === "enqueueing",
   );
 
+  // Clear any legacy session keys from older builds. Session React state
+  // starts empty on every mount (no localStorage hydration).
+  useEffect(() => {
+    clearStaleUploadSessionStorage(
+      typeof window !== "undefined" ? window.localStorage : null,
+    );
+    clearStaleUploadSessionStorage(
+      typeof window !== "undefined" ? window.sessionStorage : null,
+    );
+  }, []);
+
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(null), 4000);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  // Log status transitions from the authoritative list (shared by both sections).
+  useEffect(() => {
+    for (const doc of recent) {
+      const prev = statusLogRef.current.get(doc.id);
+      if (prev === doc.status) continue;
+      statusLogRef.current.set(doc.id, doc.status);
+      logStatusTransition({
+        documentId: doc.id,
+        uploadId: doc.id,
+        analysisJobId: doc.id,
+        status: doc.status,
+        previousStatus: prev ?? null,
+        source: "authoritative_documents_list",
+      });
+    }
+  }, [recent]);
+
+  const applyAuthoritativeDocuments = useCallback(
+    (documents: UploadedDocumentRecord[]) => {
+      setRecent(documents);
+      setSession((prev) => pruneSessionEntries(prev, documents));
+    },
+    [],
+  );
 
   const refreshList = useCallback(async () => {
     try {
@@ -209,45 +259,33 @@ export function DocumentUploadPanel({
         setListError(data.error ?? "Could not load uploads.");
         return;
       }
-      const documents = data.documents ?? [];
-      const nowMs = Date.now();
-      startTransition(() => {
-        setRecent(documents);
-        setItems((prev) =>
-          applySessionPollTimeouts(
-            reconcileSessionItems(prev, documents, nowMs),
-            nowMs,
-          ),
-        );
-        setListError(null);
-      });
+      applyAuthoritativeDocuments(data.documents ?? []);
+      setListError(null);
     } catch {
       setListError("Could not load uploads.");
     }
-  }, []);
+  }, [applyAuthoritativeDocuments]);
 
-  // Poll while Recent OR Session still has in-flight docs (documentId-based).
+  // Poll by document_id until authoritative status is current/failed.
   useEffect(() => {
-    const shouldPoll = shouldPollUploadLists({
-      recentStatuses: recent.map((d) => d.status),
-      sessionStatuses: items.map((i) => i.status),
+    const shouldPoll = shouldPollDocumentIds({
+      sessionDocumentIds: session.map((s) => s.documentId),
+      documents: recent,
     });
     if (!shouldPoll) return;
     const timer = window.setInterval(() => {
       void refreshList();
     }, 2500);
     return () => window.clearInterval(timer);
-  }, [recent, items, refreshList]);
+  }, [session, recent, refreshList]);
 
   const retryProcessing = useCallback(
     async (documentIds?: string[]) => {
       const singleId = documentIds?.length === 1 ? documentIds[0]! : null;
 
-      // Deduplicate: never enqueue a second job while already in-flight.
       if (singleId) {
         const fromRecent = recent.find((d) => d.id === singleId);
-        const fromSession = items.find((i) => i.documentId === singleId);
-        const status = fromRecent?.status ?? fromSession?.status;
+        const status = fromRecent?.status;
         if (shouldSkipReprocess(status)) {
           setToast({
             tone: "success",
@@ -282,25 +320,14 @@ export function DocumentUploadPanel({
             message: "Processing already in progress for this document.",
           });
         }
-        // Optimistic session status → QUEUED so UI does not stay on Current.
-        if (data.requeued?.length) {
-          const requeued = new Set(data.requeued);
-          const nowMs = Date.now();
-          setItems((prev) =>
-            prev.map((item) =>
-              item.documentId && requeued.has(item.documentId)
-                ? {
-                    ...item,
-                    status: "QUEUED",
-                    lastStage: "requeued",
-                    inFlightSinceMs: nowMs,
-                    pollError: undefined,
-                    reprocessErrorMessage: null,
-                    errorMessage: null,
-                  }
-                : item,
-            ),
-          );
+        for (const id of data.requeued ?? []) {
+          logStatusTransition({
+            documentId: id,
+            uploadId: id,
+            analysisJobId: id,
+            status: "QUEUED",
+            source: "reprocess_request",
+          });
         }
         await refreshList();
       } catch {
@@ -310,7 +337,7 @@ export function DocumentUploadPanel({
         setReprocessingDocumentId(null);
       }
     },
-    [refreshList, recent, items, reprocessingDocumentId],
+    [refreshList, recent, reprocessingDocumentId],
   );
 
   const upgradeOutdatedDocuments = useCallback(async () => {
@@ -352,20 +379,16 @@ export function DocumentUploadPanel({
       if (!window.confirm(removeConfirmMessage(doc.status))) return;
       setRemovingDocumentId(doc.id);
       setListError(null);
-      // Optimistic remove — authoritative identity is documentId.
       setRecent((prev) => prev.filter((row) => row.id !== doc.id));
-      setItems((prev) => prev.filter((row) => row.documentId !== doc.id));
+      setSession((prev) => prev.filter((row) => row.documentId !== doc.id));
       try {
         const res = await fetch(`/api/documents/${doc.id}`, {
           method: "DELETE",
         });
         const data = (await res.json()) as {
           error?: string;
-          removed?: boolean;
-          alreadyGone?: boolean;
           cleanupRequired?: boolean;
           orphanedStoragePath?: string | null;
-          rebuildFailed?: boolean;
         };
         if (res.status === 404) {
           setToast({ tone: "success", message: "File removed." });
@@ -384,10 +407,9 @@ export function DocumentUploadPanel({
           return;
         }
         if (data.cleanupRequired || data.orphanedStoragePath) {
-          const repair = await fetch(
-            `/api/documents/${doc.id}?repair=1`,
-            { method: "DELETE" },
-          );
+          const repair = await fetch(`/api/documents/${doc.id}?repair=1`, {
+            method: "DELETE",
+          });
           if (repair.status === 404) {
             setToast({ tone: "success", message: "File removed." });
             return;
@@ -454,8 +476,8 @@ export function DocumentUploadPanel({
 
   const processFile = useCallback(
     async (file: File, localId: string) => {
-      const patch = (partial: Partial<UploadItem>) => {
-        setItems((prev) =>
+      const patch = (partial: Partial<SessionUploadEntry>) => {
+        setSession((prev) =>
           prev.map((item) =>
             item.localId === localId ? { ...item, ...partial } : item,
           ),
@@ -482,9 +504,19 @@ export function DocumentUploadPanel({
           throw new Error(initData.error ?? "Could not start upload.");
         }
 
+        const documentId = initData.documentId;
+        logStatusTransition({
+          documentId,
+          uploadId: documentId,
+          analysisJobId: documentId,
+          status: "UPLOADED",
+          source: "upload_signed",
+        });
+
+        // Bind immutable document_id immediately — never use filename as identity.
         patch({
           phase: "uploading",
-          documentId: initData.documentId,
+          documentId,
           progress: 0,
         });
         await uploadFileWithProgress(initData.signedUrl, file, (pct) => {
@@ -495,31 +527,53 @@ export function DocumentUploadPanel({
         const completeRes = await fetch("/api/documents/upload/complete", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ documentId: initData.documentId }),
+          body: JSON.stringify({ documentId }),
         });
         const completeData = (await completeRes.json()) as {
           status?: string;
-          analysisStatus?: string;
-          uploadComplete?: boolean;
+          document?: UploadedDocumentRecord;
+          kickoff?: { status?: string; documentId?: string };
           error?: string;
         };
         if (!completeRes.ok) {
           throw new Error(completeData.error ?? "Could not enqueue document.");
         }
 
-        const analysisStatus =
-          completeData.analysisStatus ?? completeData.status ?? "QUEUED";
-        const nowMs = Date.now();
+        const kickoffStatus =
+          completeData.document?.status ??
+          completeData.kickoff?.status ??
+          completeData.status ??
+          "QUEUED";
 
+        logStatusTransition({
+          documentId,
+          uploadId: documentId,
+          analysisJobId: documentId,
+          status: kickoffStatus,
+          source: "upload_complete_kickoff",
+        });
+
+        // Replace temporary upload state with the persisted document record.
+        // Analysis label comes only from `recent` after refresh — not from kickoff.
         patch({
           phase: "done",
-          status: analysisStatus,
+          documentId,
           progress: 100,
-          inFlightSinceMs: isInFlightUploadStatus(analysisStatus)
-            ? nowMs
-            : undefined,
-          pollError: undefined,
         });
+
+        if (completeData.document?.id) {
+          setRecent((prev) => {
+            const without = prev.filter((d) => d.id !== completeData.document!.id);
+            return [
+              {
+                ...completeData.document!,
+                status: kickoffStatus,
+              },
+              ...without,
+            ];
+          });
+        }
+
         await refreshList();
       } catch (err) {
         patch({
@@ -531,22 +585,32 @@ export function DocumentUploadPanel({
     [refreshList],
   );
 
+  const filesByLocalId = useRef(new Map<string, File>());
+
   const enqueueFiles = useCallback(
     (files: FileList | File[]) => {
       const list = Array.from(files);
       if (list.length === 0) return;
 
-      const next: UploadItem[] = list.map((file) => ({
-        localId: `${crypto.randomUUID()}`,
-        file,
-        progress: 0,
-        phase: "queued" as const,
-      }));
+      const next: SessionUploadEntry[] = list.map((file) => {
+        const localId = crypto.randomUUID();
+        filesByLocalId.current.set(localId, file);
+        return {
+          localId,
+          documentId: null,
+          filename: file.name,
+          byteSize: file.size,
+          progress: 0,
+          phase: "queued" as const,
+        };
+      });
 
-      setItems((prev) => [...next, ...prev]);
+      setSession((prev) => [...next, ...prev]);
       for (const item of next) {
-        if (item.file.size > MAX_UPLOAD_BYTES) {
-          setItems((prev) =>
+        const file = filesByLocalId.current.get(item.localId);
+        if (!file) continue;
+        if (item.byteSize > MAX_UPLOAD_BYTES) {
+          setSession((prev) =>
             prev.map((row) =>
               row.localId === item.localId
                 ? {
@@ -557,13 +621,27 @@ export function DocumentUploadPanel({
                 : row,
             ),
           );
+          filesByLocalId.current.delete(item.localId);
           continue;
         }
-        void processFile(item.file, item.localId);
+        void processFile(file, item.localId).finally(() => {
+          filesByLocalId.current.delete(item.localId);
+        });
       }
     },
     [processFile],
   );
+
+  // Visible session rows: in-progress uploads + in-flight analysis only.
+  // Status ALWAYS from authoritative recent map by document_id.
+  const visibleSession = session.filter((entry) => {
+    if (entry.phase === "error") return true;
+    if (entry.phase !== "done") return true;
+    if (!entry.documentId) return true;
+    const doc = docMap.get(entry.documentId);
+    if (!doc) return false;
+    return isInFlightUploadStatus(doc.status);
+  });
 
   return (
     <div className="space-y-6">
@@ -619,83 +697,77 @@ export function DocumentUploadPanel({
         />
       </div>
 
-      {items.length > 0 ? (
+      {visibleSession.length > 0 ? (
         <div className="space-y-3">
           <h3 className="text-sm font-medium text-zinc-200">This session</h3>
           <ul className="space-y-2">
-            {items.map((item) => (
-              <li
-                key={item.localId}
-                className="rounded-lg border border-[var(--border)] bg-white/[0.02] px-4 py-3"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm text-zinc-200">
-                      {item.file.name}
-                    </p>
-                    <p className="mt-0.5 text-xs text-zinc-500">
-                      {formatBytes(item.file.size)}
-                      {item.phase === "uploading"
-                        ? ` · uploading ${item.progress}%`
-                        : item.phase === "signing"
-                          ? " · preparing upload"
-                          : item.phase === "enqueueing"
-                            ? " · finishing upload"
-                            : item.phase === "done"
-                              ? ` · upload complete · analysis: ${analysisLabel(item)}`
-                              : item.phase === "error"
-                                ? ""
-                                : " · waiting"}
-                    </p>
-                    {item.error ? (
-                      <p className="mt-1 text-xs text-red-400">{item.error}</p>
-                    ) : null}
-                    {item.pollError ? (
-                      <div className="mt-2 space-y-1">
-                        <p className="text-xs text-amber-300">{item.pollError}</p>
-                        {item.documentId ? (
-                          <button
-                            type="button"
-                            disabled={
-                              reprocessingDocumentId === item.documentId ||
-                              shouldSkipReprocess(item.status)
-                            }
-                            onClick={() =>
-                              void retryProcessing([item.documentId!])
-                            }
-                            className="text-xs font-medium text-amber-200 underline-offset-2 hover:underline disabled:opacity-60"
-                          >
-                            Retry processing
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <div className="text-[11px] uppercase tracking-wide text-zinc-500">
-                      {item.phase === "done" ? "Upload complete" : item.phase}
+            {visibleSession.map((item) => {
+              const authDoc = resolveSessionDocument(item, docMap);
+              const status = authDoc?.status;
+              return (
+                <li
+                  key={item.documentId ?? item.localId}
+                  className="rounded-lg border border-[var(--border)] bg-white/[0.02] px-4 py-3"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-zinc-200">
+                        {item.filename}
+                      </p>
+                      <p className="mt-0.5 text-xs text-zinc-500">
+                        {formatBytes(item.byteSize)}
+                        {item.phase === "uploading"
+                          ? ` · uploading ${item.progress}%`
+                          : item.phase === "signing"
+                            ? " · preparing upload"
+                            : item.phase === "enqueueing"
+                              ? " · finishing upload"
+                              : item.phase === "done" && status
+                                ? ` · analysis: ${analysisLabel({
+                                    status,
+                                    lastStage: authDoc?.lastStage,
+                                    reprocessErrorMessage:
+                                      authDoc?.reprocessErrorMessage,
+                                  })}`
+                                : item.phase === "error"
+                                  ? ""
+                                  : " · waiting"}
+                      </p>
+                      {item.error ? (
+                        <p className="mt-1 text-xs text-red-400">{item.error}</p>
+                      ) : null}
                     </div>
-                    {item.phase === "done" ? (
-                      <div
-                        className={`mt-1 text-[11px] font-medium uppercase tracking-wide ${statusTone(item.status)}`}
-                      >
-                        {analysisLabel(item)}
+                    <div className="shrink-0 text-right">
+                      <div className="text-[11px] uppercase tracking-wide text-zinc-500">
+                        {item.phase === "done" ? "Upload complete" : item.phase}
                       </div>
-                    ) : null}
+                      {item.phase === "done" && status ? (
+                        <div
+                          className={`mt-1 text-[11px] font-medium uppercase tracking-wide ${statusTone(status, authDoc ?? undefined)}`}
+                        >
+                          {analysisLabel({
+                            status,
+                            lastStage: authDoc?.lastStage,
+                            reprocessErrorMessage:
+                              authDoc?.reprocessErrorMessage,
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-                {(item.phase === "uploading" ||
-                  item.phase === "enqueueing" ||
-                  item.phase === "done") && (
-                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/5">
-                    <div
-                      className="h-full rounded-full bg-indigo-400/80 transition-[width]"
-                      style={{ width: `${item.progress}%` }}
-                    />
-                  </div>
-                )}
-              </li>
-            ))}
+                  {(item.phase === "uploading" ||
+                    item.phase === "enqueueing" ||
+                    item.phase === "done") && (
+                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/5">
+                      <div
+                        className="h-full rounded-full bg-indigo-400/80 transition-[width]"
+                        style={{ width: `${item.progress}%` }}
+                      />
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
       ) : null}

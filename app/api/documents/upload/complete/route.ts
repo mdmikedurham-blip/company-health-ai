@@ -71,15 +71,29 @@ export async function POST(request: Request) {
       client,
     });
 
+    const status = kickoff.status ?? document.status;
+    logUploadProcessingEvent("manual_upload_processing_kickoff", {
+      documentId: document.id,
+      companyId,
+      stage: "upload_complete_status",
+      outcome: kickoff.accepted ? "accepted" : "failed",
+      status,
+      upload_id: document.id,
+      analysis_job_id: document.id,
+    });
+
     return NextResponse.json({
       document: {
         ...document,
-        status: kickoff.status ?? document.status,
+        status,
       },
       enqueued: true,
       processingKickedOff: kickoff.accepted,
       kickoff,
-      status: kickoff.status ?? document.status,
+      status,
+      document_id: document.id,
+      upload_id: document.id,
+      analysis_job_id: document.id,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

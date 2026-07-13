@@ -47,13 +47,20 @@ export {
   isTerminalUploadStatus,
 } from "./claim";
 export {
-  reconcileSessionItems,
-  applySessionPollTimeouts,
-  shouldPollUploadLists,
   shouldSkipReprocess,
   isInFlightUploadStatus,
-  SESSION_POLL_TIMEOUT_MS,
-  SESSION_POLL_TIMEOUT_MESSAGE,
+  isTerminalUploadStatus as isTerminalSessionStatus,
+  pruneSessionEntries,
+  buildSessionDisplayRows,
+  clearStaleUploadSessionStorage,
+  shouldPollDocumentIds,
+  documentsById,
+  resolveSessionDocument,
+  UPLOAD_SESSION_STORAGE_KEYS,
+} from "./session-reconcile";
+export type {
+  SessionUploadEntry,
+  AuthoritativeDocument,
 } from "./session-reconcile";
 export {
   kickoffDocumentProcessing,
