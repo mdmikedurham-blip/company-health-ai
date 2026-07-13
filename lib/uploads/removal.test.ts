@@ -21,6 +21,7 @@ vi.mock("./stale-recovery", () => ({
   recoverAbandonedManualUploadJobs: vi.fn().mockResolvedValue({
     requeuedProcessingIds: [],
     staleExtractedIds: [],
+    recoveredAnalyzingIds: [],
   }),
 }));
 
@@ -385,6 +386,7 @@ describe("removeManualUploadDocument", () => {
     recoverMock.mockResolvedValue({
       requeuedProcessingIds: [],
       staleExtractedIds: [],
+      recoveredAnalyzingIds: [],
     });
   });
 
@@ -582,6 +584,7 @@ describe("removeManualUploadDocument", () => {
       return {
         requeuedProcessingIds: ["doc-stale"],
         staleExtractedIds: [],
+        recoveredAnalyzingIds: [],
       };
     });
     const client = createRemovalClient({ docs });

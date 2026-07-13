@@ -1,15 +1,17 @@
 /**
- * Automatic recovery for abandoned extraction / EXTRACTED jobs.
+ * Automatic recovery for abandoned extraction / EXTRACTED / ANALYZING jobs.
  *
- * UI "Extracting" = DB status PROCESSING. Workers claim with a lease; if the
- * process is killed mid-download/extract, the lease stays until expiry and the
- * row never leaves PROCESSING unless something reclaims it.
+ * UI "Extracting" = DB status PROCESSING.
+ * UI "Analyzing" = DB status ANALYZING (or EXTRACTED waiting for analysis).
+ * Workers claim with a lease; if the process is killed mid-download/extract/
+ * analysis, rows can stall until recovery requeues or resets them.
  */
 
 import type { AppSupabaseClient } from "@/lib/supabase/client";
 import {
   MANUAL_UPLOAD_CONNECTOR_ID,
   PROCESSING_STALE_MS,
+  STALE_ANALYZING_MS,
   STALE_EXTRACTED_MS,
 } from "./constants";
 import { logUploadProcessingEvent } from "./logging";
@@ -17,6 +19,8 @@ import { logUploadProcessingEvent } from "./logging";
 export type StaleRecoveryResult = {
   requeuedProcessingIds: string[];
   staleExtractedIds: string[];
+  /** ANALYZING → EXTRACTED so company analysis can retry. */
+  recoveredAnalyzingIds: string[];
 };
 
 function isLeaseAbandoned(
@@ -43,6 +47,7 @@ function isLeaseAbandoned(
 
 /**
  * Requeue PROCESSING jobs whose lease expired / worker abandoned extraction.
+ * Reset stale ANALYZING → EXTRACTED.
  * Returns EXTRACTED ids that have been parked too long without analysis.
  */
 export async function recoverAbandonedManualUploadJobs(input: {
@@ -102,7 +107,6 @@ export async function recoverAbandonedManualUploadJobs(input: {
       .eq("id", row.id)
       .eq("company_id", companyId)
       .eq("status", "PROCESSING")
-      // Only reclaim when lease is still expired / missing — never steal an active lease.
       .or(
         `lease_expires_at.is.null,lease_expires_at.lte.${now.toISOString()}`,
       )
@@ -129,6 +133,61 @@ export async function recoverAbandonedManualUploadJobs(input: {
     });
   }
 
+  // Stale ANALYZING — worker likely killed after marking analyzing; reset for retry.
+  const analyzingCutoff = new Date(
+    now.getTime() - STALE_ANALYZING_MS,
+  ).toISOString();
+  const { data: analyzingRows, error: analyzingError } = await client
+    .from("documents")
+    .select("id, updated_at, last_stage")
+    .eq("company_id", companyId)
+    .eq("connector_id", MANUAL_UPLOAD_CONNECTOR_ID)
+    .eq("status", "ANALYZING")
+    .lt("updated_at", analyzingCutoff)
+    .order("updated_at", { ascending: true })
+    .limit(limit);
+
+  if (analyzingError) {
+    throw new Error(
+      `recoverAbandonedManualUploadJobs.analyzing: ${analyzingError.message}`,
+    );
+  }
+
+  const recoveredAnalyzingIds: string[] = [];
+  for (const row of analyzingRows ?? []) {
+    const { data: updated, error } = await client
+      .from("documents")
+      .update({
+        status: "EXTRACTED",
+        last_stage: "analyzing_stale_recovery",
+        error_message: null,
+        locked_at: null,
+        lease_expires_at: null,
+      })
+      .eq("id", row.id)
+      .eq("company_id", companyId)
+      .eq("status", "ANALYZING")
+      .select("id")
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(
+        `recoverAbandonedManualUploadJobs.analyzing_reset: ${error.message}`,
+      );
+    }
+    if (!updated?.id) continue;
+    recoveredAnalyzingIds.push(updated.id);
+    logUploadProcessingEvent("manual_upload_stale_analyzing_recovered", {
+      documentId: updated.id,
+      companyId,
+      stage: "stale_analyzing",
+      outcome: "reset_extracted",
+      status: "EXTRACTED",
+      updatedAt: row.updated_at ?? undefined,
+      priorLastStage: row.last_stage ?? undefined,
+    });
+  }
+
   const extractedCutoff = new Date(
     now.getTime() - STALE_EXTRACTED_MS,
   ).toISOString();
@@ -149,7 +208,10 @@ export async function recoverAbandonedManualUploadJobs(input: {
     );
   }
 
-  const staleExtractedIds = (extractedRows ?? []).map((r) => r.id);
+  const staleExtractedIds = [
+    ...recoveredAnalyzingIds,
+    ...(extractedRows ?? []).map((r) => r.id),
+  ];
   for (const row of extractedRows ?? []) {
     logUploadProcessingEvent("manual_upload_stale_extracted_recovered", {
       documentId: row.id,
@@ -162,5 +224,9 @@ export async function recoverAbandonedManualUploadJobs(input: {
     });
   }
 
-  return { requeuedProcessingIds, staleExtractedIds };
+  return {
+    requeuedProcessingIds,
+    staleExtractedIds,
+    recoveredAnalyzingIds,
+  };
 }

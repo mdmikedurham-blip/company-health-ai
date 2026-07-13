@@ -31,7 +31,8 @@ export const maxDuration = 300;
  * GET|POST /api/cron/sync-connectors
  *
  * Recovery path for manual uploads (QUEUED, abandoned PROCESSING / expired
- * leases, and parked EXTRACTED) via the same worker as immediate kickoff.
+ * leases, parked EXTRACTED, and stale ANALYZING) via the same worker as
+ * immediate kickoff.
  * Also runs Google Drive incremental sync.
  *
  * Latency note: Vercel Hobby allows only once-daily crons. User-facing latency
@@ -75,7 +76,7 @@ async function runScheduledSync(request: Request) {
       throw new Error(staleError.message);
     }
 
-    // Parked EXTRACTED docs need company analysis recovery (UI "Analyzing").
+    // Parked EXTRACTED / stale ANALYZING docs need company analysis recovery.
     const { data: extractedRows, error: extractedError } = await client
       .from("documents")
       .select("company_id")
@@ -86,11 +87,22 @@ async function runScheduledSync(request: Request) {
       throw new Error(extractedError.message);
     }
 
+    const { data: analyzingRows, error: analyzingError } = await client
+      .from("documents")
+      .select("company_id")
+      .eq("connector_id", MANUAL_UPLOAD_CONNECTOR_ID)
+      .eq("status", "ANALYZING");
+
+    if (analyzingError) {
+      throw new Error(analyzingError.message);
+    }
+
     const manualCompanyIds = [
       ...new Set([
         ...(queuedRows ?? []).map((row) => row.company_id),
         ...(staleRows ?? []).map((row) => row.company_id),
         ...(extractedRows ?? []).map((row) => row.company_id),
+        ...(analyzingRows ?? []).map((row) => row.company_id),
       ]),
     ];
     const manualResults = [];
