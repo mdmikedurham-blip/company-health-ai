@@ -63,6 +63,22 @@ export type {
   AuthoritativeDocument,
 } from "./session-reconcile";
 export {
+  PIPELINE_STEPS,
+  PIPELINE_HEARTBEAT_STALE_MS,
+  PIPELINE_STEP_LABELS,
+  advancePipelineStep,
+  failPipelineStep,
+  heartbeatPipelineStep,
+  pipelineUiStateFromDocument,
+  resumePipelineStep,
+  requeueFromPipelineStep,
+} from "./pipeline";
+export type {
+  PipelineStep,
+  PipelineErrorCategory,
+  PipelineUiState,
+} from "./pipeline";
+export {
   kickoffDocumentProcessing,
   kickoffDocumentProcessingBatch,
   PROCESSING_KICKOFF_TIMEOUT_MS,

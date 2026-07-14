@@ -24,6 +24,7 @@ import {
   shouldSkipReprocess,
   type SessionUploadEntry,
 } from "@/lib/uploads/session-reconcile";
+import { pipelineUiStateFromDocument } from "@/lib/uploads/pipeline";
 
 type UploadedDocumentRecord = {
   id: string;
@@ -40,6 +41,12 @@ type UploadedDocumentRecord = {
   lockedAt?: string | null;
   processingStartedAt?: string | null;
   lastStage?: string | null;
+  pipelineStep?: string | null;
+  lastSuccessfulPipelineStep?: string | null;
+  pipelineHeartbeatAt?: string | null;
+  failedStep?: string | null;
+  errorCategory?: string | null;
+  retryable?: boolean | null;
   errorMessage?: string | null;
   reprocessErrorMessage?: string | null;
   extractionVersion?: string | null;
@@ -92,12 +99,18 @@ function statusTone(
 function analysisLabel(doc: {
   status?: string;
   lastStage?: string | null;
+  pipelineStep?: string | null;
+  failedStep?: string | null;
   reprocessErrorMessage?: string | null;
 }): string {
-  return progressLabelForStatus(doc.status ?? "", {
-    lastStage: doc.lastStage,
-    reprocessErrorMessage: doc.reprocessErrorMessage,
-  });
+  return String(
+    progressLabelForStatus(doc.status ?? "", {
+      lastStage: doc.lastStage,
+      pipelineStep: doc.pipelineStep,
+      failedStep: doc.failedStep,
+      reprocessErrorMessage: doc.reprocessErrorMessage,
+    }),
+  );
 }
 
 function actionsForDocument(doc: UploadedDocumentRecord): ManualUploadRowAction[] {
@@ -702,8 +715,13 @@ export function DocumentUploadPanel({
           <h3 className="text-sm font-medium text-zinc-200">This session</h3>
           <ul className="space-y-2">
             {visibleSession.map((item) => {
-              const authDoc = resolveSessionDocument(item, docMap);
+              const authDoc = resolveSessionDocument(item, docMap) as
+                | UploadedDocumentRecord
+                | null;
               const status = authDoc?.status;
+              const pipelineUi = authDoc
+                ? pipelineUiStateFromDocument(authDoc)
+                : null;
               return (
                 <li
                   key={item.documentId ?? item.localId}
@@ -723,9 +741,11 @@ export function DocumentUploadPanel({
                             : item.phase === "enqueueing"
                               ? " · finishing upload"
                               : item.phase === "done" && status
-                                ? ` · analysis: ${analysisLabel({
+                                ? ` · ${analysisLabel({
                                     status,
                                     lastStage: authDoc?.lastStage,
+                                    pipelineStep: authDoc?.pipelineStep,
+                                    failedStep: authDoc?.failedStep,
                                     reprocessErrorMessage:
                                       authDoc?.reprocessErrorMessage,
                                   })}`
@@ -735,6 +755,11 @@ export function DocumentUploadPanel({
                       </p>
                       {item.error ? (
                         <p className="mt-1 text-xs text-red-400">{item.error}</p>
+                      ) : null}
+                      {pipelineUi?.waitingReason ? (
+                        <p className="mt-1 text-[11px] text-zinc-500">
+                          {pipelineUi.waitingReason}
+                        </p>
                       ) : null}
                     </div>
                     <div className="shrink-0 text-right">
@@ -748,6 +773,8 @@ export function DocumentUploadPanel({
                           {analysisLabel({
                             status,
                             lastStage: authDoc?.lastStage,
+                            pipelineStep: authDoc?.pipelineStep,
+                            failedStep: authDoc?.failedStep,
                             reprocessErrorMessage:
                               authDoc?.reprocessErrorMessage,
                           })}
@@ -839,6 +866,7 @@ export function DocumentUploadPanel({
               const blocked = isDocRemovalBlocked(doc);
               const rowBusy = reprocessing || removing || cancelling;
               const inFlight = shouldSkipReprocess(doc.status);
+              const pipelineUi = pipelineUiStateFromDocument(doc);
               return (
                 <li
                   key={doc.id}
@@ -851,16 +879,39 @@ export function DocumentUploadPanel({
                     <p className="mt-0.5 text-xs text-zinc-500">
                       {doc.byteSize != null ? formatBytes(doc.byteSize) : "—"}
                       {doc.mimeType ? ` · ${doc.mimeType}` : ""}
-                      {" · analysis: "}
+                      {" · "}
                       <span className={statusTone(doc.status, doc)}>
                         {analysisLabel(doc)}
                       </span>
                     </p>
-                    {(doc.errorMessage || doc.reprocessErrorMessage) && (
+                    {doc.status === "FAILED" ? (
+                      <div className="mt-1 max-w-xl space-y-0.5 text-[11px] leading-snug text-red-300/90">
+                        {pipelineUi.failedStepLabel ? (
+                          <p>Failed step: {pipelineUi.failedStepLabel}</p>
+                        ) : null}
+                        {pipelineUi.errorCategory ? (
+                          <p>Category: {pipelineUi.errorCategory}</p>
+                        ) : null}
+                        {doc.errorMessage || doc.reprocessErrorMessage ? (
+                          <p>
+                            {doc.reprocessErrorMessage ?? doc.errorMessage}
+                          </p>
+                        ) : null}
+                        <p>
+                          {pipelineUi.retryable
+                            ? "Retryable — resumes from the failed step only."
+                            : "Not retryable — re-upload required."}
+                        </p>
+                      </div>
+                    ) : pipelineUi.waitingReason ? (
+                      <p className="mt-1 max-w-xl text-[11px] leading-snug text-zinc-500">
+                        {pipelineUi.waitingReason}
+                      </p>
+                    ) : doc.errorMessage || doc.reprocessErrorMessage ? (
                       <p className="mt-1 max-w-xl text-[11px] leading-snug text-red-300/90">
                         {doc.reprocessErrorMessage ?? doc.errorMessage}
                       </p>
-                    )}
+                    ) : null}
                   </div>
                   <div className="flex shrink-0 items-center gap-3">
                     {actions.includes("retry") ? (
@@ -875,15 +926,16 @@ export function DocumentUploadPanel({
                         }`}
                       >
                         {reprocessing
-                          ? "Reprocessing…"
+                          ? "Retrying step…"
                           : inFlight
                             ? "Processing…"
-                            : doc.status === "PROCESSED"
-                              ? "Reprocess"
-                              : "Retry"}
+                            : doc.status === "FAILED"
+                              ? "Retry failed step"
+                              : doc.status === "PROCESSED"
+                                ? "Reprocess"
+                                : "Retry"}
                       </button>
-                    ) : null}
-                    {actions.includes("cancel") ? (
+                    ) : null}                    {actions.includes("cancel") ? (
                       <button
                         type="button"
                         disabled={rowBusy}

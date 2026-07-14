@@ -1,3 +1,8 @@
+import {
+  mapLegacyStageToPipelineStep,
+  pipelineStepLabel,
+} from "./pipeline";
+
 /** Manual upload connector id — distinct from google-drive inventory. */
 export const MANUAL_UPLOAD_CONNECTOR_ID = "manual-upload" as const;
 
@@ -168,14 +173,27 @@ export function progressLabelForStatus(
   opts?: {
     reprocessErrorMessage?: string | null;
     lastStage?: string | null;
+    pipelineStep?: string | null;
+    failedStep?: string | null;
   },
-): UploadProgressLabel {
+): UploadProgressLabel | string {
   if (
     status === "PROCESSED" &&
     (opts?.reprocessErrorMessage ||
       opts?.lastStage === "reprocess_failed")
   ) {
     return "Reprocess failed — previous analysis retained";
+  }
+  if (status === "FAILED" && opts?.failedStep) {
+    return `Failed at ${pipelineStepLabel(opts.failedStep)}`;
+  }
+  // Prefer durable pipeline step over opaque PROCESSING/ANALYZING.
+  if (opts?.pipelineStep && status !== "FAILED" && status !== "PROCESSED") {
+    return pipelineStepLabel(opts.pipelineStep);
+  }
+  if (opts?.lastStage && status !== "FAILED" && status !== "PROCESSED") {
+    const mapped = mapLegacyStageToPipelineStep(opts.lastStage);
+    if (mapped) return pipelineStepLabel(mapped);
   }
   const reprocessing =
     opts?.lastStage === "version_stale" ||
@@ -187,10 +205,11 @@ export function progressLabelForStatus(
     case "QUEUED":
       return reprocessing ? "Reprocessing" : "Queued";
     case "PROCESSING":
-      return reprocessing ? "Reprocessing" : "Extracting";
+      return reprocessing ? "Reprocessing" : "Text extraction";
     case "EXTRACTED":
+      return reprocessing ? "Reprocessing" : "Finding generation";
     case "ANALYZING":
-      return reprocessing ? "Reprocessing" : "Analyzing";
+      return reprocessing ? "Reprocessing" : "Company assessment update";
     case "STALE":
       return "Update available";
     case "PROCESSED":
