@@ -13,9 +13,9 @@ import {
   isServiceRoleConfigured,
   isSupabaseConfigured,
 } from "@/lib/supabase";
+import { buildOpportunityNavigatorFromEvidence } from "@/lib/enterprise-value";
 import {
   applyScenario,
-  buildNavigatorFromEvidence,
   estimateEnterpriseValue,
   listScenarioCatalog,
   valuationInputFromEvidence,
@@ -62,7 +62,7 @@ export async function GET() {
       snapshotId = null;
     }
 
-    const view = buildNavigatorFromEvidence({
+    const view = buildOpportunityNavigatorFromEvidence({
       companyId,
       snapshotId,
       assessmentGoal,

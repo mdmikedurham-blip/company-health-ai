@@ -4,6 +4,7 @@
  */
 
 import type { AssessmentGoalId } from "./assessment-goal";
+import type { EnterpriseValueEstimate } from "./enterprise-value";
 import type { CompanyId } from "./primitives";
 
 export type MoneyRange = {
@@ -96,6 +97,9 @@ export type CompanyValueNavigator = {
   valuationMethod: ValuationMethodId;
   currentEstimatedEnterpriseValueRange: MoneyRange;
   potentialEnterpriseValueRange: MoneyRange;
+  /** Enterprise Value Opportunity (potential − current). */
+  enterpriseValueOpportunity: MoneyRange;
+  /** @deprecated Prefer enterpriseValueOpportunity */
   valueGap: MoneyRange;
   probabilityOfAchievingPotential: number;
   valuationConfidence: number;
@@ -121,6 +125,11 @@ export type CompanyValueNavigator = {
 
 export type ValueNavigatorView = {
   navigator: CompanyValueNavigator;
+  /**
+   * Transparent EV Opportunity model (ranges + discounts + missing evidence).
+   * Source of truth for dashboard Enterprise Value Opportunity card.
+   */
+  enterpriseValue: EnterpriseValueEstimate | null;
   scenarios: ValueScenario[];
   timeline: Array<{
     label: string;

@@ -1,4 +1,11 @@
-export { moneyRange, mid, valueGap, formatUsdRange, clampPct } from "./money";
+export {
+  moneyRange,
+  mid,
+  valueGap,
+  widenRangeForConfidence,
+  formatUsdRange,
+  clampPct,
+} from "./money";
 export { valuationInputFromSnapshot } from "./input-from-snapshot";
 export { valuationInputFromEvidence } from "./input-from-evidence";
 export { buildNavigatorFromEvidence } from "./from-evidence";

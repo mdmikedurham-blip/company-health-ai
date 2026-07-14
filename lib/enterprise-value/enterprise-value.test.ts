@@ -13,10 +13,13 @@ import {
   confidenceGainDoesNotInflateIntrinsicValue,
   estimateTransparentEnterpriseValue,
 } from "@/lib/enterprise-value";
+import { enrichInvestigation } from "@/lib/doctor/conversation/enrich-investigation";
 import {
   applyScenario,
   estimateEnterpriseValue,
+  mid,
   valuationInputFromEvidence,
+  widenRangeForConfidence,
 } from "@/lib/value-navigator";
 
 function financialEvidence(
@@ -324,5 +327,150 @@ describe("Phase 11 — enterprise value", () => {
     expect(home.provenance.companyId).toBe("tenant-p11");
     // No Acme demo company id leakage.
     expect(home.provenance.companyId).not.toBe("company-acme");
+  });
+});
+
+describe("Enterprise Value Opportunity v1", () => {
+  it("exposes today, potential, opportunity, and confidence ranges", () => {
+    const est = estimateTransparentEnterpriseValue({
+      companyId: "co",
+      snapshotId: "snap",
+      assessmentGoal: "run-the-company",
+      evidence: [
+        financialEvidence({
+          revenue: 5_000_000,
+          revenueGrowth: 0.08,
+          top3CustomerArrShare: 0.45,
+          grossMargin: 0.55,
+        }),
+      ],
+    });
+    expect(est.available).toBe(true);
+    expect(est.currentEnterpriseValueRange!.high).toBeGreaterThan(0);
+    expect(est.potentialEnterpriseValueRange!.high).toBeGreaterThan(0);
+    expect(est.enterpriseValueOpportunityRange).not.toBeNull();
+    expect(est.enterpriseValueOpportunityRange).toEqual(est.valueGapRange);
+    expect(est.valuationConfidence).toBeGreaterThan(0);
+    expect(est.valuationConfidence).toBeLessThanOrEqual(100);
+  });
+
+  it("each discount includes title, impact, explanation, evidence, next action", () => {
+    const est = estimateTransparentEnterpriseValue({
+      companyId: "co",
+      snapshotId: "snap",
+      assessmentGoal: "run-the-company",
+      evidence: [
+        financialEvidence({
+          revenue: 5_000_000,
+          revenueGrowth: 0.05,
+          top3CustomerArrShare: 0.5,
+          cashRunwayMonths: 6,
+        }),
+      ],
+    });
+    expect(est.discounts.length).toBeGreaterThan(0);
+    for (const d of est.discounts) {
+      expect(d.title.length).toBeGreaterThan(0);
+      expect(d.impactRange.high).toBeGreaterThanOrEqual(d.impactRange.low);
+      expect(d.rationale.length).toBeGreaterThan(10);
+      expect(d.evidenceSummary.length).toBeGreaterThan(0);
+      expect(d.recommendedNextAction.length).toBeGreaterThan(0);
+      expect(["supporting", "missing"]).toContain(d.evidenceStatus);
+    }
+  });
+
+  it("widens ranges as confidence decreases", () => {
+    const base = { low: 10_000_000, high: 20_000_000, currency: "USD" as const };
+    const highConf = widenRangeForConfidence(base, 95);
+    const lowConf = widenRangeForConfidence(base, 30);
+    expect(lowConf.high - lowConf.low).toBeGreaterThan(
+      highConf.high - highConf.low,
+    );
+    expect(Math.abs(mid(highConf) - mid(base))).toBeLessThan(1);
+  });
+
+  it("identifies missing evidence that reduces uncertainty", () => {
+    const est = estimateTransparentEnterpriseValue({
+      companyId: "co",
+      snapshotId: "snap",
+      assessmentGoal: "run-the-company",
+      evidence: [financialEvidence({ revenue: 3_000_000 })],
+    });
+    expect(est.missingEvidencePriorities.length).toBeGreaterThan(0);
+    expect(est.missingEvidencePriorities[0]!.why.length).toBeGreaterThan(10);
+    expect(est.evidenceDiscounts.every((d) => d.kind === "evidence")).toBe(
+      true,
+    );
+  });
+
+  it("does not double-count concentration in multiple and business discount", () => {
+    const input = valuationInputFromEvidence({
+      companyId: "co",
+      snapshotId: "s",
+      assessmentGoal: "run-the-company",
+      evidence: [
+        financialEvidence({
+          revenue: 4_000_000,
+          revenueGrowth: 0.25,
+          grossMargin: 0.7,
+          top3CustomerArrShare: 0.5,
+        }),
+      ],
+    });
+    const raw = estimateEnterpriseValue(input);
+    // Base multiple without concentration haircut: 4–8 (+growth/margin boosts).
+    // With growth≥30% false and margin≥70%: 4.5–9.5 → but growth is 25% so 4–8 + margin 0.5–1.5 = 4.5–9.5
+    expect(raw.assumptions.some((a) => a.id === "mm-concentration")).toBe(
+      false,
+    );
+    const business = computeBusinessDiscounts(input, raw);
+    expect(business.some((d) => d.id === "biz-concentration")).toBe(true);
+  });
+
+  it("Doctor recommendations estimate EV increase, confidence, evidence, effort", () => {
+    const home = runDoctorCycleInMemory({
+      snapshot: snapWithEvidence([
+        financialEvidence({
+          revenue: 4_000_000,
+          revenueGrowth: 0.08,
+          top3CustomerArrShare: 0.42,
+          cashRunwayMonths: 7,
+        }),
+      ]),
+      goal: "run-the-company",
+      stage: "Growth",
+    });
+    const inv = home.currentInvestigation;
+    expect(inv).not.toBeNull();
+    const enriched = enrichInvestigation({
+      investigation: inv!,
+      snapshot: snapWithEvidence([
+        financialEvidence({
+          revenue: 4_000_000,
+          revenueGrowth: 0.08,
+          top3CustomerArrShare: 0.42,
+          cashRunwayMonths: 7,
+        }),
+      ]),
+      goal: "run-the-company",
+      observation: home.topObservation,
+    });
+    if (enriched.recommendation) {
+      expect(
+        enriched.recommendation.expectedEnterpriseValueIncrease ??
+          enriched.recommendation.estimatedValueImpact,
+      ).not.toBeNull();
+      expect(
+        enriched.recommendation.estimatedConfidenceIncrease,
+      ).toBeGreaterThan(0);
+      expect(enriched.recommendation.estimatedEffort).toBeTruthy();
+      expect(
+        (enriched.recommendation.evidenceRequired ?? []).length,
+      ).toBeGreaterThan(0);
+    } else if (enriched.evidenceRequest) {
+      expect(enriched.estimatedValueImpact).not.toBeNull();
+      expect(enriched.estimatedConfidenceGain).toBeGreaterThan(0);
+      expect(enriched.evidenceRequest.estimatedEffort).toBeTruthy();
+    }
   });
 });

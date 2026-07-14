@@ -7,17 +7,35 @@ import type { MoneyRange, ValuationMethodId, ValueAssumption } from "./value-nav
 
 export type ValuationDiscountKind = "business" | "evidence";
 
+export type ValuationDiscountEvidenceStatus = "supporting" | "missing";
+
 export type ValuationDiscount = {
   id: string;
   kind: ValuationDiscountKind;
   title: string;
+  /** Estimated value impact range (reduction to current EV). */
   impactRange: MoneyRange;
+  /** Explanation of why this discount applies. */
   rationale: string;
   confidence: number;
   supportingEvidenceIds: string[];
+  /** Human-readable evidence status for the discount line. */
+  evidenceStatus: ValuationDiscountEvidenceStatus;
+  /** Evidence supporting the discount, or exactly what is missing. */
+  evidenceSummary: string;
   assumptions: ValueAssumption[];
   /** What evidence or improvement would reduce/remove this discount. */
   whatWouldReduceIt: string;
+  /** Recommended next action to reduce this discount. */
+  recommendedNextAction: string;
+};
+
+/** Missing evidence that most reduces valuation uncertainty when supplied. */
+export type MissingEvidencePriority = {
+  key: string;
+  label: string;
+  why: string;
+  estimatedConfidenceGain: number;
 };
 
 export type ComparableBasis = {
@@ -44,15 +62,28 @@ export type EnterpriseValueEstimate = {
   available: boolean;
   unavailableReason: string | null;
   missingUnlockInput: string | null;
+  /** Estimated Enterprise Value Today (range). */
   currentEnterpriseValueRange: MoneyRange | null;
+  /** Potential Enterprise Value (range). */
   potentialEnterpriseValueRange: MoneyRange | null;
+  /**
+   * Enterprise Value Opportunity — potential minus current (range).
+   * Alias of valueGapRange for product naming.
+   */
+  enterpriseValueOpportunityRange: MoneyRange | null;
+  /** @deprecated Prefer enterpriseValueOpportunityRange */
   valueGapRange: MoneyRange | null;
+  /** Confidence score 0–100. */
   valuationConfidence: number;
   valuationMethod: ValuationMethodId | "unavailable";
   businessDiscountRange: MoneyRange | null;
   evidenceDiscountRange: MoneyRange | null;
   businessDiscounts: ValuationDiscount[];
   evidenceDiscounts: ValuationDiscount[];
+  /** Unified discount list for UI (business then evidence). */
+  discounts: ValuationDiscount[];
+  /** Missing evidence ranked by uncertainty reduction. */
+  missingEvidencePriorities: MissingEvidencePriority[];
   assumptions: ValueAssumption[];
   comparableBasis: ComparableBasis | null;
   potentialScenario: PotentialValueScenario | null;

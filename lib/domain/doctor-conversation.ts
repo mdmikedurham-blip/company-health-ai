@@ -69,8 +69,14 @@ export type DoctorNextAction = {
   whyItMatters?: string;
   expectedInsight?: string;
   estimatedEffort?: "low" | "medium" | "high";
+  /** Expected confidence improvement from completing this action. */
   estimatedConfidenceIncrease?: number;
+  /** Expected enterprise value increase range. */
   estimatedValueImpact?: MoneyRange | null;
+  /** Alias used in EV Opportunity framing. */
+  expectedEnterpriseValueIncrease?: MoneyRange | null;
+  /** Evidence required before / with this recommendation. */
+  evidenceRequired?: string[];
   questionsItMayAnswer?: string[];
   connectorOrUploadType?: "upload" | "connector";
   whyRanksAboveAlternatives?: string;

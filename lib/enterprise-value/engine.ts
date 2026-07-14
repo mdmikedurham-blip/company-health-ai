@@ -1,5 +1,5 @@
 /**
- * Transparent Enterprise Value Engine — Phase 11.
+ * Transparent Enterprise Value Opportunity Engine (v1).
  * Wraps Phase 10 valuation plugins with business vs evidence discounts.
  * Demo safety: no valuation when required financial inputs are absent.
  */
@@ -9,6 +9,7 @@ import type { AssessmentGoalId } from "@/lib/domain/assessment-goal";
 import type {
   ComparableBasis,
   EnterpriseValueEstimate,
+  MissingEvidencePriority,
   PotentialValueScenario,
   ValuationDiscount,
 } from "@/lib/domain/enterprise-value";
@@ -18,14 +19,15 @@ import type {
   ValuationEstimateInput,
   ValueAssumption,
 } from "@/lib/domain/value-navigator";
+import { valuationInputFromEvidence } from "@/lib/value-navigator/input-from-evidence";
 import {
-  estimateEnterpriseValue,
-  valuationInputFromEvidence,
   moneyRange,
   mid,
   valueGap,
+  widenRangeForConfidence,
   clampPct,
-} from "@/lib/value-navigator";
+} from "@/lib/value-navigator/money";
+import { estimateEnterpriseValue } from "@/lib/value-navigator/providers/registry";
 
 const DEFAULT_HORIZON_MONTHS = 36;
 
@@ -81,6 +83,34 @@ function buildComparableBasis(
   };
 }
 
+function evidenceSummaryPresent(
+  evidenceIds: string[],
+  factLabel: string,
+): Pick<
+  ValuationDiscount,
+  "evidenceStatus" | "evidenceSummary" | "supportingEvidenceIds"
+> {
+  return {
+    evidenceStatus: "supporting",
+    evidenceSummary:
+      evidenceIds.length > 0
+        ? `Supported by extracted ${factLabel} on ${evidenceIds.length} evidence item${evidenceIds.length === 1 ? "" : "s"}.`
+        : `Supported by extracted ${factLabel} (evidence id not linked).`,
+    supportingEvidenceIds: evidenceIds.slice(0, 3),
+  };
+}
+
+function evidenceSummaryMissing(what: string): Pick<
+  ValuationDiscount,
+  "evidenceStatus" | "evidenceSummary" | "supportingEvidenceIds"
+> {
+  return {
+    evidenceStatus: "missing",
+    evidenceSummary: `Missing evidence: ${what}`,
+    supportingEvidenceIds: [],
+  };
+}
+
 /**
  * Business discounts — actual company weakness from observed facts.
  * Do not double-count into evidence discounts.
@@ -92,12 +122,15 @@ export function computeBusinessDiscounts(
   const discounts: ValuationDiscount[] = [];
   const baseMid = mid(raw.currentRange);
   if (baseMid <= 0) return discounts;
+  const ids = input.evidenceIds;
 
   if (
     input.top3CustomerArrShare != null &&
     input.top3CustomerArrShare >= 0.35
   ) {
     const pct = (input.top3CustomerArrShare * 100).toFixed(0);
+    const next =
+      "Diversify ARR so top-3 customers are ≤20% of revenue (share customer ARR export to track progress).";
     discounts.push({
       id: "biz-concentration",
       kind: "business",
@@ -105,7 +138,7 @@ export function computeBusinessDiscounts(
       impactRange: moneyRange(baseMid * 0.05, baseMid * 0.15),
       rationale: `Top-3 concentration is ${pct}%. Buyers and investors typically apply a risk discount when revenue depends on a few accounts.`,
       confidence: 70,
-      supportingEvidenceIds: input.evidenceIds.slice(0, 3),
+      ...evidenceSummaryPresent(ids, "top-3 customer ARR share"),
       assumptions: [
         {
           id: "biz-conc-band",
@@ -113,12 +146,14 @@ export function computeBusinessDiscounts(
           source: "heuristic",
         },
       ],
-      whatWouldReduceIt:
-        "Diversify ARR so top-3 customers are ≤20% of revenue.",
+      whatWouldReduceIt: next,
+      recommendedNextAction: next,
     });
   }
 
   if (input.growthRate != null && input.growthRate < 0.1) {
+    const next =
+      "Sustainably raise revenue growth toward ≥25% YoY and upload the ARR trend workbook.";
     discounts.push({
       id: "biz-low-growth",
       kind: "business",
@@ -126,7 +161,7 @@ export function computeBusinessDiscounts(
       impactRange: moneyRange(baseMid * 0.04, baseMid * 0.12),
       rationale: `Observed growth ${(input.growthRate * 100).toFixed(0)}% is below a typical growth-stage band, which compresses multiples.`,
       confidence: 65,
-      supportingEvidenceIds: input.evidenceIds.slice(0, 3),
+      ...evidenceSummaryPresent(ids, "revenue growth"),
       assumptions: [
         {
           id: "biz-growth",
@@ -134,11 +169,14 @@ export function computeBusinessDiscounts(
           source: "heuristic",
         },
       ],
-      whatWouldReduceIt: "Sustainably raise revenue growth toward ≥25% YoY.",
+      whatWouldReduceIt: next,
+      recommendedNextAction: next,
     });
   }
 
   if (input.cashRunwayMonths != null && input.cashRunwayMonths < 12) {
+    const next =
+      "Extend runway to ≥12 months via burn reduction or capital; share an updated cash/burn workbook.";
     discounts.push({
       id: "biz-runway",
       kind: "business",
@@ -146,7 +184,7 @@ export function computeBusinessDiscounts(
       impactRange: moneyRange(baseMid * 0.06, baseMid * 0.18),
       rationale: `Runway is ${input.cashRunwayMonths} months. Short runway forces distressed decisions and reduces negotiation leverage.`,
       confidence: 75,
-      supportingEvidenceIds: input.evidenceIds.slice(0, 3),
+      ...evidenceSummaryPresent(ids, "cash runway"),
       assumptions: [
         {
           id: "biz-runway",
@@ -154,11 +192,14 @@ export function computeBusinessDiscounts(
           source: "heuristic",
         },
       ],
-      whatWouldReduceIt: "Extend runway to ≥12 months via burn reduction or capital.",
+      whatWouldReduceIt: next,
+      recommendedNextAction: next,
     });
   }
 
   if (input.churnRate != null && input.churnRate >= 0.08) {
+    const next =
+      "Reduce churn toward ≤4% with retention programs; share a churn or cohort retention report.";
     discounts.push({
       id: "biz-churn",
       kind: "business",
@@ -166,7 +207,7 @@ export function computeBusinessDiscounts(
       impactRange: moneyRange(baseMid * 0.04, baseMid * 0.12),
       rationale: `Churn at ${(input.churnRate * 100).toFixed(0)}% weakens recurring cash-flow quality.`,
       confidence: 60,
-      supportingEvidenceIds: input.evidenceIds.slice(0, 3),
+      ...evidenceSummaryPresent(ids, "churn rate"),
       assumptions: [
         {
           id: "biz-churn",
@@ -174,11 +215,14 @@ export function computeBusinessDiscounts(
           source: "heuristic",
         },
       ],
-      whatWouldReduceIt: "Reduce churn toward ≤4% with retention programs.",
+      whatWouldReduceIt: next,
+      recommendedNextAction: next,
     });
   }
 
   if (input.grossMargin != null && input.grossMargin < 0.6) {
+    const next =
+      "Improve gross margin toward ≥70%; share a COGS / unit-economics workbook.";
     discounts.push({
       id: "biz-margin",
       kind: "business",
@@ -186,7 +230,7 @@ export function computeBusinessDiscounts(
       impactRange: moneyRange(baseMid * 0.03, baseMid * 0.1),
       rationale: `Gross margin ${(input.grossMargin * 100).toFixed(0)}% is below a typical software quality band.`,
       confidence: 55,
-      supportingEvidenceIds: input.evidenceIds.slice(0, 3),
+      ...evidenceSummaryPresent(ids, "gross margin"),
       assumptions: [
         {
           id: "biz-gm",
@@ -194,7 +238,8 @@ export function computeBusinessDiscounts(
           source: "heuristic",
         },
       ],
-      whatWouldReduceIt: "Improve gross margin toward ≥70%.",
+      whatWouldReduceIt: next,
+      recommendedNextAction: next,
     });
   }
 
@@ -215,6 +260,7 @@ export function computeEvidenceDiscounts(
   if (baseMid <= 0) return discounts;
 
   if (input.top3CustomerArrShare == null && !businessIds.has("biz-concentration")) {
+    const next = "Share a customer revenue / ARR-by-account export.";
     discounts.push({
       id: "ev-missing-concentration",
       kind: "evidence",
@@ -223,7 +269,7 @@ export function computeEvidenceDiscounts(
       rationale:
         "Without a customer revenue export, concentration risk cannot be measured — the estimate is discounted for uncertainty.",
       confidence: 50,
-      supportingEvidenceIds: [],
+      ...evidenceSummaryMissing("customer revenue / ARR-by-account export"),
       assumptions: [
         {
           id: "ev-conc",
@@ -231,11 +277,13 @@ export function computeEvidenceDiscounts(
           source: "heuristic",
         },
       ],
-      whatWouldReduceIt: "Share a customer revenue / ARR-by-account export.",
+      whatWouldReduceIt: next,
+      recommendedNextAction: next,
     });
   }
 
   if (input.churnRate == null && input.nrr == null && !businessIds.has("biz-churn")) {
+    const next = "Share a churn report or NRR cohort workbook.";
     discounts.push({
       id: "ev-missing-retention",
       kind: "evidence",
@@ -244,7 +292,7 @@ export function computeEvidenceDiscounts(
       rationale:
         "Retention quality is unknown. The estimate is discounted until churn or NRR evidence arrives.",
       confidence: 45,
-      supportingEvidenceIds: [],
+      ...evidenceSummaryMissing("churn report or NRR cohort workbook"),
       assumptions: [
         {
           id: "ev-ret",
@@ -252,11 +300,13 @@ export function computeEvidenceDiscounts(
           source: "heuristic",
         },
       ],
-      whatWouldReduceIt: "Share a churn report or NRR cohort workbook.",
+      whatWouldReduceIt: next,
+      recommendedNextAction: next,
     });
   }
 
   if (input.growthRate == null && !businessIds.has("biz-low-growth")) {
+    const next = "Share ARR trend or YoY growth in a financial workbook.";
     discounts.push({
       id: "ev-missing-growth",
       kind: "evidence",
@@ -265,19 +315,22 @@ export function computeEvidenceDiscounts(
       rationale:
         "Revenue growth is not observed in the current snapshot — multiple selection is less certain.",
       confidence: 40,
-      supportingEvidenceIds: [],
+      ...evidenceSummaryMissing("ARR trend or YoY growth facts"),
       assumptions: [
         {
           id: "ev-growth",
-          statement: "Missing growth fact applies evidence discount, not a business weakness claim.",
+          statement:
+            "Missing growth fact applies evidence discount, not a business weakness claim.",
           source: "heuristic",
         },
       ],
-      whatWouldReduceIt: "Share ARR trend or YoY growth in a financial workbook.",
+      whatWouldReduceIt: next,
+      recommendedNextAction: next,
     });
   }
 
   if (input.cashRunwayMonths == null && !businessIds.has("biz-runway")) {
+    const next = "Share a cash / burn workbook with runway.";
     discounts.push({
       id: "ev-missing-runway",
       kind: "evidence",
@@ -286,19 +339,23 @@ export function computeEvidenceDiscounts(
       rationale:
         "Runway is unknown. Liquidity risk cannot be ruled out from the current evidence.",
       confidence: 40,
-      supportingEvidenceIds: [],
+      ...evidenceSummaryMissing("cash / burn workbook with runway"),
       assumptions: [
         {
           id: "ev-runway",
-          statement: "Missing runway is an evidence gap, not an asserted short-runway finding.",
+          statement:
+            "Missing runway is an evidence gap, not an asserted short-runway finding.",
           source: "heuristic",
         },
       ],
-      whatWouldReduceIt: "Share a cash / burn workbook with runway.",
+      whatWouldReduceIt: next,
+      recommendedNextAction: next,
     });
   }
 
   if (raw.dataCompleteness < 50) {
+    const next =
+      "Add revenue, margin, growth, retention, and cash facts from one current workbook.";
     discounts.push({
       id: "ev-incomplete",
       kind: "evidence",
@@ -306,6 +363,8 @@ export function computeEvidenceDiscounts(
       impactRange: moneyRange(baseMid * 0.04, baseMid * 0.12),
       rationale: `Data completeness is ${raw.dataCompleteness}%. The estimate remains preliminary until more financial facts are present.`,
       confidence: 55,
+      evidenceStatus: "missing",
+      evidenceSummary: `Missing evidence: financial completeness is ${raw.dataCompleteness}% (need ≥50%).`,
       supportingEvidenceIds: input.evidenceIds.slice(0, 2),
       assumptions: [
         {
@@ -314,12 +373,27 @@ export function computeEvidenceDiscounts(
           source: "heuristic",
         },
       ],
-      whatWouldReduceIt:
-        "Add revenue, margin, growth, retention, and cash facts from one current workbook.",
+      whatWouldReduceIt: next,
+      recommendedNextAction: next,
     });
   }
 
   return discounts;
+}
+
+export function rankMissingEvidencePriorities(
+  evidenceDiscounts: ValuationDiscount[],
+): MissingEvidencePriority[] {
+  return evidenceDiscounts
+    .filter((d) => d.evidenceStatus === "missing")
+    .map((d) => ({
+      key: d.id,
+      label: d.title,
+      why: d.rationale,
+      estimatedConfidenceGain: clampPct(8 + (100 - d.confidence) * 0.12),
+    }))
+    .sort((a, b) => b.estimatedConfidenceGain - a.estimatedConfidenceGain)
+    .slice(0, 5);
 }
 
 function buildPotentialScenario(
@@ -332,11 +406,63 @@ function buildPotentialScenario(
       "Execute the top value drivers over a 36-month horizon",
       "Hold the same valuation method band while improving operating quality",
     ],
-    requiredImprovements: business.map((d) => d.whatWouldReduceIt).slice(0, 5),
+    requiredImprovements: business.map((d) => d.recommendedNextAction).slice(0, 5),
     executionProbability: clampPct(55 - business.length * 5),
     dependencies: ["Leadership capacity", "Capital availability", "Evidence quality"],
     risks: business.map((d) => d.title).slice(0, 4),
     valueRange: adjustedPotential,
+  };
+}
+
+function unavailableEstimate(input: {
+  snapshotId: string | null;
+  generatedAt: string;
+  unlock: string;
+  evidenceIds: string[];
+}): EnterpriseValueEstimate {
+  return {
+    available: false,
+    unavailableReason:
+      "Preliminary valuation unavailable — required financial inputs are not present in the current snapshot.",
+    missingUnlockInput: input.unlock,
+    currentEnterpriseValueRange: null,
+    potentialEnterpriseValueRange: null,
+    enterpriseValueOpportunityRange: null,
+    valueGapRange: null,
+    valuationConfidence: 0,
+    valuationMethod: "unavailable",
+    businessDiscountRange: null,
+    evidenceDiscountRange: null,
+    businessDiscounts: [],
+    evidenceDiscounts: [],
+    discounts: [],
+    missingEvidencePriorities: [
+      {
+        key: `unlock-${input.unlock}`,
+        label: `Share ${input.unlock}`,
+        why: "At least one of revenue, EBITDA, or cash is required to unlock a preliminary enterprise value range.",
+        estimatedConfidenceGain: 40,
+      },
+    ],
+    assumptions: [
+      {
+        id: "no-valuation",
+        statement:
+          "No preliminary enterprise value is shown until at least one of revenue, EBITDA, or cash is present.",
+        source: "heuristic",
+      },
+    ],
+    comparableBasis: null,
+    potentialScenario: null,
+    dataCompleteness: 0,
+    missingInputs: [...MIN_VALUATION_INPUTS],
+    snapshotId: input.snapshotId,
+    generatedAt: input.generatedAt,
+    provenance: {
+      evidenceIds: input.evidenceIds,
+      factKeys: [],
+      note: "Provenance limited — no valuation inputs observed.",
+    },
   };
 }
 
@@ -367,40 +493,12 @@ export function estimateTransparentEnterpriseValue(input: {
         : valuationInput.ebitda == null
           ? "ebitda"
           : "cashBalance";
-    return {
-      available: false,
-      unavailableReason:
-        "Preliminary valuation unavailable — required financial inputs are not present in the current snapshot.",
-      missingUnlockInput: unlock,
-      currentEnterpriseValueRange: null,
-      potentialEnterpriseValueRange: null,
-      valueGapRange: null,
-      valuationConfidence: 0,
-      valuationMethod: "unavailable",
-      businessDiscountRange: null,
-      evidenceDiscountRange: null,
-      businessDiscounts: [],
-      evidenceDiscounts: [],
-      assumptions: [
-        {
-          id: "no-valuation",
-          statement:
-            "No preliminary enterprise value is shown until at least one of revenue, EBITDA, or cash is present.",
-          source: "heuristic",
-        },
-      ],
-      comparableBasis: null,
-      potentialScenario: null,
-      dataCompleteness: 0,
-      missingInputs: [...MIN_VALUATION_INPUTS],
+    return unavailableEstimate({
       snapshotId: input.snapshotId,
       generatedAt,
-      provenance: {
-        evidenceIds: valuationInput.evidenceIds,
-        factKeys: [],
-        note: "Provenance limited — no valuation inputs observed.",
-      },
-    };
+      unlock,
+      evidenceIds: valuationInput.evidenceIds,
+    });
   }
 
   const raw = estimateEnterpriseValue(valuationInput);
@@ -422,11 +520,20 @@ export function estimateTransparentEnterpriseValue(input: {
   // Apply business discount to current; evidence discount widens uncertainty
   // by further reducing the presented current range (never invents upside).
   const afterBusiness = applyDiscount(raw.currentRange, businessDiscountRange);
-  const current = applyDiscount(afterBusiness, evidenceDiscountRange);
+  const discountedCurrent = applyDiscount(afterBusiness, evidenceDiscountRange);
 
   // Potential remains the raw potential band (scenario-based upside), not fiction.
-  const potential = raw.potentialRange;
-  const gap = valueGap(current, potential);
+  const rawPotential = raw.potentialRange;
+
+  // Confidence: raw confidence reduced by evidence discount presence (uncertainty),
+  // not by business discounts (those change value, not confidence the same way).
+  const evidencePenalty = Math.min(25, evidenceDiscounts.length * 6);
+  const valuationConfidence = clampPct(raw.confidence - evidencePenalty);
+
+  // Widen ranges as confidence falls — never fabricate precision.
+  const current = widenRangeForConfidence(discountedCurrent, valuationConfidence);
+  const potential = widenRangeForConfidence(rawPotential, valuationConfidence);
+  const opportunity = valueGap(current, potential);
 
   const assumptions: ValueAssumption[] = [
     ...raw.assumptions,
@@ -434,6 +541,12 @@ export function estimateTransparentEnterpriseValue(input: {
       id: "ev-transparent",
       statement:
         "Business discounts reflect observed weakness; evidence discounts reflect uncertainty. They are kept separate to avoid double-counting.",
+      source: "heuristic",
+    },
+    {
+      id: "ev-range-widen",
+      statement:
+        "Presented ranges widen as confidence decreases so the UI never implies false precision.",
       source: "heuristic",
     },
     {
@@ -458,10 +571,9 @@ export function estimateTransparentEnterpriseValue(input: {
     valuationInput.nrr != null ? "netRevenueRetention" : null,
   ].filter((k): k is string => k != null);
 
-  // Confidence: raw confidence reduced by evidence discount presence (uncertainty),
-  // not by business discounts (those change value, not confidence the same way).
-  const evidencePenalty = Math.min(25, evidenceDiscounts.length * 6);
-  const valuationConfidence = clampPct(raw.confidence - evidencePenalty);
+  const discounts = [...businessDiscounts, ...evidenceDiscounts];
+  const missingEvidencePriorities =
+    rankMissingEvidencePriorities(evidenceDiscounts);
 
   return {
     available: true,
@@ -469,13 +581,16 @@ export function estimateTransparentEnterpriseValue(input: {
     missingUnlockInput: null,
     currentEnterpriseValueRange: current,
     potentialEnterpriseValueRange: potential,
-    valueGapRange: gap,
+    enterpriseValueOpportunityRange: opportunity,
+    valueGapRange: opportunity,
     valuationConfidence,
     valuationMethod: raw.method,
     businessDiscountRange,
     evidenceDiscountRange,
     businessDiscounts,
     evidenceDiscounts,
+    discounts,
+    missingEvidencePriorities,
     assumptions,
     comparableBasis: buildComparableBasis(raw, generatedAt),
     potentialScenario: buildPotentialScenario(potential, businessDiscounts),
