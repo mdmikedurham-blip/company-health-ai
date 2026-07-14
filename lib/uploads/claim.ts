@@ -239,14 +239,21 @@ export async function markDocumentProcessed(input: {
   extractionVersion?: string;
   analysisVersion?: string;
 }): Promise<void> {
+  const now = new Date().toISOString();
   const rich = {
     status: "PROCESSED" as const,
-    last_stage: "processed",
+    last_stage: "complete",
+    pipeline_step: "complete",
+    last_successful_pipeline_step: "complete",
+    pipeline_heartbeat_at: null,
+    failed_step: null,
+    error_category: null,
+    retryable: null,
     error_message: null,
     reprocess_error_message: null,
     next_reprocess_at: null,
-    processing_completed_at: new Date().toISOString(),
-    synced_at: new Date().toISOString(),
+    processing_completed_at: now,
+    synced_at: now,
     lease_expires_at: null,
     locked_at: null,
     ...(input.extractionVersion

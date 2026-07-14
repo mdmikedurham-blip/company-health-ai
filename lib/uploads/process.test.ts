@@ -258,9 +258,11 @@ describe("dashboard progress states", () => {
   it("maps statuses to progress labels", () => {
     expect(progressLabelForStatus("UPLOADED")).toBe("Uploading");
     expect(progressLabelForStatus("QUEUED")).toBe("Queued");
-    expect(progressLabelForStatus("PROCESSING")).toBe("Extracting");
-    expect(progressLabelForStatus("EXTRACTED")).toBe("Analyzing");
-    expect(progressLabelForStatus("ANALYZING")).toBe("Analyzing");
+    expect(progressLabelForStatus("PROCESSING")).toBe("Text extraction");
+    expect(progressLabelForStatus("EXTRACTED")).toBe("Finding generation");
+    expect(progressLabelForStatus("ANALYZING")).toBe(
+      "Company assessment update",
+    );
     expect(progressLabelForStatus("PROCESSED")).toBe("Current");
     expect(progressLabelForStatus("FAILED")).toBe("Failed");
   });
@@ -307,7 +309,7 @@ describe("dashboard progress states", () => {
     expect(state.inFlight).toBe(false);
   });
 
-  it("marks stalled after 5 minutes without progress", () => {
+  it("never reports a generic stalled banner (use per-step waiting reasons)", () => {
     const old = new Date(Date.now() - 6 * 60 * 1000).toISOString();
     const state = computeDashboardProcessingState({
       hasAnalysisSnapshot: false,
@@ -319,10 +321,13 @@ describe("dashboard progress states", () => {
           status: "QUEUED",
           updated_at: old,
           processing_started_at: null,
+          pipeline_step: "storage",
         },
       ],
     });
-    expect(state.stalled).toBe(true);
+    expect(state.stalled).toBe(false);
+    expect(state.items[0]?.waitingReason).toMatch(/storage/i);
+    expect(state.items[0]?.label).toBe("Storage");
   });
 
   it("terminal FAILED is a terminal status", () => {

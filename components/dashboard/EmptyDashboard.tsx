@@ -9,29 +9,33 @@ export function EmptyDashboard({
   companyName,
   analyzing = false,
   hasUploads = false,
-  stalled = false,
+  stalled: _stalled = false,
   progressItems = [],
   overallLabel = "Idle",
 }: {
   companyName?: string;
   analyzing?: boolean;
   hasUploads?: boolean;
+  /** Ignored — generic stalled banner removed; per-step waiting reasons are shown. */
   stalled?: boolean;
   progressItems?: UploadProgressItem[];
-  overallLabel?: UploadProgressLabel | "Idle";
+  overallLabel?: UploadProgressLabel | string | "Idle";
 }) {
+  void _stalled;
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [retryError, setRetryError] = useState<string | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
 
-  async function onRetry() {
+  async function onRetry(documentIds?: string[]) {
     setRetryError(null);
+    if (documentIds?.length === 1) setRetryingId(documentIds[0]!);
     startTransition(async () => {
       try {
         const res = await fetch("/api/documents/retry", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
+          body: JSON.stringify(documentIds?.length ? { documentIds } : {}),
         });
         const data = (await res.json()) as { error?: string };
         if (!res.ok) {
@@ -41,44 +45,43 @@ export function EmptyDashboard({
         router.refresh();
       } catch {
         setRetryError("Retry failed");
+      } finally {
+        setRetryingId(null);
       }
     });
   }
 
   const showProcessing = analyzing || (hasUploads && progressItems.length > 0);
+  const failedRetryable = progressItems.filter(
+    (i) => i.status === "FAILED" && i.retryable,
+  );
 
   return (
     <div className="mx-auto flex max-w-xl flex-col items-center py-16 text-center">
       <div className="rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-[11px] font-medium uppercase tracking-widest text-indigo-300">
-        {stalled
-          ? "Stalled"
-          : showProcessing
-            ? overallLabel === "Idle"
-              ? "Processing"
-              : overallLabel
-            : hasUploads
-              ? "Awaiting analysis"
-              : "Upload required"}
+        {showProcessing
+          ? overallLabel === "Idle"
+            ? "Processing"
+            : overallLabel
+          : hasUploads
+            ? "Awaiting analysis"
+            : "Upload required"}
       </div>
       <h2 className="mt-5 text-2xl font-semibold tracking-tight text-white">
-        {stalled
-          ? "Processing appears stalled"
-          : showProcessing
-            ? "Building your first health snapshot"
-            : hasUploads
-              ? "Documents are queued for analysis"
-              : companyName
-                ? `Upload documents for ${companyName}`
-                : "Upload documents to begin"}
+        {showProcessing
+          ? "Building your first health snapshot"
+          : hasUploads
+            ? "Documents are queued for analysis"
+            : companyName
+              ? `Upload documents for ${companyName}`
+              : "Upload documents to begin"}
       </h2>
       <p className="mt-3 text-sm leading-relaxed text-zinc-500">
-        {stalled
-          ? "No progress for 5 minutes. Retry processing to re-queue failed or stuck uploads."
-          : showProcessing
-            ? "Your workspace is private. Scores and evidence appear here when analysis completes — no demo data is mixed in."
-            : hasUploads
-              ? "Uploaded files are stored privately. Your dashboard stays empty until analysis finishes."
-              : "Manual upload is the primary way to add source files. Google Drive sync is optional and coming soon."}
+        {showProcessing
+          ? "Your workspace is private. Scores and evidence appear here when analysis completes — no demo data is mixed in."
+          : hasUploads
+            ? "Uploaded files are stored privately. Your dashboard stays empty until analysis finishes."
+            : "Manual upload is the primary way to add source files. Google Drive sync is optional and coming soon."}
       </p>
 
       {progressItems.length > 0 ? (
@@ -86,20 +89,51 @@ export function EmptyDashboard({
           {progressItems.map((item) => (
             <li
               key={item.id}
-              className="flex items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-sm"
+              className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-sm"
             >
-              <span className="truncate text-zinc-300">{item.filename}</span>
-              <span
-                className={
-                  item.label === "Failed"
-                    ? "shrink-0 text-red-300"
-                    : item.label === "Current"
-                      ? "shrink-0 text-emerald-300"
-                      : "shrink-0 text-amber-300"
-                }
-              >
-                {item.label}
-              </span>
+              <div className="flex items-center justify-between gap-3">
+                <span className="truncate text-zinc-300">{item.filename}</span>
+                <span
+                  className={
+                    item.status === "FAILED"
+                      ? "shrink-0 text-red-300"
+                      : item.status === "PROCESSED"
+                        ? "shrink-0 text-emerald-300"
+                        : "shrink-0 text-amber-300"
+                  }
+                >
+                  {item.label}
+                </span>
+              </div>
+              {item.status === "FAILED" ? (
+                <div className="mt-1 space-y-1 text-[11px] text-red-300/90">
+                  {item.failedStep ? (
+                    <p>Failed step: {item.failedStep.replace(/_/g, " ")}</p>
+                  ) : null}
+                  {item.errorCategory ? (
+                    <p>Category: {item.errorCategory}</p>
+                  ) : null}
+                  {item.errorMessage ? <p>{item.errorMessage}</p> : null}
+                  {item.retryable ? (
+                    <button
+                      type="button"
+                      disabled={pending && retryingId === item.id}
+                      onClick={() => void onRetry([item.id])}
+                      className="font-medium text-amber-200 underline-offset-2 hover:underline disabled:opacity-60"
+                    >
+                      {retryingId === item.id
+                        ? "Retrying step…"
+                        : "Retry failed step"}
+                    </button>
+                  ) : (
+                    <p>Not retryable — re-upload required.</p>
+                  )}
+                </div>
+              ) : item.waitingReason ? (
+                <p className="mt-1 text-[11px] text-zinc-500">
+                  {item.waitingReason}
+                </p>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -109,17 +143,15 @@ export function EmptyDashboard({
         <p className="mt-4 text-sm text-red-300">{retryError}</p>
       ) : null}
 
-      {stalled ||
-      progressItems.some(
-        (i) => i.label === "Failed" || i.label === "Queued",
-      ) ? (
+      {failedRetryable.length > 1 ||
+      progressItems.some((i) => i.status === "QUEUED") ? (
         <button
           type="button"
-          onClick={onRetry}
+          onClick={() => void onRetry()}
           disabled={pending}
           className="mt-8 rounded-lg bg-zinc-100 px-5 py-3 text-sm font-semibold text-zinc-900 transition hover:bg-white disabled:opacity-60"
         >
-          {pending ? "Retrying…" : "Retry Processing"}
+          {pending ? "Retrying…" : "Retry failed steps"}
         </button>
       ) : !showProcessing ? (
         <a

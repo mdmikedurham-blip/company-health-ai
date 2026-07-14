@@ -1,19 +1,24 @@
 import {
   IN_FLIGHT_UPLOAD_STATUSES,
-  PROCESSING_STALE_MS,
   progressLabelForStatus,
   TERMINAL_UPLOAD_STATUSES,
   type UploadProgressLabel,
 } from "./constants";
+import { pipelineUiStateFromDocument } from "./pipeline";
 
 export type UploadProgressItem = {
   id: string;
   filename: string;
   status: string;
-  label: UploadProgressLabel;
+  label: UploadProgressLabel | string;
   errorMessage: string | null;
   updatedAt: string;
   processingStartedAt: string | null;
+  pipelineStep: string | null;
+  waitingReason: string | null;
+  failedStep: string | null;
+  errorCategory: string | null;
+  retryable: boolean;
 };
 
 export type DashboardProcessingState = {
@@ -21,9 +26,10 @@ export type DashboardProcessingState = {
   allTerminal: boolean;
   hasUploads: boolean;
   inFlight: boolean;
+  /** @deprecated Use per-item waitingReason — never show a generic stalled banner. */
   stalled: boolean;
   items: UploadProgressItem[];
-  overallLabel: UploadProgressLabel | "Idle";
+  overallLabel: UploadProgressLabel | string | "Idle";
 };
 
 export function buildUploadProgressItem(row: {
@@ -34,15 +40,40 @@ export function buildUploadProgressItem(row: {
   error_message?: string | null;
   updated_at: string;
   processing_started_at?: string | null;
+  last_stage?: string | null;
+  pipeline_step?: string | null;
+  failed_step?: string | null;
+  error_category?: string | null;
+  retryable?: boolean | null;
+  reprocess_error_message?: string | null;
 }): UploadProgressItem {
+  const ui = pipelineUiStateFromDocument({
+    status: row.status,
+    pipeline_step: row.pipeline_step,
+    last_stage: row.last_stage,
+    failed_step: row.failed_step,
+    error_category: row.error_category,
+    retryable: row.retryable,
+    error_message: row.error_message,
+  });
   return {
     id: row.id,
     filename: row.filename ?? row.title,
     status: row.status,
-    label: progressLabelForStatus(row.status),
+    label: progressLabelForStatus(row.status, {
+      lastStage: row.last_stage,
+      pipelineStep: row.pipeline_step ?? ui.step,
+      failedStep: row.failed_step ?? ui.failedStep,
+      reprocessErrorMessage: row.reprocess_error_message,
+    }),
     errorMessage: row.error_message ?? null,
     updatedAt: row.updated_at,
     processingStartedAt: row.processing_started_at ?? null,
+    pipelineStep: ui.step,
+    waitingReason: ui.waitingReason,
+    failedStep: ui.failedStep,
+    errorCategory: ui.errorCategory,
+    retryable: ui.retryable,
   };
 }
 
@@ -58,10 +89,15 @@ export function computeDashboardProcessingState(input: {
     processing_started_at?: string | null;
     lease_expires_at?: string | null;
     locked_at?: string | null;
+    last_stage?: string | null;
+    pipeline_step?: string | null;
+    failed_step?: string | null;
+    error_category?: string | null;
+    retryable?: boolean | null;
+    reprocess_error_message?: string | null;
   }>;
   now?: Date;
 }): DashboardProcessingState {
-  const now = input.now ?? new Date();
   const items = input.uploads.map(buildUploadProgressItem);
   const hasUploads = items.length > 0;
   const allTerminal =
@@ -73,27 +109,20 @@ export function computeDashboardProcessingState(input: {
     (IN_FLIGHT_UPLOAD_STATUSES as string[]).includes(i.status),
   );
 
-  const stalled = items.some((item) => {
-    if ((TERMINAL_UPLOAD_STATUSES as string[]).includes(item.status)) {
-      return false;
-    }
-    const anchor =
-      item.processingStartedAt ??
-      item.updatedAt;
-    return now.getTime() - new Date(anchor).getTime() >= PROCESSING_STALE_MS;
-  });
-
   const analysisReady = input.hasAnalysisSnapshot || allTerminal;
 
-  let overallLabel: UploadProgressLabel | "Idle" = "Idle";
+  let overallLabel: UploadProgressLabel | string | "Idle" = "Idle";
   if (items.some((i) => i.status === "FAILED") && allTerminal) {
-    overallLabel = "Failed";
+    overallLabel = items.find((i) => i.status === "FAILED")?.label ?? "Failed";
   } else if (items.some((i) => i.status === "ANALYZING")) {
-    overallLabel = "Analyzing";
+    overallLabel = "Company assessment update";
   } else if (
     items.some((i) => i.status === "PROCESSING" || i.status === "EXTRACTED")
   ) {
-    overallLabel = "Extracting";
+    const active = items.find(
+      (i) => i.status === "PROCESSING" || i.status === "EXTRACTED",
+    );
+    overallLabel = active?.label ?? "Text extraction";
   } else if (items.some((i) => i.status === "QUEUED")) {
     overallLabel = "Queued";
   } else if (items.some((i) => i.status === "UPLOADED")) {
@@ -107,7 +136,7 @@ export function computeDashboardProcessingState(input: {
     allTerminal,
     hasUploads,
     inFlight,
-    stalled,
+    stalled: false,
     items,
     overallLabel,
   };

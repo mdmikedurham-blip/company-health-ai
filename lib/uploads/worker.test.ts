@@ -13,6 +13,11 @@ const {
   analyzeAndPersistIncremental,
   replaceCompanyRecommendations,
   replaceCompanyTimeline,
+  advancePipelineStep,
+  failPipelineStep,
+  heartbeatPipelineStep,
+  resumePipelineStep,
+  shouldSkipPipelineStep,
 } = vi.hoisted(() => ({
   claimDocumentJob: vi.fn(),
   markDocumentFailed: vi.fn(),
@@ -26,6 +31,11 @@ const {
   analyzeAndPersistIncremental: vi.fn(),
   replaceCompanyRecommendations: vi.fn(),
   replaceCompanyTimeline: vi.fn(),
+  advancePipelineStep: vi.fn(),
+  failPipelineStep: vi.fn(),
+  heartbeatPipelineStep: vi.fn(),
+  resumePipelineStep: vi.fn(() => "text_extraction"),
+  shouldSkipPipelineStep: vi.fn(() => false),
 }));
 
 vi.mock("./claim", () => ({
@@ -34,6 +44,18 @@ vi.mock("./claim", () => ({
   markDocumentProcessed,
   updateDocumentStage,
 }));
+
+vi.mock("./pipeline", async () => {
+  const actual = await vi.importActual<typeof import("./pipeline")>("./pipeline");
+  return {
+    ...actual,
+    advancePipelineStep,
+    failPipelineStep,
+    heartbeatPipelineStep,
+    resumePipelineStep,
+    shouldSkipPipelineStep,
+  };
+});
 
 vi.mock("@/lib/connectors/extraction", () => ({
   extractDocument,
@@ -84,6 +106,8 @@ import { runCompanyAnalysisPass } from "./company-analysis";
 describe("processManualUploadDocument", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resumePipelineStep.mockReturnValue("text_extraction");
+    shouldSkipPipelineStep.mockReturnValue(false);
   });
 
   it("skips when claim returns null (duplicate worker)", async () => {
@@ -114,7 +138,10 @@ describe("processManualUploadDocument", () => {
       content_hash: null,
     });
     isExtractableMimeType.mockReturnValue(false);
-    markDocumentFailed.mockResolvedValue(undefined);
+    failPipelineStep.mockResolvedValue({
+      category: "extraction",
+      retryable: true,
+    });
 
     const result = await processManualUploadDocument({
       client: {} as never,
@@ -122,7 +149,7 @@ describe("processManualUploadDocument", () => {
       documentId: "doc-1",
     });
     expect(result.status).toBe("failed");
-    expect(markDocumentFailed).toHaveBeenCalled();
+    expect(failPipelineStep).toHaveBeenCalled();
     expect(analyzeAndPersistIncremental).not.toHaveBeenCalled();
   });
 
@@ -154,6 +181,8 @@ describe("processManualUploadDocument", () => {
     });
     upsert.mockResolvedValue(undefined);
     updateDocumentStage.mockResolvedValue(undefined);
+    advancePipelineStep.mockResolvedValue(undefined);
+    heartbeatPipelineStep.mockResolvedValue(undefined);
 
     const client = {
       storage: {
@@ -170,6 +199,7 @@ describe("processManualUploadDocument", () => {
       from: vi.fn(() => {
         const chain = {
           select: vi.fn().mockReturnThis(),
+          update: vi.fn().mockReturnThis(),
           eq: vi.fn().mockReturnThis(),
           maybeSingle: vi.fn().mockResolvedValue({
             data: { status: "PROCESSING" },
@@ -201,10 +231,10 @@ describe("processManualUploadDocument", () => {
         }),
       ]),
     );
-    expect(updateDocumentStage).toHaveBeenCalledWith(
+    expect(advancePipelineStep).toHaveBeenCalledWith(
       expect.objectContaining({
+        step: "finding_generation",
         status: "EXTRACTED",
-        lastStage: "extracted",
       }),
     );
     expect(runCompanyAnalysisPass).toHaveBeenCalledWith(

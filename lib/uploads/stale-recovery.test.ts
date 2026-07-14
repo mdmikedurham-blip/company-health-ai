@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { recoverAbandonedManualUploadJobs } from "./stale-recovery";
-import { STALE_ANALYZING_MS, STALE_EXTRACTED_MS } from "./constants";
+import { PIPELINE_HEARTBEAT_STALE_MS } from "./pipeline";
 
 type DocRow = {
   id: string;
@@ -10,6 +10,10 @@ type DocRow = {
   processing_started_at?: string | null;
   updated_at: string;
   last_stage?: string | null;
+  pipeline_step?: string | null;
+  last_successful_pipeline_step?: string | null;
+  failed_step?: string | null;
+  pipeline_heartbeat_at?: string | null;
 };
 
 /**
@@ -46,30 +50,48 @@ function createRecoveryClient(input: {
       let rows: DocRow[] = [];
       if (statusFilter === "PROCESSING") rows = input.processing;
       else if (statusFilter === "ANALYZING") {
-        rows = analyzing.filter(
-          (r) => !ltCutoff || r.updated_at < ltCutoff,
-        );
+        rows = analyzing.filter((r) => !ltCutoff || r.updated_at < ltCutoff);
       } else if (statusFilter === "EXTRACTED") {
-        rows = extracted.filter(
-          (r) => !ltCutoff || r.updated_at < ltCutoff,
-        );
+        rows = extracted.filter((r) => !ltCutoff || r.updated_at < ltCutoff);
       }
       return Promise.resolve({ data: rows, error: null });
     };
     api.or = () => api;
     api.update = (payload: Record<string, unknown>) => {
       const chain: Record<string, unknown> = {};
+      let recorded = false;
+      const record = () => {
+        if (recorded) return;
+        recorded = true;
+        const id = idFilter ?? "unknown";
+        updates.push({ id, payload });
+        input.onUpdate?.(payload, id);
+      };
       chain.eq = (col: string, val: string) => {
         if (col === "id") idFilter = val;
+        // Thenable so `await client.from().update().eq().eq()` records.
+        const thenable = chain as Record<string, unknown> & PromiseLike<unknown>;
+        thenable.then = (resolve: (v: unknown) => unknown) => {
+          record();
+          return Promise.resolve({ data: null, error: null }).then(resolve);
+        };
         return chain;
       };
       chain.or = () => chain;
       chain.select = () => ({
         maybeSingle: () => {
-          const id = idFilter ?? "unknown";
-          updates.push({ id, payload });
-          input.onUpdate?.(payload, id);
-          return Promise.resolve({ data: { id }, error: null });
+          record();
+          return Promise.resolve({
+            data: { id: idFilter ?? "unknown" },
+            error: null,
+          });
+        },
+        single: () => {
+          record();
+          return Promise.resolve({
+            data: { id: idFilter ?? "unknown" },
+            error: null,
+          });
         },
       });
       return chain;
@@ -81,27 +103,34 @@ function createRecoveryClient(input: {
 }
 
 describe("recoverAbandonedManualUploadJobs", () => {
-  it("requeues PROCESSING when lease has expired", async () => {
+  it("reclaims PROCESSING when heartbeat is older than 60s and resumes from last success", async () => {
     const now = new Date("2026-07-11T12:00:00.000Z");
+    const staleBeat = new Date(
+      now.getTime() - PIPELINE_HEARTBEAT_STALE_MS - 1000,
+    ).toISOString();
     const { client, updates } = createRecoveryClient({
       processing: [
         {
-          id: "doc-expired",
+          id: "doc-stale-beat",
           status: "PROCESSING",
-          lease_expires_at: "2026-07-11T11:50:00.000Z",
-          locked_at: "2026-07-11T11:45:00.000Z",
-          processing_started_at: "2026-07-11T11:45:00.000Z",
-          updated_at: "2026-07-11T11:45:00.000Z",
-          last_stage: "extracting",
+          lease_expires_at: "2026-07-11T12:10:00.000Z",
+          locked_at: "2026-07-11T11:55:00.000Z",
+          processing_started_at: "2026-07-11T11:55:00.000Z",
+          updated_at: "2026-07-11T11:55:00.000Z",
+          last_stage: "text_extraction",
+          pipeline_step: "text_extraction",
+          last_successful_pipeline_step: "storage",
+          pipeline_heartbeat_at: staleBeat,
         },
         {
-          id: "doc-active",
+          id: "doc-fresh-beat",
           status: "PROCESSING",
-          lease_expires_at: "2026-07-11T12:04:00.000Z",
+          lease_expires_at: "2026-07-11T12:10:00.000Z",
           locked_at: "2026-07-11T11:59:00.000Z",
           processing_started_at: "2026-07-11T11:59:00.000Z",
           updated_at: "2026-07-11T11:59:00.000Z",
-          last_stage: "extracting",
+          last_stage: "text_extraction",
+          pipeline_heartbeat_at: "2026-07-11T11:59:30.000Z",
         },
       ],
     });
@@ -112,20 +141,17 @@ describe("recoverAbandonedManualUploadJobs", () => {
       now,
     });
 
-    expect(result.requeuedProcessingIds).toEqual(["doc-expired"]);
-    expect(result.staleExtractedIds).toEqual([]);
-    expect(result.recoveredAnalyzingIds).toEqual([]);
-    expect(updates).toHaveLength(1);
+    expect(result.requeuedProcessingIds).toEqual(["doc-stale-beat"]);
     expect(updates[0]!.payload).toMatchObject({
-      status: "QUEUED",
-      last_stage: "lease_expired_recovery",
-      lease_expires_at: null,
-      locked_at: null,
-      metadata: expect.objectContaining({ recovery_reason: "lease_expired" }),
+      pipeline_step: "text_extraction",
+      metadata: expect.objectContaining({
+        recovery_reason: "heartbeat_stale_60s",
+        resume_step: "text_extraction",
+      }),
     });
   });
 
-  it("does not requeue PROCESSING with a still-valid lease", async () => {
+  it("does not reclaim PROCESSING with a fresh heartbeat", async () => {
     const now = new Date("2026-07-11T12:00:00.000Z");
     const { client, updates } = createRecoveryClient({
       processing: [
@@ -136,7 +162,8 @@ describe("recoverAbandonedManualUploadJobs", () => {
           locked_at: "2026-07-11T11:59:00.000Z",
           processing_started_at: "2026-07-11T11:59:00.000Z",
           updated_at: "2026-07-11T11:59:00.000Z",
-          last_stage: "extracting",
+          last_stage: "text_extraction",
+          pipeline_heartbeat_at: "2026-07-11T11:59:40.000Z",
         },
       ],
     });
@@ -151,39 +178,11 @@ describe("recoverAbandonedManualUploadJobs", () => {
     expect(updates).toHaveLength(0);
   });
 
-  it("requeues PROCESSING with missing lease after stale window", async () => {
+  it("lists stale EXTRACTED docs waiting on company analysis", async () => {
     const now = new Date("2026-07-11T12:00:00.000Z");
-    const { client, updates } = createRecoveryClient({
-      processing: [
-        {
-          id: "doc-orphan",
-          status: "PROCESSING",
-          lease_expires_at: null,
-          locked_at: "2026-07-11T11:50:00.000Z",
-          processing_started_at: "2026-07-11T11:50:00.000Z",
-          updated_at: "2026-07-11T11:50:00.000Z",
-          last_stage: "extracting",
-        },
-      ],
-    });
-
-    const result = await recoverAbandonedManualUploadJobs({
-      client,
-      companyId: "co-1",
-      now,
-    });
-
-    expect(result.requeuedProcessingIds).toEqual(["doc-orphan"]);
-    expect(updates[0]!.payload).toMatchObject({
-      metadata: expect.objectContaining({
-        recovery_reason: "lease_missing_or_stale",
-      }),
-    });
-  });
-
-  it("lists stale EXTRACTED docs for analysis recovery", async () => {
-    const now = new Date("2026-07-11T12:00:00.000Z");
-    const staleAt = new Date(now.getTime() - STALE_EXTRACTED_MS - 1000).toISOString();
+    const staleAt = new Date(
+      now.getTime() - PIPELINE_HEARTBEAT_STALE_MS - 1000,
+    ).toISOString();
     const { client } = createRecoveryClient({
       processing: [],
       extracted: [
@@ -191,7 +190,8 @@ describe("recoverAbandonedManualUploadJobs", () => {
           id: "doc-extracted",
           status: "EXTRACTED",
           updated_at: staleAt,
-          last_stage: "extracted",
+          last_stage: "finding_generation",
+          pipeline_step: "finding_generation",
         },
       ],
     });
@@ -206,9 +206,11 @@ describe("recoverAbandonedManualUploadJobs", () => {
     expect(result.staleExtractedIds).toEqual(["doc-extracted"]);
   });
 
-  it("resets stale ANALYZING docs to EXTRACTED for retry", async () => {
+  it("resets stale ANALYZING to EXTRACTED and resumes assessment step", async () => {
     const now = new Date("2026-07-11T12:00:00.000Z");
-    const staleAt = new Date(now.getTime() - STALE_ANALYZING_MS - 1000).toISOString();
+    const staleAt = new Date(
+      now.getTime() - PIPELINE_HEARTBEAT_STALE_MS - 1000,
+    ).toISOString();
     const { client, updates } = createRecoveryClient({
       processing: [],
       analyzing: [
@@ -216,7 +218,10 @@ describe("recoverAbandonedManualUploadJobs", () => {
           id: "doc-analyzing",
           status: "ANALYZING",
           updated_at: staleAt,
-          last_stage: "analyzing",
+          last_stage: "company_assessment_update",
+          pipeline_step: "company_assessment_update",
+          last_successful_pipeline_step: "structured_fact_extraction",
+          pipeline_heartbeat_at: staleAt,
         },
       ],
     });
@@ -228,10 +233,12 @@ describe("recoverAbandonedManualUploadJobs", () => {
     });
 
     expect(result.recoveredAnalyzingIds).toEqual(["doc-analyzing"]);
-    expect(result.staleExtractedIds).toContain("doc-analyzing");
     expect(updates[0]!.payload).toMatchObject({
       status: "EXTRACTED",
-      last_stage: "analyzing_stale_recovery",
+      pipeline_step: "finding_generation",
+      metadata: expect.objectContaining({
+        recovery_reason: "analyzing_heartbeat_stale_60s",
+      }),
     });
   });
 });

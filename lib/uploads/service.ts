@@ -23,6 +23,12 @@ export type UploadedDocumentRecord = {
   lockedAt: string | null;
   processingStartedAt: string | null;
   lastStage: string | null;
+  pipelineStep: string | null;
+  lastSuccessfulPipelineStep: string | null;
+  pipelineHeartbeatAt: string | null;
+  failedStep: string | null;
+  errorCategory: string | null;
+  retryable: boolean | null;
   errorMessage: string | null;
   reprocessErrorMessage: string | null;
   extractionVersion: string | null;
@@ -43,6 +49,10 @@ export type SignedUploadSession = {
 };
 
 const DOCUMENT_LIST_SELECT =
+  "id, company_id, filename, title, mime_type, byte_size, storage_path, status, uploaded_by, created_at, updated_at, lease_expires_at, locked_at, processing_started_at, last_stage, pipeline_step, last_successful_pipeline_step, pipeline_heartbeat_at, failed_step, error_category, retryable, error_message, reprocess_error_message, extraction_version, analysis_version, last_successful_extraction_version, last_successful_analysis_version";
+
+/** Narrower select when migration 023 columns are not applied yet. */
+const DOCUMENT_LIST_SELECT_LEGACY =
   "id, company_id, filename, title, mime_type, byte_size, storage_path, status, uploaded_by, created_at, updated_at, lease_expires_at, locked_at, processing_started_at, last_stage, error_message, reprocess_error_message, extraction_version, analysis_version, last_successful_extraction_version, last_successful_analysis_version";
 
 function rowToRecord(row: {
@@ -61,6 +71,12 @@ function rowToRecord(row: {
   locked_at?: string | null;
   processing_started_at?: string | null;
   last_stage?: string | null;
+  pipeline_step?: string | null;
+  last_successful_pipeline_step?: string | null;
+  pipeline_heartbeat_at?: string | null;
+  failed_step?: string | null;
+  error_category?: string | null;
+  retryable?: boolean | null;
   error_message?: string | null;
   reprocess_error_message?: string | null;
   extraction_version?: string | null;
@@ -83,6 +99,12 @@ function rowToRecord(row: {
     lockedAt: row.locked_at ?? null,
     processingStartedAt: row.processing_started_at ?? null,
     lastStage: row.last_stage ?? null,
+    pipelineStep: row.pipeline_step ?? null,
+    lastSuccessfulPipelineStep: row.last_successful_pipeline_step ?? null,
+    pipelineHeartbeatAt: row.pipeline_heartbeat_at ?? null,
+    failedStep: row.failed_step ?? null,
+    errorCategory: row.error_category ?? null,
+    retryable: row.retryable ?? null,
     errorMessage: row.error_message ?? null,
     reprocessErrorMessage: row.reprocess_error_message ?? null,
     extractionVersion: row.extraction_version ?? null,
@@ -113,7 +135,8 @@ export async function createManualUploadSession(input: {
     filename,
   });
 
-  const insert: TablesInsert<"documents"> = {
+  const now = new Date().toISOString();
+  const baseInsert: TablesInsert<"documents"> = {
     id: documentId,
     company_id: input.companyId,
     connector_id: MANUAL_UPLOAD_CONNECTOR_ID,
@@ -126,21 +149,37 @@ export async function createManualUploadSession(input: {
     storage_path: storagePath,
     uploaded_by: input.userId,
     status: "UPLOADED",
+    last_stage: "upload",
     uri: `storage://${COMPANY_DOCUMENTS_BUCKET}/${storagePath}`,
     metadata: {
       source: "manual-upload",
       original_filename: input.filename,
+      pipeline_step: "upload",
     },
-    synced_at: new Date().toISOString(),
-    modified_at: new Date().toISOString(),
+    synced_at: now,
+    modified_at: now,
     owner: input.userId,
+  };
+
+  const richInsert: TablesInsert<"documents"> = {
+    ...baseInsert,
+    pipeline_step: "upload",
+    pipeline_heartbeat_at: now,
+    pipeline_steps: [{ step: "upload", at: now, outcome: "started" }],
   };
 
   const { error: insertError } = await input.client
     .from("documents")
-    .insert(insert);
+    .insert(richInsert);
   if (insertError) {
-    throw new Error(`createManualUploadSession.insert: ${insertError.message}`);
+    const { error: fallbackError } = await input.client
+      .from("documents")
+      .insert(baseInsert);
+    if (fallbackError) {
+      throw new Error(
+        `createManualUploadSession.insert: ${insertError.message}; fallback: ${fallbackError.message}`,
+      );
+    }
   }
 
   const { data: signed, error: signError } = await input.client.storage
@@ -210,20 +249,47 @@ export async function completeManualUpload(input: {
     throw new Error("Upload not found in storage. Retry the upload.");
   }
 
-  const { data: updated, error: updateError } = await input.client
+  const now = new Date().toISOString();
+  const richUpdate = {
+    status: "QUEUED" as const,
+    synced_at: now,
+    last_stage: "storage",
+    pipeline_step: "storage",
+    last_successful_pipeline_step: "upload",
+    pipeline_heartbeat_at: now,
+    metadata: {
+      source: "manual-upload",
+      queued_at: now,
+      pipeline_step: "storage",
+      last_successful_pipeline_step: "upload",
+    },
+  };
+
+  let { data: updated, error: updateError } = await input.client
     .from("documents")
-    .update({
-      status: "QUEUED",
-      synced_at: new Date().toISOString(),
-      metadata: {
-        source: "manual-upload",
-        queued_at: new Date().toISOString(),
-      },
-    })
+    .update(richUpdate)
     .eq("id", input.documentId)
     .eq("company_id", input.companyId)
     .select(DOCUMENT_LIST_SELECT)
     .single();
+
+  if (updateError) {
+    // Migration 023 columns may be absent — fall back.
+    const fallback = await input.client
+      .from("documents")
+      .update({
+        status: "QUEUED",
+        synced_at: now,
+        last_stage: "storage",
+        metadata: richUpdate.metadata,
+      })
+      .eq("id", input.documentId)
+      .eq("company_id", input.companyId)
+      .select(DOCUMENT_LIST_SELECT_LEGACY)
+      .single();
+    updated = fallback.data as typeof updated;
+    updateError = fallback.error;
+  }
 
   if (updateError || !updated) {
     throw new Error(
@@ -239,7 +305,7 @@ export async function listManualUploads(input: {
   companyId: string;
   limit?: number;
 }): Promise<UploadedDocumentRecord[]> {
-  const { data, error } = await input.client
+  const primary = await input.client
     .from("documents")
     .select(DOCUMENT_LIST_SELECT)
     .eq("company_id", input.companyId)
@@ -247,11 +313,23 @@ export async function listManualUploads(input: {
     .order("created_at", { ascending: false })
     .limit(input.limit ?? 50);
 
-  if (error) {
-    throw new Error(`listManualUploads: ${error.message}`);
+  if (!primary.error) {
+    return (primary.data ?? []).map(rowToRecord);
   }
 
-  return (data ?? []).map(rowToRecord);
+  const legacy = await input.client
+    .from("documents")
+    .select(DOCUMENT_LIST_SELECT_LEGACY)
+    .eq("company_id", input.companyId)
+    .eq("connector_id", MANUAL_UPLOAD_CONNECTOR_ID)
+    .order("created_at", { ascending: false })
+    .limit(input.limit ?? 50);
+
+  if (legacy.error) {
+    throw new Error(`listManualUploads: ${legacy.error.message}`);
+  }
+
+  return (legacy.data ?? []).map(rowToRecord);
 }
 
 export async function companyHasPendingUploads(

@@ -31,6 +31,14 @@ import {
   evidenceIdForManualUpload,
   manualUploadExternalKey,
 } from "./removal-policy";
+import {
+  advancePipelineStep,
+  failPipelineStep,
+  heartbeatPipelineStep,
+  resumePipelineStep,
+  shouldSkipPipelineStep,
+  type PipelineStep,
+} from "./pipeline";
 import { recoverAbandonedManualUploadJobs } from "./stale-recovery";
 import { isTimeoutError, TimeoutError, withTimeout } from "./timeout";
 import {
@@ -337,22 +345,22 @@ async function finalizeProcessingFailure(input: {
     };
   }
 
-  const lastStage = timedOut
-    ? "extraction_timeout"
+  const failedStep: PipelineStep = timedOut
+    ? "text_extraction"
     : isPdfExtractionError(err)
-      ? err.code.toLowerCase()
-      : "failed";
-  await markDocumentFailed({
+      ? "text_extraction"
+      : "text_extraction";
+  await failPipelineStep({
     client,
     companyId,
     documentId,
+    step: failedStep,
     errorMessage: userMessage,
-    lastStage,
   });
   logUploadProcessingEvent("manual_upload_processing_failed", {
     documentId,
     companyId,
-    stage: lastStage,
+    stage: failedStep,
     outcome: "failed",
     status: "FAILED",
     errorMessage: userMessage.slice(0, 500),
@@ -428,12 +436,61 @@ async function extractAndPersistEvidence(input: {
     const remainingBudget = () =>
       Math.max(1_000, EXTRACTION_TIMEOUT_MS - (Date.now() - extractionStartedAt));
 
-    await updateDocumentStage({
+    const lastSuccessful =
+      (claimed as { last_successful_pipeline_step?: string | null })
+        .last_successful_pipeline_step ??
+      (typeof claimed.metadata === "object" &&
+      claimed.metadata &&
+      !Array.isArray(claimed.metadata) &&
+      typeof (claimed.metadata as Record<string, unknown>)
+        .last_successful_pipeline_step === "string"
+        ? ((claimed.metadata as Record<string, unknown>)
+            .last_successful_pipeline_step as string)
+        : null);
+
+    const resumeAt = resumePipelineStep({
+      failedStep: (claimed as { failed_step?: string | null }).failed_step,
+      lastSuccessfulStep: lastSuccessful,
+    });
+
+    // Resume past extraction when evidence already exists and prior steps succeeded.
+    if (
+      priorEvidence &&
+      (shouldSkipPipelineStep("structured_fact_extraction", lastSuccessful) ||
+        resumeAt === "finding_generation" ||
+        resumeAt === "company_assessment_update" ||
+        resumeAt === "complete")
+    ) {
+      await advancePipelineStep({
+        client,
+        companyId,
+        documentId,
+        step: "finding_generation",
+        outcome: "waiting",
+        detail: "resume_skip_extraction",
+        status: "EXTRACTED",
+        markSuccessful: true,
+        patch: {
+          lease_expires_at: null,
+          locked_at: null,
+        },
+      });
+      return {
+        documentId,
+        companyId,
+        status: "extracted",
+        evidenceId,
+      };
+    }
+
+    await advancePipelineStep({
       client,
       companyId,
       documentId,
+      step: "storage",
+      outcome: "started",
       status: "PROCESSING",
-      lastStage: "extracting",
+      detail: "download_from_storage",
       patch: {
         extraction_version: CURRENT_EXTRACTION_VERSION,
         analysis_version: CURRENT_ANALYSIS_VERSION,
@@ -441,43 +498,102 @@ async function extractAndPersistEvidence(input: {
       },
     });
 
-    const { data: blob, error: downloadError } = await withTimeout(
-      client.storage.from(COMPANY_DOCUMENTS_BUCKET).download(claimed.storage_path),
-      Math.min(DOWNLOAD_TIMEOUT_MS, remainingBudget()),
-      "storage_download",
-    );
+    const heartbeat = setInterval(() => {
+      void heartbeatPipelineStep({
+        client,
+        companyId,
+        documentId,
+        step: "text_extraction",
+      });
+    }, 20_000);
 
-    if (downloadError || !blob) {
-      throw new Error(downloadError?.message ?? "download failed");
+    let extractedDoc: Awaited<ReturnType<typeof extractDocument>>;
+    try {
+      const { data: blob, error: downloadError } = await withTimeout(
+        client.storage
+          .from(COMPANY_DOCUMENTS_BUCKET)
+          .download(claimed.storage_path),
+        Math.min(DOWNLOAD_TIMEOUT_MS, remainingBudget()),
+        "storage_download",
+      );
+
+      if (downloadError || !blob) {
+        throw new Error(downloadError?.message ?? "download failed");
+      }
+
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      if (Date.now() - extractionStartedAt > EXTRACTION_TIMEOUT_MS) {
+        throw new TimeoutError("storage_download", EXTRACTION_TIMEOUT_MS);
+      }
+
+      await advancePipelineStep({
+        client,
+        companyId,
+        documentId,
+        step: "storage",
+        outcome: "succeeded",
+        markSuccessful: true,
+        status: "PROCESSING",
+      });
+
+      await advancePipelineStep({
+        client,
+        companyId,
+        documentId,
+        step: "text_extraction",
+        outcome: "started",
+        status: "PROCESSING",
+      });
+
+      const title = claimed.filename ?? claimed.title;
+
+      // Staging: parse fully before touching persisted evidence.
+      extractedDoc = await extractDocument({
+        title,
+        mimeType: claimed.mime_type,
+        bytes,
+        sourceMetadata: {
+          document_id: claimed.id,
+          storage_path: claimed.storage_path,
+          source: "manual-upload",
+        },
+      });
+
+      if (Date.now() - extractionStartedAt > EXTRACTION_TIMEOUT_MS) {
+        throw new TimeoutError("extract_document", EXTRACTION_TIMEOUT_MS);
+      }
+
+      if (!extractedDoc.text.trim()) {
+        throw new Error("Extraction produced empty text");
+      }
+
+      await advancePipelineStep({
+        client,
+        companyId,
+        documentId,
+        step: "text_extraction",
+        outcome: "succeeded",
+        markSuccessful: true,
+        status: "PROCESSING",
+      });
+
+      // OCR step is skipped when text extraction succeeded.
+      await advancePipelineStep({
+        client,
+        companyId,
+        documentId,
+        step: "ocr",
+        outcome: "skipped",
+        markSuccessful: true,
+        status: "PROCESSING",
+        detail: "text_extraction_sufficient",
+      });
+    } finally {
+      clearInterval(heartbeat);
     }
 
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    if (Date.now() - extractionStartedAt > EXTRACTION_TIMEOUT_MS) {
-      throw new TimeoutError("storage_download", EXTRACTION_TIMEOUT_MS);
-    }
-
+    const extracted = extractedDoc!;
     const title = claimed.filename ?? claimed.title;
-
-    // Staging: parse fully before touching persisted evidence.
-    const extracted = await extractDocument({
-      title,
-      mimeType: claimed.mime_type,
-      bytes,
-      sourceMetadata: {
-        document_id: claimed.id,
-        storage_path: claimed.storage_path,
-        source: "manual-upload",
-      },
-    });
-
-    if (Date.now() - extractionStartedAt > EXTRACTION_TIMEOUT_MS) {
-      throw new TimeoutError("extract_document", EXTRACTION_TIMEOUT_MS);
-    }
-
-    if (!extracted.text.trim()) {
-      throw new Error("Extraction produced empty text");
-    }
-
     if (
       await wasProcessingCancelled({
         client,
@@ -520,6 +636,15 @@ async function extractAndPersistEvidence(input: {
         `manual upload evidence id mismatch: evidence=${evidenceId} document=${claimed.id}`,
       );
     }
+    await advancePipelineStep({
+      client,
+      companyId,
+      documentId,
+      step: "classification",
+      outcome: "started",
+      status: "PROCESSING",
+    });
+
     const { evidence: built } = runEvidenceExtractionPipeline(raw, extracted, {
       evidenceId,
     });
@@ -535,6 +660,26 @@ async function extractAndPersistEvidence(input: {
         extractionVersion: CURRENT_EXTRACTION_VERSION,
       },
     };
+
+    await advancePipelineStep({
+      client,
+      companyId,
+      documentId,
+      step: "classification",
+      outcome: "succeeded",
+      markSuccessful: true,
+      status: "PROCESSING",
+      detail: String(evidence.sourceType ?? evidence.dimensionId ?? "classified"),
+    });
+
+    await advancePipelineStep({
+      client,
+      companyId,
+      documentId,
+      step: "structured_fact_extraction",
+      outcome: "started",
+      status: "PROCESSING",
+    });
 
     const facts = evidence.extractedFacts ?? {};
     const financialKeys = Array.isArray(facts.financialMetricKeys)
@@ -583,6 +728,17 @@ async function extractAndPersistEvidence(input: {
           : undefined,
     });
 
+    await advancePipelineStep({
+      client,
+      companyId,
+      documentId,
+      step: "structured_fact_extraction",
+      outcome: "succeeded",
+      markSuccessful: true,
+      status: "PROCESSING",
+      detail: `facts=${financialKeys.length}`,
+    });
+
     logUploadProcessingEvent("manual_upload_processing_started", {
       documentId,
       companyId,
@@ -597,7 +753,6 @@ async function extractAndPersistEvidence(input: {
       "evidence_upsert",
     );
     wroteNewEvidence = true;
-
     if (
       await wasProcessingCancelled({
         client,
@@ -616,13 +771,16 @@ async function extractAndPersistEvidence(input: {
       };
     }
 
-    // Park at EXTRACTED with lease cleared — company analysis will pick it up.
-    await updateDocumentStage({
+    // Park at EXTRACTED — next durable step is finding generation / assessment.
+    await advancePipelineStep({
       client,
       companyId,
       documentId,
+      step: "finding_generation",
+      outcome: "waiting",
+      detail: "awaiting_company_analysis",
       status: "EXTRACTED",
-      lastStage: "extracted",
+      markSuccessful: true,
       patch: {
         extraction_version: CURRENT_EXTRACTION_VERSION,
         raw_summary: (() => {
@@ -643,12 +801,11 @@ async function extractAndPersistEvidence(input: {
     logUploadProcessingEvent("manual_upload_processing_started", {
       documentId,
       companyId,
-      stage: "extracted",
-      outcome: "completed",
+      stage: "finding_generation",
+      outcome: "waiting",
       status: "EXTRACTED",
       elapsedMs: Date.now() - extractionStartedAt,
     });
-
     return {
       documentId,
       companyId,

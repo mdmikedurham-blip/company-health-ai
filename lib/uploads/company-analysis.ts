@@ -110,14 +110,21 @@ async function markDocumentsAnalyzing(
   companyId: string,
   documentIds: string[],
 ): Promise<string[]> {
+  const { advancePipelineStep } = await import("./pipeline");
   const claimed: string[] = [];
   for (const documentId of documentIds) {
+    const now = new Date().toISOString();
     const { data, error } = await client
       .from("documents")
       .update({
         status: "ANALYZING",
-        last_stage: "analyzing",
+        last_stage: "company_assessment_update",
+        pipeline_step: "company_assessment_update",
+        pipeline_heartbeat_at: now,
         error_message: null,
+        failed_step: null,
+        error_category: null,
+        retryable: null,
       })
       .eq("id", documentId)
       .eq("company_id", companyId)
@@ -126,9 +133,54 @@ async function markDocumentsAnalyzing(
       .maybeSingle();
 
     if (error) {
-      throw new Error(`markDocumentsAnalyzing: ${error.message}`);
+      // Pre-023 fallback
+      const fallback = await client
+        .from("documents")
+        .update({
+          status: "ANALYZING",
+          last_stage: "company_assessment_update",
+          error_message: null,
+        })
+        .eq("id", documentId)
+        .eq("company_id", companyId)
+        .eq("status", "EXTRACTED")
+        .select("id")
+        .maybeSingle();
+      if (fallback.error) {
+        throw new Error(`markDocumentsAnalyzing: ${error.message}`);
+      }
+      if (fallback.data?.id) {
+        claimed.push(fallback.data.id);
+        await advancePipelineStep({
+          client,
+          companyId,
+          documentId,
+          step: "finding_generation",
+          outcome: "started",
+          status: "ANALYZING",
+        }).catch(() => undefined);
+      }
+      continue;
     }
-    if (data?.id) claimed.push(data.id);
+    if (data?.id) {
+      claimed.push(data.id);
+      await advancePipelineStep({
+        client,
+        companyId,
+        documentId,
+        step: "finding_generation",
+        outcome: "started",
+        status: "ANALYZING",
+      }).catch(() => undefined);
+      await advancePipelineStep({
+        client,
+        companyId,
+        documentId,
+        step: "company_assessment_update",
+        outcome: "started",
+        status: "ANALYZING",
+      }).catch(() => undefined);
+    }
   }
   return claimed;
 }
