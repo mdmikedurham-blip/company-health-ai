@@ -116,14 +116,31 @@ export function enrichPrimaryAction(input: {
   investigation: DoctorInvestigation;
 }): DoctorNextAction {
   const inv = input.investigation;
+  const evidenceRequired = [
+    ...(inv.evidenceRequest
+      ? [inv.evidenceRequest.label, ...inv.evidenceRequest.evidenceTypes]
+      : []),
+    ...inv.blockingUnknowns,
+    ...inv.requiredEvidence.map((r) => r.label),
+  ].filter((v, i, arr) => v && arr.indexOf(v) === i);
+
+  const valueImpact = inv.estimatedValueImpact ?? null;
+  const confidenceGain = inv.estimatedConfidenceGain ?? undefined;
+  const effort =
+    inv.evidenceRequest?.estimatedEffort ??
+    input.action.estimatedEffort ??
+    "medium";
+
   return {
     ...input.action,
     whyItMatters: inv.expectedBusinessImpact ?? input.action.rationale,
     expectedInsight:
       inv.evidenceRequest?.expectedInsight ?? input.action.description,
-    estimatedEffort: inv.evidenceRequest?.estimatedEffort ?? "medium",
-    estimatedConfidenceIncrease: inv.estimatedConfidenceGain ?? undefined,
-    estimatedValueImpact: inv.estimatedValueImpact,
+    estimatedEffort: effort,
+    estimatedConfidenceIncrease: confidenceGain,
+    estimatedValueImpact: valueImpact,
+    expectedEnterpriseValueIncrease: valueImpact,
+    evidenceRequired: evidenceRequired.slice(0, 6),
     questionsItMayAnswer: [inv.businessQuestion],
     connectorOrUploadType: inv.evidenceRequest?.connectAlternative
       ? "connector"

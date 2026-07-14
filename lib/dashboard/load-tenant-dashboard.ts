@@ -34,9 +34,9 @@ import { getCompanyClassification } from "@/lib/classification/persist";
 import { computeEvidenceCoverage } from "@/lib/coverage";
 import { MANUAL_UPLOAD_CONNECTOR_ID } from "@/lib/uploads/constants";
 import {
-  buildNavigatorFromEvidence,
   emptyValueNavigator,
 } from "@/lib/value-navigator";
+import { buildOpportunityNavigatorFromEvidence } from "@/lib/enterprise-value";
 import type { AssessmentGoalId } from "@/lib/domain/assessment-goal";
 import type { ValueNavigatorView } from "@/lib/domain/value-navigator";
 import {
@@ -248,6 +248,7 @@ export function emptyTenantDashboard(input: {
     playbook: null,
     valueNavigator: {
       navigator: emptyValueNavigator(input.companyId),
+      enterpriseValue: null,
       scenarios: [],
       timeline: [
         {
@@ -584,7 +585,7 @@ export async function loadTenantDashboard(input: {
     assessment_goal: snapshotGoalId,
   };
 
-  const valueNavigator = buildNavigatorFromEvidence({
+  const valueNavigator = buildOpportunityNavigatorFromEvidence({
     companyId,
     snapshotId: currentSnapshotId,
     assessmentGoal: assessmentGoal.goal as AssessmentGoalId,

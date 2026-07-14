@@ -15,7 +15,8 @@ import { clampPct, moneyRange } from "../money";
 const BASE_MULTIPLE = { low: 4, high: 8 };
 const GROWTH_BOOST = { low: 1, high: 3 };
 const MARGIN_BOOST = { low: 0.5, high: 1.5 };
-const CONCENTRATION_HAIRCUT = { low: 0.85, high: 0.95 };
+// Concentration is applied only via the transparent discount engine
+// (lib/enterprise-value) — do not haircut the multiple here (avoids double-count).
 
 export const marketMultiplesProvider: ValuationProvider = {
   id: "market-multiples",
@@ -77,11 +78,9 @@ export const marketMultiplesProvider: ValuationProvider = {
     }
 
     if (input.top3CustomerArrShare != null && input.top3CustomerArrShare >= 0.35) {
-      multLow *= CONCENTRATION_HAIRCUT.low;
-      multHigh *= CONCENTRATION_HAIRCUT.high;
       assumptions.push({
-        id: "mm-concentration",
-        statement: `Top-3 concentration ${(input.top3CustomerArrShare * 100).toFixed(0)}% applies a multiple haircut.`,
+        id: "mm-concentration-noted",
+        statement: `Top-3 concentration ${(input.top3CustomerArrShare * 100).toFixed(0)}% is noted for a transparent business discount (not a multiple haircut).`,
         source: "evidence",
       });
     }

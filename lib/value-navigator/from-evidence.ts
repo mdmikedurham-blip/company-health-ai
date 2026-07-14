@@ -1,5 +1,7 @@
 /**
  * Build Value Navigator from evidence + goal (dashboard / API path).
+ * Ranges are later overlaid by the transparent EV Opportunity engine
+ * via `attachEnterpriseValueOpportunity` so this module stays cycle-free.
  */
 
 import type { Evidence } from "@/lib/domain";
@@ -85,6 +87,7 @@ export function buildNavigatorFromEvidence(input: {
     valuationMethod: estimate.method,
     currentEstimatedEnterpriseValueRange: estimate.currentRange,
     potentialEnterpriseValueRange: estimate.potentialRange,
+    enterpriseValueOpportunity: gap,
     valueGap: gap,
     probabilityOfAchievingPotential: probabilityOfPotential(
       estimate.confidence,
@@ -150,6 +153,7 @@ export function buildNavigatorFromEvidence(input: {
 
   return {
     navigator,
+    enterpriseValue: null,
     scenarios,
     timeline: [
       {

@@ -25,7 +25,10 @@ function probabilityOfPotential(
 }
 
 function pickEvidenceRequest(
-  navigator: Omit<CompanyValueNavigator, "evidenceRequest" | "highestRoiAction" | "doctorPriorityMessage"> & {
+  navigator: Omit<
+    CompanyValueNavigator,
+    "evidenceRequest" | "highestRoiAction" | "doctorPriorityMessage"
+  > & {
     drivers: CompanyValueNavigator["drivers"];
   },
 ): CompanyValueNavigator["evidenceRequest"] {
@@ -87,6 +90,7 @@ export function buildCompanyValueNavigator(input: {
     valuationMethod: estimate.method,
     currentEstimatedEnterpriseValueRange: estimate.currentRange,
     potentialEnterpriseValueRange: estimate.potentialRange,
+    enterpriseValueOpportunity: gap,
     valueGap: gap,
     probabilityOfAchievingPotential: probabilityOfPotential(
       estimate.confidence,
@@ -144,7 +148,11 @@ export function buildValueNavigatorView(input: {
 
   const keys =
     input.scenarioKeys ??
-    (["reduce-concentration", "increase-revenue-growth", "improve-gross-margin"] as ValueScenarioKey[]);
+    ([
+      "reduce-concentration",
+      "increase-revenue-growth",
+      "improve-gross-margin",
+    ] as ValueScenarioKey[]);
 
   const scenarios: ValueScenario[] = keys
     .map((key) => {
@@ -179,6 +187,7 @@ export function buildValueNavigatorView(input: {
 
   return {
     navigator,
+    enterpriseValue: null,
     scenarios,
     timeline,
     provenance: {
@@ -200,6 +209,7 @@ export function emptyValueNavigator(companyId: string): CompanyValueNavigator {
     valuationMethod: "rule-based",
     currentEstimatedEnterpriseValueRange: moneyRange(0, 0),
     potentialEnterpriseValueRange: moneyRange(0, 0),
+    enterpriseValueOpportunity: moneyRange(0, 0),
     valueGap: moneyRange(0, 0),
     probabilityOfAchievingPotential: 0,
     valuationConfidence: 0,
